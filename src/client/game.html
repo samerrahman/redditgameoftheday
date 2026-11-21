@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>DUNGEONLE — Daily Action Crawl</title>
+    <link rel="stylesheet" href="./game.css" />
+  </head>
+  <body>
+    <main id="app" class="app-shell">
+      <div id="game-container" aria-label="Dungeonle Arena"></div>
+      <div id="low-hp-fx" class="low-hp-fx" aria-hidden="true"></div>
+
+      <!-- Active Gameplay HUD -->
+      <section id="hud" class="hud" hidden aria-label="Game HUD">
+        <div class="hud-top">
+          <div class="hud-left">
+            <span id="hud-room" class="hud-chip">0% · Room 1</span>
+            <div id="hud-minimap" class="hud-minimap" aria-label="Dungeon map"></div>
+          </div>
+
+          <div class="hud-center">
+            <div id="hud-boss-bar" class="boss-bar" hidden>
+              <span id="hud-boss-name" class="boss-name">The Threadkeeper</span>
+              <div class="boss-track">
+                <div id="hud-boss-fill" class="boss-fill"></div>
+              </div>
+            </div>
+            <div id="hud-room-banner" class="room-banner" hidden aria-live="polite">
+              <span id="hud-room-banner-kicker" class="room-banner-kicker">ROOM 1 / 5</span>
+              <strong id="hud-room-banner-title" class="room-banner-title">Warmup Arena</strong>
+              <span id="hud-room-banner-sub" class="room-banner-sub">Daily Seed Active</span>
+            </div>
+            <div id="hud-announcement" class="hud-announcement" hidden></div>
+          </div>
+
+          <div class="hud-right">
+            <span id="hud-timer" class="hud-chip mono">0:00</span>
+            <span id="hud-coins" class="hud-chip coin-chip">
+              <img
+                src="./assets/dungeon/coin_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <span id="hud-coins-val">0</span>
+            </span>
+            <button id="hud-reroll-btn" type="button" class="hud-btn hud-reroll" hidden>
+              Reroll (<span id="hud-reroll-count">0</span>)
+            </button>
+            <button id="hud-shop-btn" type="button" class="hud-btn hud-shop-btn">
+              <img
+                src="./assets/dungeon/chest_icon.png"
+                class="pixel-icon"
+                width="18"
+                height="18"
+                alt=""
+              />
+              <span>Shop</span>
+            </button>
+            <button id="hud-pause-btn" type="button" class="hud-btn" aria-label="Pause Game">
+              ⏸
+            </button>
+          </div>
+        </div>
+
+        <div class="hud-bottom">
+          <div id="hud-relics" class="hud-relics"></div>
+          <div class="hud-vitals">
+            <div id="hud-hp-frame" class="hp-frame">
+              <svg
+                class="pixel-heart"
+                viewBox="0 0 11 10"
+                width="22"
+                height="20"
+                shape-rendering="crispEdges"
+                aria-hidden="true"
+              >
+                <path
+                  fill="#120d14"
+                  d="M2 0h3v1h1V0h3v1h1v1h1v3h-1v1H9v1H8v1H7v1H6v1H5V9H4V8H3V7H2V6H1V5H0V2h1V1h1z"
+                />
+                <path
+                  fill="#e23c3c"
+                  d="M2 1h3v1h1V1h3v1h1v3H9v1H8v1H7v1H6v1H5V8H4V7H3V6H2V5H1V2h1z"
+                />
+                <path fill="#ff8b73" d="M2 2h2v1H2zm5 0h2v1H7z" />
+                <path fill="#fff7e8" d="M2 2h1v1H2z" />
+                <path
+                  fill="#991b1b"
+                  d="M9 3h1v2H9zM8 5h1v1H8zM7 6h1v1H7zM6 7h1v1H6zM5 8h1v1H5z"
+                />
+              </svg>
+              <div class="hp-meter-col">
+                <div class="hp-label-row">
+                  <span class="hp-tag">HP</span>
+                  <span id="hud-hp-text" class="hp-text mono">100/100</span>
+                </div>
+                <div class="hp-track-shell">
+                  <progress
+                    id="hud-hp-bar"
+                    class="hp-progress"
+                    max="100"
+                    value="100"
+                    aria-label="Player health"
+                  ></progress>
+                </div>
+              </div>
+            </div>
+            <span id="hud-shields" class="hud-chip hud-shield" hidden>
+              <img
+                src="./assets/dungeon/shield_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <span id="hud-shields-val">0</span>
+            </span>
+          </div>
+        </div>
+
+        <button
+          id="touch-action-btn"
+          type="button"
+          class="touch-action-btn"
+          hidden
+          aria-label="Attack"
+        >
+          <img
+            src="./assets/dungeon/sword_icon.png"
+            class="pixel-icon-lg"
+            width="28"
+            height="28"
+            alt=""
+          />
+          <span class="touch-btn-title">ATTACK</span>
+        </button>
+      </section>
+
+      <!-- Streamlined Start Screen -->
+      <section id="start-screen" class="overlay-screen" hidden aria-labelledby="game-title">
+        <div class="card start-card">
+          <div class="eyebrow-row">
+            <span id="start-date" class="pill mono">2026-11-20</span>
+            <span id="start-dungeon" class="pill accent-pill">The Archives</span>
+          </div>
+
+          <div class="title-lockup">
+            <img
+              src="./assets/dungeon/torch_icon.png"
+              class="torch-icon"
+              width="28"
+              height="28"
+              alt=""
+            />
+            <img
+              src="./assets/dungeon/hero_icon.png"
+              class="hero-crest"
+              width="48"
+              height="48"
+              alt=""
+            />
+            <h1 id="game-title" class="game-title">DUNGEONLE</h1>
+            <img
+              src="./assets/dungeon/torch_icon.png"
+              class="torch-icon"
+              width="28"
+              height="28"
+              alt=""
+            />
+          </div>
+
+          <div class="modifier-banner" aria-label="Daily Modifier">
+            <span class="modifier-label">TODAY'S MODIFIER</span>
+            <strong id="start-modifier" class="modifier-text">Glass Cannon: 2x Damage</strong>
+          </div>
+
+          <div class="start-stats-strip">
+            <div class="strip-stat">
+              <span class="strip-label">Streak</span>
+              <strong id="start-streak" class="strip-value">0🔥</strong>
+            </div>
+            <div class="strip-stat">
+              <span class="strip-label">Karma Coins</span>
+              <div class="strip-value-row">
+                <img
+                  src="./assets/dungeon/coin_icon.png"
+                  class="pixel-icon"
+                  width="20"
+                  height="20"
+                  alt=""
+                />
+                <strong id="start-coins" class="strip-value coin-text">0</strong>
+              </div>
+            </div>
+            <div class="strip-stat">
+              <span class="strip-label">Today's Run</span>
+              <strong id="start-best" class="strip-value">—</strong>
+            </div>
+          </div>
+
+          <div id="start-boost-pill" class="boost-pill" hidden></div>
+
+          <div class="start-actions">
+            <button id="play-btn" type="button" class="primary-btn">
+              <img
+                src="./assets/dungeon/sword_icon.png"
+                class="pixel-icon"
+                width="24"
+                height="24"
+                alt=""
+              />
+              <span id="play-btn-label">PLAY</span>
+            </button>
+            <button id="start-shop-btn" type="button" class="start-shop-btn">
+              <img
+                src="./assets/dungeon/chest_icon.png"
+                class="pixel-icon"
+                width="22"
+                height="22"
+                alt=""
+              />
+              <span>Shop</span>
+              <span id="start-shop-coins" class="coin-pill">0 KC</span>
+            </button>
+          </div>
+
+          <p id="start-daily-note" class="next-daily-note mono" hidden>
+            Daily complete · Next dungeon in --:--:--
+          </p>
+
+          <p class="controls-micro">
+            <strong>Move:</strong> WASD / Drag &nbsp;·&nbsp;
+            <strong>Attack:</strong> Space / Click
+          </p>
+        </div>
+      </section>
+
+      <!-- Pause Overlay -->
+      <section id="pause-screen" class="overlay-screen" hidden aria-labelledby="pause-title">
+        <div class="card pause-card">
+          <div class="modal-title-row">
+            <img
+              src="./assets/dungeon/shield_icon.png"
+              class="pixel-icon"
+              width="22"
+              height="22"
+              alt=""
+            />
+            <h2 id="pause-title" class="modal-heading">Run Paused</h2>
+          </div>
+          <p class="muted-copy">One run per day — resume when ready.</p>
+          <div class="stack-actions">
+            <button id="resume-btn" type="button" class="primary-btn">Resume</button>
+            <button id="pause-shop-btn" type="button" class="secondary-btn btn-with-icon">
+              <img
+                src="./assets/dungeon/chest_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <span>Shop</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Consolidated End-of-Run Card -->
+      <section id="end-screen" class="overlay-screen" hidden aria-labelledby="end-title">
+        <div class="card end-card">
+          <div class="end-header">
+            <span id="end-badge" class="pill accent-pill" hidden>EXTRACTED</span>
+            <span id="end-streak" class="pill streak-pill">1🔥</span>
+          </div>
+
+          <h2 id="end-title" class="end-title">You Died</h2>
+          <p id="end-subtitle" class="muted-copy">Died in Room 1</p>
+
+          <div class="end-stats-grid">
+            <div class="stat-tile">
+              <span class="stat-label">Progress</span>
+              <strong id="end-room" class="stat-value">0%</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-label">Run Time</span>
+              <strong id="end-time" class="stat-value mono">0:00</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-label">Coins Banked</span>
+              <strong id="end-coins" class="stat-value coin-text">+0</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-label">Damage Taken</span>
+              <strong id="end-damage" class="stat-value">0</strong>
+            </div>
+          </div>
+
+          <div id="end-relics" class="end-relics"></div>
+
+          <div class="leaderboard-box">
+            <div class="leaderboard-head">
+              <span>Today's Top Runs</span>
+              <span id="end-score" class="mono">Score: 0</span>
+            </div>
+            <ol id="end-leaderboard" class="leaderboard-list"></ol>
+          </div>
+
+          <div class="end-actions">
+            <button id="share-btn" type="button" class="primary-btn">Post Summary to Comments</button>
+            <button id="end-shop-btn" type="button" class="secondary-btn btn-with-icon">
+              <img
+                src="./assets/dungeon/chest_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <span>Shop</span>
+            </button>
+            <p id="end-next-daily" class="next-daily-note mono">
+              Daily complete · Next dungeon in --:--:--
+            </p>
+          </div>
+
+          <div class="subscribe-bar">
+            <span id="subscribe-label" class="muted-copy">Join r/dungeonle for daily threads</span>
+            <button id="subscribe-btn" type="button" class="subscribe-btn">Subscribe</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Full-Page Shop View -->
+      <section id="shop-screen" class="shop-page" hidden aria-labelledby="shop-title">
+        <div class="shop-page-inner">
+          <header class="shop-topbar">
+            <button id="shop-back-btn" type="button" class="secondary-btn shop-back-btn">
+              ← Back
+            </button>
+            <div class="shop-title-wrap">
+              <img
+                src="./assets/dungeon/chest_icon.png"
+                class="pixel-icon"
+                width="28"
+                height="28"
+                alt=""
+              />
+              <h2 id="shop-title" class="shop-title">Shop</h2>
+            </div>
+            <div class="shop-balance-pill">
+              <img
+                src="./assets/dungeon/coin_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <span id="shop-balance">0 KC</span>
+            </div>
+          </header>
+
+          <div class="shop-page-shell">
+            <p id="shop-date-sub" class="muted-copy">
+              3 rotating daily items · Coins are always kept
+            </p>
+            <div id="shop-slots" class="shop-grid"></div>
+            <section class="cosmetics-bar" aria-label="Runner Cosmetics">
+              <span class="cosmetics-label">Equipped Style:</span>
+              <div id="shop-cosmetics" class="cosmetics-pills"></div>
+            </section>
+            <div class="shop-footer-actions">
+              <button id="shop-play-btn" type="button" class="primary-btn">
+                <img
+                  src="./assets/dungeon/sword_icon.png"
+                  class="pixel-icon"
+                  width="24"
+                  height="24"
+                  alt=""
+                />
+                <span>PLAY</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    </main>
+
+    <script type="module" src="./game.ts"></script>
+  </body>
+</html>

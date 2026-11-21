@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>DUNGEONLE — Daily Action Crawl</title>
+    <link rel="stylesheet" href="./splash.css" />
+  </head>
+  <body>
+    <main class="splash-shell">
+      <div class="splash-card">
+        <div class="eyebrow-row">
+          <span id="splash-date" class="pill mono">2026-11-20</span>
+          <span id="splash-dungeon" class="pill accent-pill">The Archives</span>
+        </div>
+
+        <div class="title-lockup">
+          <img
+            src="./assets/dungeon/torch_icon.png"
+            class="torch-icon"
+            width="28"
+            height="28"
+            alt=""
+          />
+          <img
+            src="./assets/dungeon/hero_icon.png"
+            class="hero-crest"
+            width="44"
+            height="44"
+            alt=""
+          />
+          <h1 class="splash-title">DUNGEONLE</h1>
+          <img
+            src="./assets/dungeon/torch_icon.png"
+            class="torch-icon"
+            width="28"
+            height="28"
+            alt=""
+          />
+        </div>
+
+        <div class="modifier-banner" aria-label="Daily Global Modifier">
+          <span class="modifier-label">TODAY'S MODIFIER</span>
+          <strong id="splash-modifier" class="modifier-text">Glass Cannon: 2x Damage</strong>
+        </div>
+
+        <div class="stats-strip">
+          <div class="strip-cell">
+            <span class="strip-label">Streak</span>
+            <strong id="splash-streak" class="strip-value">0🔥</strong>
+          </div>
+          <div class="strip-cell">
+            <span class="strip-label">Karma Coins</span>
+            <div class="strip-value-row">
+              <img
+                src="./assets/dungeon/coin_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <strong id="splash-coins" class="strip-value coin-text">0</strong>
+            </div>
+          </div>
+          <div class="strip-cell">
+            <span class="strip-label">Today's Run</span>
+            <strong id="splash-best" class="strip-value">—</strong>
+          </div>
+        </div>
+
+        <div class="splash-actions">
+          <button id="play-button" type="button" class="play-button">
+            <img
+              src="./assets/dungeon/sword_icon.png"
+              class="pixel-icon"
+              width="24"
+              height="24"
+              alt=""
+            />
+            <span id="play-button-label">PLAY</span>
+          </button>
+          <button id="splash-shop-btn" type="button" class="splash-shop-btn">
+            <img
+              src="./assets/dungeon/chest_icon.png"
+              class="pixel-icon"
+              width="22"
+              height="22"
+              alt=""
+            />
+            <span>Shop</span>
+            <span id="splash-shop-coins" class="coin-pill">0 KC</span>
+          </button>
+        </div>
+
+        <p id="splash-daily-note" class="daily-note mono" hidden>
+          Daily complete · Next dungeon in --:--:--
+        </p>
+      </div>
+    </main>
+    <script type="module" src="./splash.ts"></script>
+  </body>
+</html>

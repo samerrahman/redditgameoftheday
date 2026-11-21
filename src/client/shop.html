@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Shop — DUNGEONLE</title>
+    <link rel="stylesheet" href="./game.css" />
+  </head>
+  <body>
+    <main class="shop-standalone">
+      <section class="shop-page is-standalone" aria-labelledby="shop-title">
+        <div class="shop-page-inner">
+          <header class="shop-topbar">
+            <button id="shop-back-btn" type="button" class="secondary-btn shop-back-btn">
+              ← Back
+            </button>
+            <div class="shop-title-wrap">
+              <img
+                src="./assets/dungeon/chest_icon.png"
+                class="pixel-icon"
+                width="28"
+                height="28"
+                alt=""
+              />
+              <h1 id="shop-title" class="shop-title">Shop</h1>
+            </div>
+            <div class="shop-balance-pill">
+              <img
+                src="./assets/dungeon/coin_icon.png"
+                class="pixel-icon"
+                width="20"
+                height="20"
+                alt=""
+              />
+              <span id="shop-balance">0 KC</span>
+            </div>
+          </header>
+
+          <div class="shop-page-shell">
+            <p id="shop-date-sub" class="muted-copy">
+              3 rotating daily items · Coins are always kept
+            </p>
+            <div id="shop-slots" class="shop-grid"></div>
+            <section class="cosmetics-bar" aria-label="Runner Cosmetics">
+              <span class="cosmetics-label">Equipped Style:</span>
+              <div id="shop-cosmetics" class="cosmetics-pills"></div>
+            </section>
+            <div class="shop-footer-actions">
+              <button id="shop-play-btn" type="button" class="primary-btn">
+                <img
+                  src="./assets/dungeon/sword_icon.png"
+                  class="pixel-icon"
+                  width="24"
+                  height="24"
+                  alt=""
+                />
+                <span id="shop-play-label">PLAY</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    </main>
+    <script type="module" src="./shop.ts"></script>
+  </body>
+</html>
