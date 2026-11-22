@@ -1,4 +1,3 @@
-import { RELICS, UNLOCKABLE_RELIC_IDS } from './relics.ts';
 import type {
   AccessoryId,
   CosmeticId,
@@ -6,7 +5,6 @@ import type {
   CosmeticSlot,
   CostumeId,
   PlayerProfile,
-  RelicId,
   WeaponId,
 } from './types.ts';
 import { WEAPONS, isWeaponId } from './weapons.ts';
@@ -16,9 +14,6 @@ export type ShopResult = { ok: boolean; profile: PlayerProfile; reason?: string 
 // ---------------------------------------------------------------------------
 // Economy
 // ---------------------------------------------------------------------------
-
-/** Coins it costs to unlock a relic into your in-run draft pool. */
-export const RELIC_UNLOCK_COST = 150;
 
 /** Gems spent per gacha pull. */
 export const GACHA_PULL_COST = 3;
@@ -183,26 +178,6 @@ export function equipWeapon(profile: PlayerProfile, weaponId: WeaponId): ShopRes
 }
 
 // ---------------------------------------------------------------------------
-// Relic unlocks (coins)
-// ---------------------------------------------------------------------------
-
-export function getLockedRelics(profile: PlayerProfile): RelicId[] {
-  return UNLOCKABLE_RELIC_IDS.filter((id) => !profile.unlockedRelics.includes(id));
-}
-
-export function unlockRelic(profile: PlayerProfile, relicId: RelicId): ShopResult {
-  if (!(relicId in RELICS)) return { ok: false, profile, reason: 'Unknown relic.' };
-  if (profile.unlockedRelics.includes(relicId)) {
-    return { ok: false, profile, reason: 'Already unlocked.' };
-  }
-  if (profile.coins < RELIC_UNLOCK_COST) return { ok: false, profile, reason: 'Not enough coins.' };
-  const next = cloneProfile(profile);
-  next.coins -= RELIC_UNLOCK_COST;
-  next.unlockedRelics.push(relicId);
-  return { ok: true, profile: next };
-}
-
-// ---------------------------------------------------------------------------
 // Gacha (gems) — purely cosmetic
 // ---------------------------------------------------------------------------
 
@@ -279,7 +254,6 @@ export function equipCosmetic(
 export type ShopAction =
   | { action: 'buy_weapon'; weaponId: WeaponId }
   | { action: 'equip_weapon'; weaponId: WeaponId }
-  | { action: 'unlock_relic'; relicId: RelicId }
   | { action: 'gacha_pull' }
   | { action: 'equip_cosmetic'; cosmeticId: CosmeticId; slot: CosmeticSlot }
   | { action: 'set_tutorial_dismissed'; dismissed: boolean };
@@ -294,8 +268,6 @@ export function applyShopAction(
       return purchaseWeapon(profile, req.weaponId);
     case 'equip_weapon':
       return equipWeapon(profile, req.weaponId);
-    case 'unlock_relic':
-      return unlockRelic(profile, req.relicId);
     case 'gacha_pull':
       return pullGacha(profile, rand);
     case 'equip_cosmetic':

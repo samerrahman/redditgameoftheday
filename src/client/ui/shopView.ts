@@ -1,14 +1,10 @@
 import type { ShopActionRequest } from '../../shared/api.ts';
-import { RELICS } from '../../shared/relics.ts';
 import {
   COSMETICS,
   COSMETIC_IDS,
   GACHA_DUPLICATE_COINS,
   GACHA_PULL_COST,
   RARITY_LABELS,
-  RARITY_WEIGHTS,
-  RELIC_UNLOCK_COST,
-  getLockedRelics,
 } from '../../shared/shop.ts';
 import type { CosmeticSlot, PlayerProfile } from '../../shared/types.ts';
 import { WEAPONS, WEAPON_IDS } from '../../shared/weapons.ts';
@@ -18,7 +14,6 @@ import type { PlatformAdapter } from '../platform/adapter.ts';
 export type ShopViewElements = {
   balance: HTMLElement;
   gems: HTMLElement;
-  tabs: HTMLElement;
   body: HTMLElement;
 };
 
@@ -27,16 +22,13 @@ export type ShopViewCallbacks = {
   onNotify: (message: string) => void;
 };
 
-export type ShopTab = 'armory' | 'relics' | 'gacha';
-
-const TAB_LABELS: Record<ShopTab, string> = {
-  armory: '⚔️ Armory',
-  relics: '📜 Relics',
-  gacha: '💎 Gacha',
-};
-
-let activeTab: ShopTab = 'armory';
 let lastPull: { title: string; rarity: string; duplicate: boolean } | null = null;
+
+// The dungeon atlas is a 28-column grid of 16px tiles with 2px gutters.
+const ATLAS_URL = './assets/dungeon/dungeon_atlas.png';
+const ATLAS_W = 512;
+const ATLAS_H = 184;
+const ATLAS_COLS = 28;
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -49,6 +41,21 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** A pixel-art weapon sprite cut straight from the game's atlas. */
+function weaponArt(frame: string, scale: number): HTMLElement {
+  const idx = Number(frame.replace('tile_', ''));
+  const x = 2 + (idx % ATLAS_COLS) * 18;
+  const y = 2 + Math.floor(idx / ATLAS_COLS) * 18;
+  const art = el('div', 'weapon-art');
+  art.setAttribute('aria-hidden', 'true');
+  art.style.inlineSize = `${16 * scale}px`;
+  art.style.blockSize = `${16 * scale}px`;
+  art.style.backgroundImage = `url(${ATLAS_URL})`;
+  art.style.backgroundSize = `${ATLAS_W * scale}px ${ATLAS_H * scale}px`;
+  art.style.backgroundPosition = `-${x * scale}px -${y * scale}px`;
+  return art;
+}
+
 export function renderShopView(
   profile: PlayerProfile,
   adapter: PlatformAdapter,
@@ -58,12 +65,7 @@ export function renderShopView(
   els.balance.textContent = `${profile.coins} ${GAME_META.coinShort}`;
   els.gems.textContent = `${profile.gems} 💎`;
 
-  const rerender = (next: PlayerProfile): void => {
-    callbacks.onProfileChange(next);
-    renderShopView(next, adapter, els, callbacks);
-  };
-
-  const run = async (req: ShopActionRequest, successMsg?: (p: PlayerProfile) => string) => {
+  const run = async (req: ShopActionRequest, successMsg?: string): Promise<void> => {
     const result = await adapter.shopAction(req, profile);
     if (!result.ok) {
       callbacks.onNotify(result.reason ?? 'Cannot do that.');
@@ -77,58 +79,31 @@ export function renderShopView(
         duplicate: Boolean(result.duplicate),
       };
     }
-    rerender(result.profile);
-    if (successMsg) callbacks.onNotify(successMsg(result.profile));
+    callbacks.onProfileChange(result.profile);
+    renderShopView(result.profile, adapter, els, callbacks);
+    if (successMsg) callbacks.onNotify(successMsg);
   };
 
-  // Tabs
-  els.tabs.replaceChildren();
-  for (const tab of ['armory', 'relics', 'gacha'] as const) {
-    const btn = el('button', 'shop-tab', TAB_LABELS[tab]);
-    btn.type = 'button';
-    btn.setAttribute('role', 'tab');
-    btn.setAttribute('aria-selected', String(tab === activeTab));
-    if (tab === activeTab) btn.classList.add('is-active');
-    btn.addEventListener('click', () => {
-      activeTab = tab;
-      renderShopView(profile, adapter, els, callbacks);
-    });
-    els.tabs.appendChild(btn);
-  }
-
-  els.body.replaceChildren();
-  if (activeTab === 'armory') renderArmory(profile, els.body, run);
-  else if (activeTab === 'relics') renderRelics(profile, els.body, run);
-  else renderGacha(profile, els.body, run);
+  els.body.replaceChildren(renderWeapons(profile, run), renderCosmetics(profile, run));
 }
 
-type RunFn = (req: ShopActionRequest, successMsg?: (p: PlayerProfile) => string) => Promise<void>;
+type RunFn = (req: ShopActionRequest, successMsg?: string) => Promise<void>;
 
-function renderArmory(profile: PlayerProfile, body: HTMLElement, run: RunFn): void {
-  body.appendChild(
-    el(
-      'p',
-      'shop-intro muted-copy',
-      'Weapons change how you play — none is strictly better. Buy once, swap any time.',
-    ),
-  );
-  const grid = el('div', 'shop-grid');
+function renderWeapons(profile: PlayerProfile, run: RunFn): HTMLElement {
+  const section = el('section', 'shop-section');
+  section.appendChild(el('h3', 'shop-section-title', 'Weapons'));
+  const grid = el('div', 'weapon-grid');
   for (const id of WEAPON_IDS) {
     const w = WEAPONS[id];
     const owned = profile.ownedWeapons.includes(id);
     const equipped = profile.equippedWeapon === id;
-    const card = el('article', 'shop-card weapon-card');
+    const card = el('article', 'weapon-card');
     if (equipped) card.classList.add('is-equipped');
 
-    const top = el('div', 'shop-card-top');
-    const kicker = el('div', 'shop-card-kicker');
-    kicker.append(
-      el('span', '', w.style === 'melee' ? 'Melee' : 'Ranged'),
-      el('span', '', equipped ? 'Equipped' : owned ? 'Owned' : `${w.cost} ${GAME_META.coinShort}`),
-    );
-    top.append(kicker, el('h3', 'shop-card-title', `${w.emoji} ${w.name}`));
+    const stage = el('div', 'weapon-stage');
+    stage.appendChild(weaponArt(w.sprite, 5));
 
-    const desc = el('p', 'shop-card-desc', w.tagline);
+    const name = el('h4', 'weapon-name', w.name);
     const tradeoffs = el('ul', 'weapon-tradeoffs');
     tradeoffs.append(el('li', 'is-pro', `+ ${w.pros}`), el('li', 'is-con', `− ${w.cons}`));
 
@@ -136,126 +111,68 @@ function renderArmory(profile: PlayerProfile, body: HTMLElement, run: RunFn): vo
     btn.type = 'button';
     if (equipped) {
       btn.disabled = true;
-      btn.textContent = 'Equipped ✓';
+      btn.textContent = 'Equipped';
     } else if (owned) {
       btn.textContent = 'Equip';
       btn.addEventListener('click', () => {
-        void run({ action: 'equip_weapon', weaponId: id }, () => `Equipped ${w.name}`);
+        void run({ action: 'equip_weapon', weaponId: id });
       });
     } else {
       const affordable = profile.coins >= w.cost;
       btn.disabled = !affordable;
-      btn.textContent = affordable
-        ? `Buy · ${w.cost} ${GAME_META.coinShort}`
-        : `Need ${w.cost} ${GAME_META.coinShort}`;
+      btn.textContent = `${w.cost} ${GAME_META.coinShort}`;
       btn.addEventListener('click', () => {
-        void run({ action: 'buy_weapon', weaponId: id }, () => `Bought & equipped ${w.name}!`);
+        void run({ action: 'buy_weapon', weaponId: id }, `${w.name} equipped`);
       });
     }
-    card.append(top, desc, tradeoffs, btn);
+    card.append(stage, name, tradeoffs, btn);
     grid.appendChild(card);
   }
-  body.appendChild(grid);
+  section.appendChild(grid);
+  return section;
 }
 
-function renderRelics(profile: PlayerProfile, body: HTMLElement, run: RunFn): void {
-  body.appendChild(
-    el(
-      'p',
-      'shop-intro muted-copy',
-      'Relics are the upgrades you draft between rooms. Unlocking one adds it to the pool you can draft from.',
-    ),
+function renderCosmetics(profile: PlayerProfile, run: RunFn): HTMLElement {
+  const section = el('section', 'shop-section');
+  const ownedCount = COSMETIC_IDS.filter((id) => profile.ownedCosmetics.includes(id)).length;
+  const head = el('div', 'shop-section-head');
+  head.append(
+    el('h3', 'shop-section-title', 'Cosmetics'),
+    el('span', 'shop-section-count', `${ownedCount}/${COSMETIC_IDS.length}`),
   );
-  const locked = getLockedRelics(profile);
-  const grid = el('div', 'shop-grid');
-  const ids = [...profile.unlockedRelics, ...locked];
-  for (const id of ids) {
-    const def = RELICS[id];
-    if (!def) continue;
-    const unlocked = profile.unlockedRelics.includes(id);
-    const card = el('article', 'shop-card relic-card');
-    if (unlocked) card.classList.add('is-owned');
-    const top = el('div', 'shop-card-top');
-    const kicker = el('div', 'shop-card-kicker');
-    kicker.append(
-      el('span', '', def.category === 'blade' ? 'Blade Relic' : 'Arcane Relic'),
-      el('span', '', unlocked ? (def.starter ? 'Starter' : 'Unlocked') : 'Locked'),
-    );
-    top.append(kicker, el('h3', 'shop-card-title', `${def.emoji} ${def.name}`));
-    const desc = el('p', 'shop-card-desc', def.summary(1));
-    card.append(top, desc);
-    if (!unlocked) {
-      const btn = el('button', 'shop-buy-btn');
-      btn.type = 'button';
-      const affordable = profile.coins >= RELIC_UNLOCK_COST;
-      btn.disabled = !affordable;
-      btn.textContent = affordable
-        ? `Unlock · ${RELIC_UNLOCK_COST} ${GAME_META.coinShort}`
-        : `Need ${RELIC_UNLOCK_COST} ${GAME_META.coinShort}`;
-      btn.addEventListener('click', () => {
-        void run({ action: 'unlock_relic', relicId: id }, () => `${def.name} added to drafts!`);
-      });
-      card.appendChild(btn);
-    }
-    grid.appendChild(card);
-  }
-  body.appendChild(grid);
-}
+  section.appendChild(head);
 
-function renderGacha(profile: PlayerProfile, body: HTMLElement, run: RunFn): void {
-  const machine = el('section', 'gacha-machine');
-  machine.append(
-    el('h3', 'gacha-title', '💎 Costume Gacha'),
-    el(
-      'p',
-      'muted-copy',
-      `Gems drop rarely from monsters. ${GACHA_PULL_COST} gems = 1 pull for a random costume or accessory. Purely cosmetic. Duplicates refund ${GACHA_DUPLICATE_COINS} ${GAME_META.coinShort}.`,
-    ),
-  );
-  const odds = el('p', 'gacha-odds mono');
-  const total = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
-  odds.textContent = (['common', 'rare', 'epic'] as const)
-    .map((r) => `${RARITY_LABELS[r]} ${Math.round((RARITY_WEIGHTS[r] / total) * 100)}%`)
-    .join(' · ');
-  machine.appendChild(odds);
-
-  if (lastPull) {
-    const result = el('div', `gacha-result rarity-${lastPull.rarity.toLowerCase()}`);
-    result.textContent = lastPull.duplicate
-      ? `${lastPull.rarity}: ${lastPull.title} (duplicate · +${GACHA_DUPLICATE_COINS} ${GAME_META.coinShort})`
-      : `✨ ${lastPull.rarity}: ${lastPull.title}!`;
-    machine.appendChild(result);
-  }
-
+  const pullRow = el('div', 'cosmetic-pull-row');
   const pullBtn = el('button', 'primary-btn gacha-pull-btn');
   pullBtn.type = 'button';
-  const canPull = profile.gems >= GACHA_PULL_COST;
-  pullBtn.disabled = !canPull;
-  pullBtn.textContent = canPull
-    ? `PULL · ${GACHA_PULL_COST} 💎`
-    : `Need ${GACHA_PULL_COST} 💎 (have ${profile.gems})`;
+  pullBtn.disabled = profile.gems < GACHA_PULL_COST;
+  pullBtn.textContent = `Pull · ${GACHA_PULL_COST} 💎`;
   pullBtn.addEventListener('click', () => {
     void run({ action: 'gacha_pull' });
   });
-  machine.appendChild(pullBtn);
-  body.appendChild(machine);
-
-  const ownedCount = COSMETIC_IDS.filter((id) => profile.ownedCosmetics.includes(id)).length;
-  body.appendChild(
-    el('h3', 'wardrobe-title', `Wardrobe · ${ownedCount}/${COSMETIC_IDS.length} collected`),
-  );
-  for (const slot of ['costume', 'accessory'] as const) {
-    body.appendChild(renderWardrobeRow(profile, slot, run));
+  pullRow.appendChild(pullBtn);
+  if (lastPull) {
+    const result = el('div', `gacha-result rarity-${lastPull.rarity.toLowerCase()}`);
+    result.textContent = lastPull.duplicate
+      ? `${lastPull.title} (dupe +${GACHA_DUPLICATE_COINS} ${GAME_META.coinShort})`
+      : `${lastPull.rarity}: ${lastPull.title}`;
+    pullRow.appendChild(result);
   }
+  section.appendChild(pullRow);
+
+  for (const slot of ['costume', 'accessory'] as const) {
+    section.appendChild(renderWardrobeRow(profile, slot, run));
+  }
+  return section;
 }
 
 function renderWardrobeRow(profile: PlayerProfile, slot: CosmeticSlot, run: RunFn): HTMLElement {
-  const row = el('section', 'cosmetics-bar');
-  row.appendChild(el('span', 'cosmetics-label', slot === 'costume' ? 'Costume:' : 'Accessory:'));
+  const row = el('div', 'cosmetics-bar');
+  row.appendChild(el('span', 'cosmetics-label', slot === 'costume' ? 'Outfit' : 'Hat'));
   const pills = el('div', 'cosmetics-pills');
   const equipped = slot === 'costume' ? profile.equippedCostume : profile.equippedCosmetic;
 
-  const none = el('button', 'cosmetic-pill', 'Default');
+  const none = el('button', 'cosmetic-pill', 'None');
   none.type = 'button';
   if (equipped === 'none') none.classList.add('is-equipped');
   none.addEventListener('click', () => {
@@ -267,9 +184,9 @@ function renderWardrobeRow(profile: PlayerProfile, slot: CosmeticSlot, run: RunF
     const def = COSMETICS[id];
     if (def.slot !== slot) continue;
     const owned = profile.ownedCosmetics.includes(id);
-    const pill = el('button', `cosmetic-pill rarity-${def.rarity}`, owned ? def.title : '???');
+    const pill = el('button', `cosmetic-pill rarity-${def.rarity}`, owned ? def.title : '?');
     pill.type = 'button';
-    pill.title = owned ? `${RARITY_LABELS[def.rarity]} · ${def.description}` : 'Not collected yet';
+    pill.title = owned ? RARITY_LABELS[def.rarity] : 'Not collected yet';
     if (!owned) {
       pill.disabled = true;
       pill.classList.add('is-locked');

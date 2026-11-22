@@ -41,7 +41,8 @@ export type WeaponDef = {
 
 /**
  * Weapons are sidegrades: each one trades reach, speed and burst against the others.
- * None is strictly better; total damage per second sits in a narrow band (~70-85).
+ * Melee weapons sit in a narrow DPS band (~70-85). Ranged weapons deal noticeably less
+ * (they keep you out of danger) and never stun.
  */
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   longsword: {
@@ -115,46 +116,46 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     name: 'Scatter Staff',
     emoji: '🔮',
     tagline: 'Shotgun blast of bolts. Devastating point-blank.',
-    pros: 'Big burst up close · hits several foes',
-    cons: 'Short range · weak against armour',
+    pros: 'Hits several foes at once',
+    cons: 'Short range · weak vs armour · no stun',
     cost: 400,
     sprite: 'tile_129',
     style: 'ranged',
-    damage: 10,
-    cooldown: 0.62,
+    damage: 8,
+    cooldown: 0.85,
     animDuration: 0.12,
-    endlag: 0.14,
+    endlag: 0.2,
     range: 84,
     arcDeg: 40,
     attackMoveMult: 0.6,
-    knockback: 220,
-    staggerSec: 0.18,
+    knockback: 110,
+    staggerSec: 0,
     stripsArmor: false,
     slashColor: '#c084fc',
-    projectile: { count: 5, spreadDeg: 38, speed: 560, ttl: 0.36, radius: 8, pierce: false },
+    projectile: { count: 5, spreadDeg: 38, speed: 470, ttl: 0.4, radius: 8, pierce: false },
   },
   arcane_lance: {
     id: 'arcane_lance',
     name: 'Arcane Lance',
     emoji: '🎯',
     tagline: 'Sniper bolt that pierces a whole line of enemies.',
-    pros: 'Huge range · pierces · high damage',
-    cons: 'Slow to fire · miss and you are exposed',
+    pros: 'Huge range · pierces a whole line',
+    cons: 'Slow to fire · low damage · no stun',
     cost: 600,
     sprite: 'tile_130',
     style: 'ranged',
-    damage: 66,
-    cooldown: 1.0,
-    animDuration: 0.14,
-    endlag: 0.3,
+    damage: 50,
+    cooldown: 1.4,
+    animDuration: 0.16,
+    endlag: 0.38,
     range: 84,
     arcDeg: 0,
     attackMoveMult: 0.3,
-    knockback: 300,
-    staggerSec: 0.3,
+    knockback: 140,
+    staggerSec: 0,
     stripsArmor: false,
     slashColor: '#38bdf8',
-    projectile: { count: 1, spreadDeg: 0, speed: 1150, ttl: 0.75, radius: 10, pierce: true },
+    projectile: { count: 1, spreadDeg: 0, speed: 820, ttl: 0.95, radius: 10, pierce: true },
   },
 };
 

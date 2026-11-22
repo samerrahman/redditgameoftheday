@@ -75,7 +75,6 @@ export class GameUIController {
   private tutorialOpen = false;
   private lastFloor = -1;
   private lastGems = -1;
-  private shopReturnPhase: GamePhase = 'start';
   private toastTimer: number | null = null;
   private bannerTimer: number | null = null;
   private bannerHideTimer: number | null = null;
@@ -122,7 +121,6 @@ export class GameUIController {
   private readonly hudGemsVal = getEl('hud-gems-val');
   private readonly hudRerollBtn = getButton('hud-reroll-btn');
   private readonly hudRerollCount = getEl('hud-reroll-count');
-  private readonly hudShopBtn = getButton('hud-shop-btn');
   private readonly hudPauseBtn = getButton('hud-pause-btn');
   private readonly hudRelics = getEl('hud-relics');
   private readonly touchActionBtn = getButton('touch-action-btn');
@@ -135,7 +133,6 @@ export class GameUIController {
   private readonly startModifier = getEl('start-modifier');
   private readonly startStreak = getEl('start-streak');
   private readonly startTitle = getEl('start-title');
-  private readonly startTitleNext = getEl('start-title-next');
   private readonly startBestFloor = getEl('start-best-floor');
   private readonly startGems = getEl('start-gems');
   private readonly startBest = getEl('start-best');
@@ -153,7 +150,6 @@ export class GameUIController {
   private readonly pauseCopy = getEl('pause-copy');
   private readonly resumeBtn = getButton('resume-btn');
   private readonly restartBtn = getButton('restart-btn');
-  private readonly pauseShopBtn = getButton('pause-shop-btn');
   private readonly quitBtn = getButton('quit-btn');
 
   private readonly endScreen = getEl('end-screen');
@@ -178,10 +174,8 @@ export class GameUIController {
 
   private readonly shopScreen = getEl('shop-screen');
   private readonly shopBackBtn = getButton('shop-back-btn');
-  private readonly shopPlayBtn = getButton('shop-play-btn');
   private readonly shopBalance = getEl('shop-balance');
   private readonly shopGems = getEl('shop-gems');
-  private readonly shopTabs = getEl('shop-tabs');
   private readonly shopBody = getEl('shop-body');
   private readonly toast = getEl('toast');
 
@@ -327,12 +321,7 @@ export class GameUIController {
       const newFloor = s.floor !== this.lastFloor;
       this.lastFloor = s.floor;
       if (s.isFirstVisitToRoom || newFloor) {
-        const sub =
-          s.roomType === 'boss'
-            ? `Floor ${s.floor} Boss`
-            : newFloor && s.floor > 1
-              ? 'Enemies grow stronger'
-              : s.modifier.banner;
+        const sub = newFloor && s.floor > 1 ? 'Enemies grow stronger' : '';
         this.showRoomBanner(s.floor, s.roomIndex, s.roomType, s.totalRooms, sub);
       }
     }
@@ -394,11 +383,6 @@ export class GameUIController {
       this.beginDungeon();
     });
 
-    this.shopPlayBtn.addEventListener('click', () => {
-      this.shopOpen = false;
-      this.beginDungeon();
-    });
-
     this.playAgainBtn.addEventListener('click', () => {
       this.beginDungeon();
     });
@@ -433,15 +417,7 @@ export class GameUIController {
       this.sim.rerollPedestals();
     });
 
-    this.hudShopBtn.addEventListener('click', () => {
-      this.openShop();
-    });
-
     this.startShopBtn.addEventListener('click', () => {
-      this.openShop();
-    });
-
-    this.pauseShopBtn.addEventListener('click', () => {
       this.openShop();
     });
 
@@ -589,6 +565,8 @@ export class GameUIController {
     this.lastMinimapKey = '';
     this.lastFloor = -1;
     this.lastGems = -1;
+    // Hide leftovers from the previous run (e.g. a boss bar still showing when you died).
+    this.hudBossBar.hidden = true;
     this.hideRoomBanner();
     this.sim.startNewRun(this.utcDate, this.profile);
     this.syncVisibility();
@@ -640,7 +618,7 @@ export class GameUIController {
     const theme = getDailyTheme(this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
-    const { title, next } = getPlayerTitle(this.profile.bestFloor);
+    const { title } = getPlayerTitle(this.profile.bestFloor);
     const weapon = getWeapon(this.profile.equippedWeapon);
 
     this.startDate.textContent = this.utcDate;
@@ -648,11 +626,10 @@ export class GameUIController {
     this.startModifier.textContent = modifier.banner;
     this.startStreak.textContent = `${this.profile.streak}🔥`;
     this.startTitle.textContent = `🏅 ${title}`;
-    this.startTitleNext.textContent = next ? `Reach floor ${next.minFloor} → ${next.title}` : 'Max rank!';
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
     this.startGems.textContent = `${this.profile.gems}💎`;
     this.startShopCoins.textContent = `${this.profile.coins} ${GAME_META.coinShort}`;
-    this.startWeaponPill.textContent = `Weapon: ${weapon.emoji} ${weapon.name} · change in Shop`;
+    this.startWeaponPill.textContent = `${weapon.emoji} ${weapon.name}`;
     this.startBest.textContent = best ? `F${best.bestFloor ?? 1}` : '—';
 
     const completed = this.isDailyCompleted();
@@ -685,7 +662,7 @@ export class GameUIController {
     this.endBadge.textContent = 'NEW BEST FLOOR!';
     this.endTitle.textContent = `Fell on Floor ${floor}`;
     const floorsCleared = summary.floorsCleared ?? 0;
-    this.endSubtitle.textContent = `${floorsCleared} floor${floorsCleared === 1 ? '' : 's'} cleared · ${summary.roomsCleared ?? 0} rooms · ${WEAPONS[summary.weapon ?? 'longsword'].name} · ${getPlayerTitle(this.profile.bestFloor).title}`;
+    this.endSubtitle.textContent = `${floorsCleared} boss${floorsCleared === 1 ? '' : 'es'} · ${summary.roomsCleared ?? 0} rooms · ${WEAPONS[summary.weapon ?? 'longsword'].name}`;
 
     this.endRoom.textContent = `F${floor}`;
     this.endTime.textContent = formatDuration(summary.elapsedSec);
@@ -742,18 +719,11 @@ export class GameUIController {
     }
   }
 
+  /** The shop only opens from the menu or the end-of-run card, never mid-run. */
   private openShop(): void {
-    this.shopReturnPhase = this.sim.state.phase;
-    if (this.shopReturnPhase === 'playing') {
-      this.sim.setPhase('paused');
-    }
+    const phase = this.sim.state.phase;
+    if (phase === 'playing' || phase === 'paused' || phase === 'dying') return;
     this.shopOpen = true;
-    this.shopBackBtn.textContent =
-      this.shopReturnPhase === 'playing' ? '← Back to Run' : '← Back';
-    this.shopPlayBtn.hidden =
-      this.shopReturnPhase === 'playing' ||
-      this.shopReturnPhase === 'paused' ||
-      this.isDailyCompleted();
     this.renderShop();
     this.syncVisibility();
     this.shopScreen.scrollTop = 0;
@@ -763,9 +733,6 @@ export class GameUIController {
   private closeShop(): void {
     if (!this.shopOpen) return;
     this.shopOpen = false;
-    if (this.shopReturnPhase === 'playing' && this.sim.state.phase === 'paused') {
-      this.sim.setPhase('playing');
-    }
     this.syncStartScreen();
     this.syncVisibility();
   }
@@ -777,7 +744,6 @@ export class GameUIController {
       {
         balance: this.shopBalance,
         gems: this.shopGems,
-        tabs: this.shopTabs,
         body: this.shopBody,
       },
       {
@@ -945,6 +911,7 @@ export class GameUIController {
     this.hudRoomBannerKicker.textContent = `FLOOR ${floor} · ROOM ${roomIndex}/${totalRooms}`;
     this.hudRoomBannerTitle.textContent = ENTITY_LABELS.rooms[roomType];
     this.hudRoomBannerSub.textContent = subtitle;
+    this.hudRoomBannerSub.hidden = subtitle.length === 0;
 
     if (this.bannerTimer !== null) {
       window.clearTimeout(this.bannerTimer);

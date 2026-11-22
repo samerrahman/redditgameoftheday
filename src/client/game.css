@@ -1889,3 +1889,136 @@ button:focus-visible {
     padding: 18px 16px;
   }
 }
+
+/* ---------- Single-page shop ---------- */
+
+.shop-topbar {
+  position: relative;
+  padding-inline-end: 52px;
+}
+
+.shop-balances {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+
+.shop-close {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  inline-size: 42px;
+  block-size: 42px;
+  border: 2px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-tile);
+  color: var(--text-main);
+  font-size: 1.25rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.shop-close:hover {
+  border-color: var(--accent-gold);
+}
+
+.shop-section {
+  display: grid;
+  gap: 12px;
+}
+
+.shop-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.shop-section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--text-main);
+}
+
+.shop-section-count {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.shop-body {
+  gap: 26px;
+}
+
+.weapon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.weapon-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-tile);
+  border: 2px solid var(--border-subtle);
+  border-radius: 4px;
+  box-shadow: inset 2px 2px 0 #110c13;
+}
+
+.weapon-card.is-equipped {
+  border-color: var(--accent-gold);
+  background: #2a1d22;
+}
+
+.weapon-stage {
+  display: grid;
+  place-items: center;
+  block-size: 110px;
+  border-radius: 3px;
+  background: radial-gradient(circle at 50% 55%, #3b2a40 0%, #1b141e 70%);
+}
+
+.weapon-art {
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+  transform: rotate(-35deg);
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.45));
+}
+
+.weapon-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--text-main);
+  text-align: center;
+}
+
+.weapon-card .weapon-tradeoffs {
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.weapon-card .shop-buy-btn {
+  margin-block-start: auto;
+}
+
+.cosmetic-pull-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cosmetic-pull-row .gacha-pull-btn {
+  inline-size: auto;
+  padding-inline: 22px;
+}
+
+.hud-room-banner-sub[hidden],
+.room-banner-sub[hidden] {
+  display: none;
+}

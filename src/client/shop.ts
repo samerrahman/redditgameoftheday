@@ -1,6 +1,4 @@
-import { exitExpandedMode, requestExpandedMode } from '@devvit/web/client';
-import { ENFORCE_SINGLE_DAILY_RUN } from '../shared/buildMeta.ts';
-import { hasCompletedDailyRun } from '../shared/profile.ts';
+import { exitExpandedMode } from '@devvit/web/client';
 import { getUtcDateString } from '../shared/rng.ts';
 import type { PlayerProfile } from '../shared/types.ts';
 import { HybridDevvitAdapter } from './platform/adapter.ts';
@@ -45,7 +43,6 @@ async function initStandaloneShop(): Promise<void> {
   const els = {
     balance: getEl('shop-balance'),
     gems: getEl('shop-gems'),
-    tabs: getEl('shop-tabs'),
     body: getEl('shop-body'),
   };
 
@@ -67,21 +64,6 @@ async function initStandaloneShop(): Promise<void> {
     }
   });
 
-  const playBtn = getButton('shop-play-btn');
-  if (ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(profile, utcDate)) {
-    playBtn.classList.add('is-completed');
-    const playLabel = document.getElementById('shop-play-label');
-    if (playLabel) {
-      playLabel.textContent = 'VIEW RESULTS';
-    }
-  }
-  playBtn.addEventListener('click', (event) => {
-    try {
-      requestExpandedMode(event, 'game');
-    } catch {
-      // Standalone non-Devvit fallback ignored
-    }
-  });
 }
 
 void initStandaloneShop();

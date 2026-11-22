@@ -50,16 +50,6 @@
             <button id="hud-reroll-btn" type="button" class="hud-btn hud-reroll" hidden>
               Reroll (<span id="hud-reroll-count">0</span>)
             </button>
-            <button id="hud-shop-btn" type="button" class="hud-btn hud-shop-btn">
-              <img
-                src="./assets/dungeon/chest_icon.png"
-                class="pixel-icon"
-                width="18"
-                height="18"
-                alt=""
-              />
-              <span>Shop</span>
-            </button>
             <button id="hud-pause-btn" type="button" class="hud-btn" aria-label="Pause Game">
               ⏸
             </button>
@@ -175,7 +165,6 @@
 
           <div class="player-title-row">
             <span id="start-title" class="player-title">🏅 Fresh Recruit</span>
-            <span id="start-title-next" class="player-title-next muted-copy"></span>
           </div>
 
           <div class="modifier-banner" aria-label="Daily Modifier">
@@ -202,7 +191,7 @@
             </div>
           </div>
 
-          <div id="start-weapon-pill" class="boost-pill">Weapon: 🗡️ Longsword</div>
+          <div id="start-weapon-pill" class="boost-pill">🗡️ Longsword</div>
 
           <div class="start-actions">
             <button id="play-btn" type="button" class="primary-btn">
@@ -256,12 +245,12 @@
               then take the <strong>stairs</strong> down. Every floor is harder than the last.
             </li>
             <li>
-              After a room is cleared, <strong>attack a relic</strong> to claim it. Relics power you
-              up for the rest of the run.
+              After each boss, <strong>attack a relic</strong> to pick it. Relics last the whole
+              run.
             </li>
             <li>
-              Collect <strong>coins</strong> for new weapons and relics in the shop. Rare
-              <strong>💎 gems</strong> buy cosmetic gacha pulls.
+              <strong>Coins</strong> buy new weapons. Rare <strong>💎 gems</strong> buy
+              cosmetics.
             </li>
             <li>
               <strong>One life.</strong> Everyone gets the same dungeon today — how deep can you go?
@@ -292,16 +281,6 @@
           <div class="stack-actions">
             <button id="resume-btn" type="button" class="primary-btn">Resume</button>
             <button id="restart-btn" type="button" class="secondary-btn">Restart Today's Seed</button>
-            <button id="pause-shop-btn" type="button" class="secondary-btn btn-with-icon">
-              <img
-                src="./assets/dungeon/chest_icon.png"
-                class="pixel-icon"
-                width="20"
-                height="20"
-                alt=""
-              />
-              <span>Shop</span>
-            </button>
             <button id="quit-btn" type="button" class="ghost-btn">Quit to Title</button>
           </div>
         </div>
@@ -378,49 +357,27 @@
       <section id="shop-screen" class="shop-page" hidden aria-labelledby="shop-title">
         <div class="shop-page-inner">
           <header class="shop-topbar">
-            <button id="shop-back-btn" type="button" class="secondary-btn shop-back-btn">
-              ← Back
-            </button>
-            <div class="shop-title-wrap">
-              <img
-                src="./assets/dungeon/chest_icon.png"
-                class="pixel-icon"
-                width="28"
-                height="28"
-                alt=""
-              />
-              <h2 id="shop-title" class="shop-title">Shop</h2>
+            <h2 id="shop-title" class="shop-title">Shop</h2>
+            <div class="shop-balances">
+              <div class="shop-balance-pill">
+                <img
+                  src="./assets/dungeon/coin_icon.png"
+                  class="pixel-icon"
+                  width="20"
+                  height="20"
+                  alt=""
+                />
+                <span id="shop-balance">0 KC</span>
+              </div>
+              <div class="shop-balance-pill gem-pill">
+                <span id="shop-gems">0 💎</span>
+              </div>
             </div>
-            <div class="shop-balance-pill">
-              <img
-                src="./assets/dungeon/coin_icon.png"
-                class="pixel-icon"
-                width="20"
-                height="20"
-                alt=""
-              />
-              <span id="shop-balance">0 KC</span>
-            </div>
-            <div class="shop-balance-pill gem-pill">
-              <span id="shop-gems">0 💎</span>
-            </div>
+            <button id="shop-back-btn" type="button" class="shop-close" aria-label="Close shop">✕</button>
           </header>
 
           <div class="shop-page-shell">
-            <nav id="shop-tabs" class="shop-tabs" role="tablist" aria-label="Shop sections"></nav>
             <div id="shop-body" class="shop-body"></div>
-            <div class="shop-footer-actions">
-              <button id="shop-play-btn" type="button" class="primary-btn">
-                <img
-                  src="./assets/dungeon/sword_icon.png"
-                  class="pixel-icon"
-                  width="24"
-                  height="24"
-                  alt=""
-                />
-                <span>BEGIN DUNGEON</span>
-              </button>
-            </div>
           </div>
         </div>
       </section>

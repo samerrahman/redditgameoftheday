@@ -1,5 +1,5 @@
 import { ENFORCE_SINGLE_DAILY_RUN } from './buildMeta.ts';
-import { STARTER_RELIC_IDS } from './relics.ts';
+import { ALL_RELIC_IDS } from './relics.ts';
 import { getCosmeticSlot, isCosmeticId } from './shop.ts';
 import type { DailyLeaderboardEntry, PlayerProfile, RunSummary } from './types.ts';
 import { isWeaponId } from './weapons.ts';
@@ -10,7 +10,7 @@ export function createDefaultProfile(): PlayerProfile {
     gems: 0,
     ownedWeapons: ['longsword'],
     equippedWeapon: 'longsword',
-    unlockedRelics: [...STARTER_RELIC_IDS],
+    unlockedRelics: [...ALL_RELIC_IDS],
     ownedCosmetics: ['none'],
     equippedCosmetic: 'none',
     equippedCostume: 'none',
@@ -57,10 +57,8 @@ export function normalizeProfile(raw: Partial<PlayerProfile> | null | undefined)
     gems: typeof raw.gems === 'number' ? Math.max(0, raw.gems) : def.gems,
     ownedWeapons,
     equippedWeapon,
-    unlockedRelics:
-      Array.isArray(raw.unlockedRelics) && raw.unlockedRelics.length > 0
-        ? raw.unlockedRelics
-        : def.unlockedRelics,
+    // Relics are no longer sold; every relic is always in the in-run draft pool.
+    unlockedRelics: def.unlockedRelics,
     ownedCosmetics,
     equippedCosmetic,
     equippedCostume,

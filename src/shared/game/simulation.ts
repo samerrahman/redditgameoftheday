@@ -1240,7 +1240,7 @@ export class GameSimulation {
     const s = this.state;
     const p = s.player;
     const w = this.weapon;
-    if (enemy.archetype !== 'boss') {
+    if (enemy.archetype !== 'boss' && w.style === 'melee' && w.staggerSec > 0) {
       enemy.state = 'staggered';
       enemy.stateTimer = Math.max(enemy.stateTimer, w.staggerSec);
     }
@@ -2396,7 +2396,7 @@ export class GameSimulation {
       this.spawnRelicPedestals(undefined, 235);
       if (s.pedestals.length > 0) {
         s.roomState = 'reward';
-        this.announce(`Floor ${s.floor} cleared! Claim a relic`);
+        this.announce(`Floor ${s.floor} cleared! Pick a relic`);
       } else {
         s.portals = [this.makeStairsPortal()];
         s.roomState = 'boss_choice';
@@ -2405,6 +2405,7 @@ export class GameSimulation {
       return;
     }
 
+    // Relics only drop between floors (after the boss). Other rooms pay out coins or heal.
     if (s.rewardType === 'fountain_and_relics') {
       s.fountain = {
         x: ARENA_W / 2,
@@ -2412,16 +2413,15 @@ export class GameSimulation {
         used: false,
         healAmount: Math.round(s.player.maxHp * 0.35),
       };
+      s.roomState = 'door_open';
+      this.announce('Fountain unlocked');
+      return;
     }
 
-    const filter = s.rewardType === 'synergy_relics' ? 'synergy' : undefined;
-    this.spawnRelicPedestals(filter, s.rewardType === 'fountain_and_relics' ? 205 : 235);
-    s.roomState = s.pedestals.length > 0 ? 'reward' : 'door_open';
-    this.announce(
-      s.rewardType === 'fountain_and_relics'
-        ? 'Drink Fountain & Attack a Relic!'
-        : 'Room Cleared! Attack a Relic to Claim',
-    );
+    const cache = s.rewardType === 'synergy_relics' ? 18 : 8;
+    this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(cache * coinMult), true);
+    s.roomState = 'door_open';
+    this.announce('Room cleared');
   }
 
   private spawnRelicPedestals(filter: 'synergy' | undefined, py: number): void {
