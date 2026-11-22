@@ -33,15 +33,13 @@ import {
   normalizeProfile,
   toLeaderboardEntry,
 } from '../shared/profile.ts';
-import { draftRelics } from '../shared/relics.ts';
-import { createDailyStream, formatTimeUntilNextUtcDay } from '../shared/rng.ts';
+import { RELICS } from '../shared/relics.ts';
+import { formatTimeUntilNextUtcDay } from '../shared/rng.ts';
 import { formatShareComment } from '../shared/share.ts';
 import {
   applyShopAction,
   COSMETIC_IDS,
   GACHA_PULL_COST,
-  RELIC_UNLOCK_COST,
-  getLockedRelics,
 } from '../shared/shop.ts';
 import type { InputFrame, RunSummary } from '../shared/types.ts';
 import { WEAPONS, WEAPON_IDS } from '../shared/weapons.ts';
@@ -435,13 +433,9 @@ void describe('Floors: rooms, relics, boss, stairs and descent', () => {
 
     // Walking back through the door returns to the cleared entrance.
     clearRoom(sim);
-    const roomStateAfterClear: string = sim.state.roomState;
-    if (roomStateAfterClear === 'reward') {
-      const ped = sim.state.pedestals[0]!;
-      sim.state.player.x = ped.x;
-      sim.state.player.y = ped.y + 56;
-      sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
-      assert.equal(sim.state.player.relics[ped.relic.id], 1);
+    if (sim.state.currentRoomId !== map.bossRoomId) {
+      assert.equal(sim.state.pedestals.length, 0, 'relics only drop between floors');
+      assert.equal(sim.state.roomState, 'door_open');
     }
     stepFrames(sim, 22, () => idleInput());
     const back = oppositeDirection(door.dir);
@@ -681,30 +675,40 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     assert.equal(poor.reason, 'Not enough coins.');
   });
 
-  void it('keeps weapons as sidegrades (DPS within a narrow band)', () => {
-    const dps = WEAPON_IDS.map((id) => {
+  void it('keeps melee weapons as sidegrades and ranged weapons weaker', () => {
+    const dps = (id: (typeof WEAPON_IDS)[number]): number => {
       const w = WEAPONS[id];
-      const perAttack = w.damage * (w.projectile?.count ?? 1);
-      return perAttack / w.cooldown;
-    });
-    const min = Math.min(...dps);
-    const max = Math.max(...dps);
-    assert.ok(max / min < 1.35, `DPS spread too wide: ${dps.map((d) => d.toFixed(0)).join(', ')}`);
+      return (w.damage * (w.projectile?.count ?? 1)) / w.cooldown;
+    };
+    const melee = WEAPON_IDS.filter((id) => WEAPONS[id].style === 'melee').map(dps);
+    const ranged = WEAPON_IDS.filter((id) => WEAPONS[id].style === 'ranged').map(dps);
+    assert.ok(Math.max(...melee) / Math.min(...melee) < 1.35, `melee spread: ${melee.join(', ')}`);
+    assert.ok(Math.max(...ranged) < Math.min(...melee), 'ranged must deal less than any melee');
+    for (const id of WEAPON_IDS) {
+      if (WEAPONS[id].style === 'ranged') assert.equal(WEAPONS[id].staggerSec, 0);
+    }
   });
 
-  void it('unlocks relics into the draft pool', () => {
-    let profile = { ...createDefaultProfile(), coins: RELIC_UNLOCK_COST };
-    const target = getLockedRelics(profile)[0]!;
-    const res = applyShopAction(profile, { action: 'unlock_relic', relicId: target }, () => 0);
-    assert.equal(res.ok, true);
-    profile = res.profile;
-    assert.equal(profile.coins, 0);
-    const drafted = draftRelics(
-      createDailyStream('2026-11-20', 'test-draft'),
-      profile.unlockedRelics,
-      profile.unlockedRelics.length,
-    );
-    assert.ok(drafted.some((d) => d.id === target));
+  void it('ranged hits never stun enemies', () => {
+    const profile = { ...createDefaultProfile(), ownedWeapons: ['longsword' as const, 'arcane_lance' as const], equippedWeapon: 'arcane_lance' as const };
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile);
+    const target = createEnemy(9001, 'chaser', sim.state.player.x, sim.state.player.y - 120, 5, 1, 1, 1);
+    target.spawnShieldTimer = 0;
+    target.state = 'chase';
+    sim.state.enemies = [target];
+    sim.state.totalWaves = 2;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    stepFrames(sim, 20, () => idleInput());
+    assert.ok(target.hp < target.maxHp, 'lance bolt should hit');
+    assert.notEqual(target.state, 'staggered');
+  });
+
+  void it('every relic is always in the draft pool (relics are not sold)', () => {
+    const fresh = createDefaultProfile();
+    assert.equal(fresh.unlockedRelics.length, Object.keys(RELICS).length);
+    const migrated = normalizeProfile({ unlockedRelics: ['ember_wake'] });
+    assert.equal(migrated.unlockedRelics.length, Object.keys(RELICS).length);
   });
 
   void it('gacha spends gems for cosmetics only and refunds duplicates', () => {

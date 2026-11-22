@@ -1181,8 +1181,6 @@ export class DungeonScene extends Phaser.Scene {
     if (state.pedestals.length > 0) {
       for (const ped of state.pedestals) {
         activeIds.add(ped.id);
-        const isBlade = ped.relic.category === 'blade';
-        const ringCss = isBlade ? '#fbbf24' : '#38bdf8';
         const itemFrame = RELIC_SPRITE_FRAMES[ped.relic.id];
 
         let entry = this.pedestalSprites.get(ped.id);
@@ -1210,33 +1208,31 @@ export class DungeonScene extends Phaser.Scene {
         shadowG.fillStyle(0x000000, 0.42);
         shadowG.fillEllipse(ped.x, ped.y + 26, 40, 14);
 
-        if (ped.hovered) {
-          this.nextLabel(ped.x, ped.y + 68, 'ATTACK TO PICK', '#fde047', 14);
-        }
-
-        const lvLabel = ped.nextLevel > 1 ? ` (Lv ${ped.nextLevel})` : '';
-        this.nextLabel(ped.x, ped.y + 48, `${ped.relic.name}${lvLabel}`, '#fff7e8', 17);
-        this.nextLabel(ped.x, ped.y - 46, isBlade ? 'BLADE MOD' : 'ARCANE MOD', ringCss, 14);
+        const lvLabel = ped.nextLevel > 1 ? ` ${ped.nextLevel}` : '';
+        this.nextLabel(ped.x, ped.y + 48, `${ped.relic.name}${lvLabel}`, ped.hovered ? '#fde047' : '#fff7e8', 17);
       }
 
+      // Only describe a relic when you stand next to it.
       const hovered = state.pedestals.find((p) => p.hovered);
-      const tipText = hovered
-        ? `${hovered.relic.emoji} ${hovered.relic.name} Lv ${hovered.nextLevel}: ${hovered.relic.summary(hovered.nextLevel)}`
-        : 'Walk near a relic to inspect · Slash (Space / Click) to pick';
+      if (!hovered) {
+        this.tooltipText?.setVisible(false);
+      } else {
+        const tipText = hovered.relic.summary(hovered.nextLevel);
 
-      this.tooltipText?.setText(tipText).setVisible(true);
-      const measuredW = this.tooltipText?.width ?? 320;
-      const measuredH = this.tooltipText?.height ?? 24;
-      const boxW = Math.min(ARENA_W - 80, Math.max(360, Math.ceil(measuredW + 48)));
-      const boxH = Math.max(42, Math.ceil(measuredH + 16));
-      const boxX = ARENA_W / 2 - boxW / 2;
-      const boxY = 104;
-      fxG.fillStyle(0x1d1520, 0.94);
-      fxG.fillRect(boxX, boxY, boxW, boxH);
-      fxG.lineStyle(2, hovered ? 0xf5b82e : 0x5b485e, 1);
-      fxG.strokeRect(boxX, boxY, boxW, boxH);
+        this.tooltipText?.setText(tipText).setVisible(true);
+        const measuredW = this.tooltipText?.width ?? 320;
+        const measuredH = this.tooltipText?.height ?? 24;
+        const boxW = Math.min(ARENA_W - 80, Math.max(360, Math.ceil(measuredW + 48)));
+        const boxH = Math.max(42, Math.ceil(measuredH + 16));
+        const boxX = ARENA_W / 2 - boxW / 2;
+        const boxY = 104;
+        fxG.fillStyle(0x1d1520, 0.94);
+        fxG.fillRect(boxX, boxY, boxW, boxH);
+        fxG.lineStyle(2, 0xf5b82e, 1);
+        fxG.strokeRect(boxX, boxY, boxW, boxH);
 
-      this.tooltipText?.setPosition(ARENA_W / 2, boxY + boxH / 2);
+        this.tooltipText?.setPosition(ARENA_W / 2, boxY + boxH / 2);
+      }
     }
 
     for (const [id, entry] of this.pedestalSprites.entries()) {
