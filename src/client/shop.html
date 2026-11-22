@@ -34,17 +34,14 @@
               />
               <span id="shop-balance">0 KC</span>
             </div>
+            <div class="shop-balance-pill gem-pill">
+              <span id="shop-gems">0 💎</span>
+            </div>
           </header>
 
           <div class="shop-page-shell">
-            <p id="shop-date-sub" class="muted-copy">
-              3 rotating daily items · Coins are always kept
-            </p>
-            <div id="shop-slots" class="shop-grid"></div>
-            <section class="cosmetics-bar" aria-label="Runner Cosmetics">
-              <span class="cosmetics-label">Equipped Style:</span>
-              <div id="shop-cosmetics" class="cosmetics-pills"></div>
-            </section>
+            <nav id="shop-tabs" class="shop-tabs" role="tablist" aria-label="Shop sections"></nav>
+            <div id="shop-body" class="shop-body"></div>
             <div class="shop-footer-actions">
               <button id="shop-play-btn" type="button" class="primary-btn">
                 <img
@@ -54,7 +51,7 @@
                   height="24"
                   alt=""
                 />
-                <span id="shop-play-label">PLAY</span>
+                <span id="shop-play-label">BEGIN DUNGEON</span>
               </button>
             </div>
           </div>

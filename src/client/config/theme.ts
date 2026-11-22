@@ -198,11 +198,11 @@ export const ENTITY_LABELS = {
     boss: 'Crimson King',
   } satisfies Record<EnemyArchetype, string>,
   rooms: {
-    warmup: 'Warmup Arena',
+    warmup: 'Floor Entrance',
     escalation: 'Escalation Arena',
     elite: 'Elite Vault',
     gauntlet: 'Gauntlet Chamber',
-    boss: 'Daily Boss Sanctum',
+    boss: 'Boss Sanctum',
     endless: 'Endless Overtime',
   } satisfies Record<RoomType, string>,
   hazards: {

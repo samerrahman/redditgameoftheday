@@ -1,15 +1,13 @@
 import { Hono } from 'hono';
 import { context, reddit, redis } from '@devvit/web/server';
 import type {
-  CosmeticEquipRequest,
-  CosmeticEquipResponse,
   ProfileResponse,
   RunCompleteRequest,
   RunCompleteResponse,
   ShareCommentRequest,
   ShareCommentResponse,
-  ShopPurchaseRequest,
-  ShopPurchaseResponse,
+  ShopActionRequest,
+  ShopActionResponse,
   SubscribeResponse,
 } from '../../shared/api.ts';
 import {
@@ -24,9 +22,10 @@ import {
   createDefaultProfile,
   hasCompletedDailyRun,
   normalizeProfile,
+  toLeaderboardEntry,
 } from '../../shared/profile.ts';
 import { getUtcDateString } from '../../shared/rng.ts';
-import { getDailyShopRotation, purchaseShopSlot } from '../../shared/shop.ts';
+import { applyShopAction } from '../../shared/shop.ts';
 import type {
   DailyLeaderboardEntry,
   PlayerProfile,
@@ -78,6 +77,8 @@ async function loadDailyLeaderboard(utcDate: string): Promise<DailyLeaderboardEn
     } catch {
       entries.push({
         player: row.member,
+        floorReached: 1,
+        roomsCleared: 0,
         roomReached: 1,
         elapsedSec: 0,
         extracted: false,
@@ -88,13 +89,12 @@ async function loadDailyLeaderboard(utcDate: string): Promise<DailyLeaderboardEn
   return entries;
 }
 
+/** Deepest floor first, then most rooms cleared, then fastest time. */
 function computeLeaderboardScore(entry: DailyLeaderboardEntry): number {
-  const extractTier = entry.extracted ? 1 : 0;
   return (
-    entry.roomReached * 1_000_000_000 +
-    extractTier * 100_000_000 +
-    Math.min(99_999, Math.max(0, entry.score)) * 1000 +
-    Math.max(0, 999 - Math.floor(entry.elapsedSec))
+    Math.max(1, entry.floorReached ?? 1) * 1_000_000_000 +
+    Math.min(9_999, Math.max(0, entry.roomsCleared ?? 0)) * 100_000 +
+    Math.max(0, 99_999 - Math.floor(entry.elapsedSec))
   );
 }
 
@@ -155,59 +155,23 @@ api.get('/profile', async (c) => {
   }
 });
 
-api.post('/shop/purchase', async (c) => {
+api.post('/shop/action', async (c) => {
   const { userId } = context;
   if (!userId) {
     return c.json<ErrorResponse>({ status: 'error', message: 'Sign in required' }, 401);
   }
 
   try {
-    const body = await c.req.json<ShopPurchaseRequest>();
-    const utcDate = getUtcDateString(body.utcDate);
+    const body = await c.req.json<ShopActionRequest>();
     const profile = await loadUserProfile(userId);
-    const rotation = getDailyShopRotation(utcDate, profile);
-    const slot = rotation[body.slotIndex];
-    if (!slot) {
-      return c.json<ShopPurchaseResponse>(
-        { ok: false, profile, reason: 'Invalid shop slot.' },
-        400,
-      );
+    const result = applyShopAction(profile, body, Math.random);
+    if (result.ok) {
+      await saveUserProfile(userId, result.profile);
     }
-
-    const result = purchaseShopSlot(profile, slot);
-    if (!result.ok) {
-      return c.json<ShopPurchaseResponse>(result, 200);
-    }
-
-    await saveUserProfile(userId, result.profile);
-    return c.json<ShopPurchaseResponse>(result, 200);
+    return c.json<ShopActionResponse>(result, 200);
   } catch (error) {
-    console.error('Shop purchase failed:', error);
-    return c.json<ErrorResponse>({ status: 'error', message: 'Shop purchase failed' }, 500);
-  }
-});
-
-api.post('/profile/cosmetic', async (c) => {
-  const { userId } = context;
-  if (!userId) {
-    return c.json<ErrorResponse>({ status: 'error', message: 'Sign in required' }, 401);
-  }
-
-  try {
-    const body = await c.req.json<CosmeticEquipRequest>();
-    const profile = await loadUserProfile(userId);
-    if (!profile.ownedCosmetics.includes(body.cosmeticId)) {
-      return c.json<ErrorResponse>({ status: 'error', message: 'Cosmetic not owned' }, 400);
-    }
-    const updated: PlayerProfile = {
-      ...profile,
-      equippedCosmetic: body.cosmeticId,
-    };
-    await saveUserProfile(userId, updated);
-    return c.json<CosmeticEquipResponse>({ profile: updated }, 200);
-  } catch (error) {
-    console.error('Cosmetic equip failed:', error);
-    return c.json<ErrorResponse>({ status: 'error', message: 'Cosmetic equip failed' }, 500);
+    console.error('Shop action failed:', error);
+    return c.json<ErrorResponse>({ status: 'error', message: 'Shop action failed' }, 500);
   }
 });
 
@@ -239,14 +203,7 @@ api.post('/run/complete', async (c) => {
     await saveUserProfile(userId, updated);
 
     const displayUser = username ? `u/${username}` : 'Redditor';
-    const entry: DailyLeaderboardEntry = {
-      player: displayUser,
-      roomReached: summary.roomReached,
-      progressPct: summary.progressPct,
-      elapsedSec: summary.elapsedSec,
-      extracted: summary.outcome === 'extracted',
-      score: summary.score,
-    };
+    const entry = toLeaderboardEntry(displayUser, summary);
     const composite = computeLeaderboardScore(entry);
     const lbKey = `${LB_KEY_PREFIX}${utcDate}`;
     const metaKey = `${LBMETA_KEY_PREFIX}${utcDate}`;

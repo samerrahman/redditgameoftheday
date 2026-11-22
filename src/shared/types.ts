@@ -68,37 +68,33 @@ export type RelicDef = {
 
 export type ActiveRelicMap = Partial<Record<RelicId, number>>;
 
-export type UpgradeId = 'vitality' | 'reroll' | 'magnet' | 'shield';
+export type WeaponId = 'longsword' | 'dagger' | 'hammer' | 'scatter_staff' | 'arcane_lance';
 
-export type CosmeticId =
-  | 'none'
+export type AccessoryId =
   | 'neon_trail'
   | 'crown_crest'
   | 'snoo_antenna'
-  | 'flame_halo';
+  | 'flame_halo'
+  | 'angel_halo'
+  | 'bunny_ears';
 
-export type ConsumableId = 'bonus_relic' | 'shield_tonic' | 'fury_charm';
+export type CostumeId =
+  | 'costume_crimson'
+  | 'costume_forest'
+  | 'costume_royal'
+  | 'costume_shadow'
+  | 'costume_gold';
 
-export type ShopSlotKind = 'upgrade' | 'relic' | 'consumable' | 'cosmetic';
+export type CosmeticId = 'none' | AccessoryId | CostumeId;
 
-export type ShopSlot = {
-  slotIndex: 0 | 1 | 2;
-  kind: ShopSlotKind;
-  itemId: string;
-  title: string;
-  subtitle: string;
-  description: string;
-  cost: number;
-  purchased: boolean;
-  maxed: boolean;
-  levelLabel?: string | undefined;
-};
+export type CosmeticSlot = 'accessory' | 'costume';
 
-export type ShopRotation = [ShopSlot, ShopSlot, ShopSlot];
+export type CosmeticRarity = 'common' | 'rare' | 'epic';
 
 export type DailyBestRecord = {
   utcDate: string;
   highestRoom: number;
+  bestFloor?: number | undefined;
   bestProgressPct?: number | undefined;
   bestClearTimeSec: number | null;
   bestScore: number;
@@ -108,15 +104,22 @@ export type DailyBestRecord = {
 
 export type PlayerProfile = {
   coins: number;
-  upgrades: Record<UpgradeId, number>;
+  gems: number;
+  ownedWeapons: WeaponId[];
+  equippedWeapon: WeaponId;
   unlockedRelics: RelicId[];
   ownedCosmetics: CosmeticId[];
+  /** Equipped accessory (or 'none'). */
   equippedCosmetic: CosmeticId;
-  pendingConsumable: ConsumableId | null;
+  /** Equipped costume colour (or 'none'). */
+  equippedCostume: CosmeticId;
   streak: number;
   lastPlayedDate: string | null;
   totalRuns: number;
   totalClears: number;
+  /** Deepest floor ever reached, across all days. */
+  bestFloor: number;
+  tutorialDismissed: boolean;
   subscribed: boolean;
   dailyBest: Record<string, DailyBestRecord>;
 };
@@ -125,19 +128,29 @@ export type RunSummary = {
   utcDate: string;
   outcome: 'extracted' | 'defeated';
   bossDefeated: boolean;
+  /** Floor the run ended on (1-based). */
+  floorReached: number;
+  /** Total rooms cleared across every floor this run. */
+  roomsCleared: number;
+  /** Bosses beaten this run (= floors fully completed). */
+  floorsCleared: number;
   roomReached: number;
   progressPct?: number | undefined;
   totalRooms?: number | undefined;
   elapsedSec: number;
   coinsEarned: number;
+  gemsEarned: number;
   damageTaken: number;
   enemiesKilled: number;
+  weapon: WeaponId;
   relics: ActiveRelicMap;
   score: number;
 };
 
 export type DailyLeaderboardEntry = {
   player: string;
+  floorReached: number;
+  roomsCleared: number;
   roomReached: number;
   progressPct?: number | undefined;
   elapsedSec: number;

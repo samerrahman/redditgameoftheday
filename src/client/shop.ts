@@ -43,14 +43,14 @@ async function initStandaloneShop(): Promise<void> {
   };
 
   const els = {
-    dateSub: getEl('shop-date-sub'),
     balance: getEl('shop-balance'),
-    slotsContainer: getEl('shop-slots'),
-    cosmeticsContainer: getEl('shop-cosmetics'),
+    gems: getEl('shop-gems'),
+    tabs: getEl('shop-tabs'),
+    body: getEl('shop-body'),
   };
 
-  renderShopView(utcDate, profile, adapter, els, {
-    onProfileChange: (nextProfile) => {
+  renderShopView(profile, adapter, els, {
+    onProfileChange: (nextProfile: PlayerProfile) => {
       profile = nextProfile;
     },
     onNotify: showToast,

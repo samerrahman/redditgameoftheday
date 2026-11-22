@@ -1,328 +1,308 @@
 import { RELICS, UNLOCKABLE_RELIC_IDS } from './relics.ts';
-import { createDailyStream } from './rng.ts';
 import type {
-  ConsumableId,
+  AccessoryId,
   CosmeticId,
+  CosmeticRarity,
+  CosmeticSlot,
+  CostumeId,
   PlayerProfile,
   RelicId,
-  ShopRotation,
-  ShopSlot,
-  UpgradeId,
+  WeaponId,
 } from './types.ts';
+import { WEAPONS, isWeaponId } from './weapons.ts';
 
-export type UpgradeDef = {
-  id: UpgradeId;
-  title: string;
-  description: string;
-  maxLevel: number;
-  costs: readonly number[];
-};
+export type ShopResult = { ok: boolean; profile: PlayerProfile; reason?: string | undefined };
 
-export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
-  vitality: {
-    id: 'vitality',
-    title: 'Vitality Plating',
-    description: '+10 Max HP per level at run start.',
-    maxLevel: 5,
-    costs: [40, 75, 120, 180, 260],
-  },
-  reroll: {
-    id: 'reroll',
-    title: 'Relic Reroll',
-    description: '+1 Relic Pedestal reroll charge per run.',
-    maxLevel: 3,
-    costs: [55, 110, 190],
-  },
-  magnet: {
-    id: 'magnet',
-    title: 'Karma Magnet',
-    description: '+15% coin magnet pull & +10% coin gain.',
-    maxLevel: 5,
-    costs: [35, 65, 105, 155, 220],
-  },
-  shield: {
-    id: 'shield',
-    title: 'Aegis Ward',
-    description: '+1 hit-absorbing Shield Charge per run.',
-    maxLevel: 3,
-    costs: [65, 130, 220],
-  },
-};
+// ---------------------------------------------------------------------------
+// Economy
+// ---------------------------------------------------------------------------
 
-export type ConsumableDef = {
-  id: ConsumableId;
-  title: string;
-  description: string;
-  cost: number;
-};
+/** Coins it costs to unlock a relic into your in-run draft pool. */
+export const RELIC_UNLOCK_COST = 150;
 
-export const CONSUMABLES: Record<ConsumableId, ConsumableDef> = {
-  bonus_relic: {
-    id: 'bonus_relic',
-    title: 'Starter Relic Cache',
-    description: 'Begin next run with 1 random unlocked relic.',
-    cost: 60,
-  },
-  shield_tonic: {
-    id: 'shield_tonic',
-    title: 'Ironclad Tonic',
-    description: 'Begin next run with +2 Shield Charges.',
-    cost: 45,
-  },
-  fury_charm: {
-    id: 'fury_charm',
-    title: 'Overdrive Sigil',
-    description: 'Begin next run with +15% all damage dealt.',
-    cost: 50,
-  },
-};
+/** Gems spent per gacha pull. */
+export const GACHA_PULL_COST = 3;
+
+/** Coins refunded when a gacha pull lands on a cosmetic you already own. */
+export const GACHA_DUPLICATE_COINS = 40;
+
+// ---------------------------------------------------------------------------
+// Cosmetics (gacha-only)
+// ---------------------------------------------------------------------------
 
 export type CosmeticDef = {
-  id: Exclude<CosmeticId, 'none'>;
+  id: AccessoryId | CostumeId;
   title: string;
   description: string;
-  cost: number;
+  slot: CosmeticSlot;
+  rarity: CosmeticRarity;
+  /** Hex tint for costumes (applied to the hero sprite). */
+  tint?: number | undefined;
 };
 
-export const COSMETICS: Record<Exclude<CosmeticId, 'none'>, CosmeticDef> = {
+export const COSMETICS: Record<AccessoryId | CostumeId, CosmeticDef> = {
   neon_trail: {
     id: 'neon_trail',
     title: 'Neon Slipstream',
-    description: 'Cyan-amber afterimage ribbon while moving.',
-    cost: 80,
+    description: 'Cyan afterimage ribbon while moving.',
+    slot: 'accessory',
+    rarity: 'rare',
   },
   crown_crest: {
     id: 'crown_crest',
     title: 'Thread Crown',
-    description: 'Golden 3-peak crest worn atop your runner.',
-    cost: 100,
+    description: 'Golden 3-peak crown.',
+    slot: 'accessory',
+    rarity: 'epic',
   },
   snoo_antenna: {
     id: 'snoo_antenna',
     title: 'Antenna Beacon',
-    description: 'Bobbing glowing orb antenna silhouette accessory.',
-    cost: 110,
+    description: 'Bobbing glowing antenna.',
+    slot: 'accessory',
+    rarity: 'common',
   },
   flame_halo: {
     id: 'flame_halo',
     title: 'Ember Halo',
-    description: 'Orbiting spark ring around your character.',
-    cost: 120,
+    description: 'Orbiting sparks.',
+    slot: 'accessory',
+    rarity: 'epic',
+  },
+  angel_halo: {
+    id: 'angel_halo',
+    title: 'Angel Halo',
+    description: 'A soft glowing ring overhead.',
+    slot: 'accessory',
+    rarity: 'rare',
+  },
+  bunny_ears: {
+    id: 'bunny_ears',
+    title: 'Bunny Ears',
+    description: 'Floppy and fearsome.',
+    slot: 'accessory',
+    rarity: 'common',
+  },
+  costume_crimson: {
+    id: 'costume_crimson',
+    title: 'Crimson Garb',
+    description: 'Blood-red adventurer outfit.',
+    slot: 'costume',
+    rarity: 'common',
+    tint: 0xff8a8a,
+  },
+  costume_forest: {
+    id: 'costume_forest',
+    title: 'Forest Ranger',
+    description: 'Mossy green leathers.',
+    slot: 'costume',
+    rarity: 'common',
+    tint: 0x9ff5a8,
+  },
+  costume_royal: {
+    id: 'costume_royal',
+    title: 'Royal Violet',
+    description: 'Regal purple robes.',
+    slot: 'costume',
+    rarity: 'rare',
+    tint: 0xc9a2ff,
+  },
+  costume_shadow: {
+    id: 'costume_shadow',
+    title: 'Shadow Cloak',
+    description: 'Darker than the dungeon.',
+    slot: 'costume',
+    rarity: 'rare',
+    tint: 0x6b6b88,
+  },
+  costume_gold: {
+    id: 'costume_gold',
+    title: 'Gilded Champion',
+    description: 'Solid gold. Very subtle.',
+    slot: 'costume',
+    rarity: 'epic',
+    tint: 0xffd75e,
   },
 };
 
-const UPGRADE_KEYS: readonly UpgradeId[] = ['vitality', 'reroll', 'magnet', 'shield'];
-const CONSUMABLE_KEYS: readonly ConsumableId[] = ['bonus_relic', 'shield_tonic', 'fury_charm'];
-const COSMETIC_KEYS: readonly Exclude<CosmeticId, 'none'>[] = [
-  'neon_trail',
-  'crown_crest',
-  'snoo_antenna',
-  'flame_halo',
-];
+export const COSMETIC_IDS = Object.keys(COSMETICS) as Array<AccessoryId | CostumeId>;
 
-function isUpgradeId(id: string): id is UpgradeId {
-  return id === 'vitality' || id === 'reroll' || id === 'magnet' || id === 'shield';
+export const RARITY_WEIGHTS: Record<CosmeticRarity, number> = {
+  common: 60,
+  rare: 30,
+  epic: 10,
+};
+
+export const RARITY_LABELS: Record<CosmeticRarity, string> = {
+  common: 'Common',
+  rare: 'Rare',
+  epic: 'Epic',
+};
+
+export function isCosmeticId(id: unknown): id is AccessoryId | CostumeId {
+  return typeof id === 'string' && id in COSMETICS;
 }
 
-function isRelicId(id: string): id is RelicId {
-  return id in RELICS;
+export function getCosmeticSlot(id: CosmeticId): CosmeticSlot | null {
+  return isCosmeticId(id) ? COSMETICS[id].slot : null;
 }
 
-function isConsumableId(id: string): id is ConsumableId {
-  return id === 'bonus_relic' || id === 'shield_tonic' || id === 'fury_charm';
-}
-
-function isCosmeticId(id: string): id is Exclude<CosmeticId, 'none'> {
-  return (
-    id === 'neon_trail' ||
-    id === 'crown_crest' ||
-    id === 'snoo_antenna' ||
-    id === 'flame_halo'
-  );
-}
-
-export function getDailyShopRotation(utcDate: string, profile: PlayerProfile): ShopRotation {
-  const rng = createDailyStream(utcDate, 'shop');
-
-  const pickedUpgradeId = rng.pick(UPGRADE_KEYS);
-  const upgradeDef = UPGRADES[pickedUpgradeId];
-  const currentLevel = profile.upgrades[pickedUpgradeId];
-  const upgradeMaxed = currentLevel >= upgradeDef.maxLevel;
-  const upgradeCost = upgradeMaxed ? 0 : (upgradeDef.costs[currentLevel] ?? 0);
-
-  const slot1: ShopSlot = {
-    slotIndex: 0,
-    kind: 'upgrade',
-    itemId: upgradeDef.id,
-    title: upgradeDef.title,
-    subtitle: 'Permanent Upgrade',
-    description: upgradeDef.description,
-    cost: upgradeCost,
-    purchased: upgradeMaxed,
-    maxed: upgradeMaxed,
-    levelLabel: `Lv ${currentLevel}/${upgradeDef.maxLevel}`,
-  };
-
-  const lockedRelics = UNLOCKABLE_RELIC_IDS.filter((id) => !profile.unlockedRelics.includes(id));
-  const dailyRelicPool = lockedRelics.length > 0 ? lockedRelics : UNLOCKABLE_RELIC_IDS;
-  const pickedRelicId = rng.pick(dailyRelicPool);
-  const relicDef = RELICS[pickedRelicId];
-  const relicAlreadyUnlocked = profile.unlockedRelics.includes(pickedRelicId);
-
-  let slot2: ShopSlot;
-  if (!relicAlreadyUnlocked) {
-    slot2 = {
-      slotIndex: 1,
-      kind: 'relic',
-      itemId: relicDef.id,
-      title: `${relicDef.emoji} ${relicDef.name}`,
-      subtitle: 'Unlockable Relic',
-      description: `Adds ${relicDef.name} to daily drafts: ${relicDef.summary(1)}.`,
-      cost: 95,
-      purchased: false,
-      maxed: false,
-      levelLabel: relicDef.category === 'blade' ? 'Blade Relic' : 'Arcane Relic',
-    };
-  } else if (lockedRelics.length === 0) {
-    const bonusActive = profile.pendingConsumable === 'bonus_relic';
-    slot2 = {
-      slotIndex: 1,
-      kind: 'consumable',
-      itemId: 'bonus_relic',
-      title: 'Mastery Relic Draft',
-      subtitle: 'All Relics Unlocked',
-      description: 'Start your next run with 1 random relic immediately.',
-      cost: 50,
-      purchased: bonusActive,
-      maxed: false,
-      levelLabel: bonusActive ? 'Armed' : 'Next Run',
-    };
-  } else {
-    slot2 = {
-      slotIndex: 1,
-      kind: 'relic',
-      itemId: relicDef.id,
-      title: `${relicDef.emoji} ${relicDef.name}`,
-      subtitle: 'Unlocked Relic',
-      description: `Already added to your daily draft pool: ${relicDef.summary(1)}.`,
-      cost: 0,
-      purchased: true,
-      maxed: true,
-      levelLabel: 'Unlocked',
-    };
-  }
-
-  const offerCosmetic = rng.next() < 0.45;
-  let slot3: ShopSlot;
-  if (offerCosmetic) {
-    const unownedCosmetics = COSMETIC_KEYS.filter((id) => !profile.ownedCosmetics.includes(id));
-    if (unownedCosmetics.length > 0) {
-      const cosmeticId = rng.pick(unownedCosmetics);
-      const cosmetic = COSMETICS[cosmeticId];
-      slot3 = {
-        slotIndex: 2,
-        kind: 'cosmetic',
-        itemId: cosmetic.id,
-        title: cosmetic.title,
-        subtitle: 'Runner Cosmetic',
-        description: cosmetic.description,
-        cost: cosmetic.cost,
-        purchased: false,
-        maxed: false,
-        levelLabel: 'Style',
-      };
-    } else {
-      const fallbackCosmetic = COSMETICS[rng.pick(COSMETIC_KEYS)];
-      slot3 = {
-        slotIndex: 2,
-        kind: 'cosmetic',
-        itemId: fallbackCosmetic.id,
-        title: fallbackCosmetic.title,
-        subtitle: 'Runner Cosmetic',
-        description: fallbackCosmetic.description,
-        cost: 0,
-        purchased: true,
-        maxed: true,
-        levelLabel: 'Owned',
-      };
-    }
-  } else {
-    const consumableId = rng.pick(CONSUMABLE_KEYS);
-    const consumable = CONSUMABLES[consumableId];
-    const alreadyPending = profile.pendingConsumable === consumableId;
-    slot3 = {
-      slotIndex: 2,
-      kind: 'consumable',
-      itemId: consumable.id,
-      title: consumable.title,
-      subtitle: 'Next-Run Boost',
-      description: consumable.description,
-      cost: consumable.cost,
-      purchased: alreadyPending,
-      maxed: false,
-      levelLabel: alreadyPending ? 'Armed' : '1 Run',
-    };
-  }
-
-  return [slot1, slot2, slot3];
-}
-
-export function purchaseShopSlot(
-  profile: PlayerProfile,
-  slot: ShopSlot,
-): { ok: boolean; profile: PlayerProfile; reason?: string | undefined } {
-  if (slot.purchased || slot.maxed) {
-    return { ok: false, profile, reason: 'Already owned or maxed.' };
-  }
-  if (profile.coins < slot.cost) {
-    return { ok: false, profile, reason: 'Not enough coins.' };
-  }
-
-  const next: PlayerProfile = {
+function cloneProfile(profile: PlayerProfile): PlayerProfile {
+  return {
     ...profile,
-    coins: profile.coins - slot.cost,
-    upgrades: { ...profile.upgrades },
+    ownedWeapons: [...profile.ownedWeapons],
     unlockedRelics: [...profile.unlockedRelics],
     ownedCosmetics: [...profile.ownedCosmetics],
     dailyBest: { ...profile.dailyBest },
   };
+}
 
-  if (slot.kind === 'upgrade' && isUpgradeId(slot.itemId)) {
-    const def = UPGRADES[slot.itemId];
-    const current = next.upgrades[slot.itemId];
-    if (current >= def.maxLevel) {
-      return { ok: false, profile, reason: 'Upgrade already maxed.' };
-    }
-    next.upgrades[slot.itemId] = current + 1;
-    return { ok: true, profile: next };
+// ---------------------------------------------------------------------------
+// Weapons (coins)
+// ---------------------------------------------------------------------------
+
+export function purchaseWeapon(profile: PlayerProfile, weaponId: WeaponId): ShopResult {
+  if (!isWeaponId(weaponId)) return { ok: false, profile, reason: 'Unknown weapon.' };
+  if (profile.ownedWeapons.includes(weaponId)) {
+    return { ok: false, profile, reason: 'Already owned.' };
+  }
+  const def = WEAPONS[weaponId];
+  if (profile.coins < def.cost) return { ok: false, profile, reason: 'Not enough coins.' };
+  const next = cloneProfile(profile);
+  next.coins -= def.cost;
+  next.ownedWeapons.push(weaponId);
+  next.equippedWeapon = weaponId;
+  return { ok: true, profile: next };
+}
+
+export function equipWeapon(profile: PlayerProfile, weaponId: WeaponId): ShopResult {
+  if (!isWeaponId(weaponId) || !profile.ownedWeapons.includes(weaponId)) {
+    return { ok: false, profile, reason: 'You do not own that weapon.' };
+  }
+  return { ok: true, profile: { ...profile, equippedWeapon: weaponId } };
+}
+
+// ---------------------------------------------------------------------------
+// Relic unlocks (coins)
+// ---------------------------------------------------------------------------
+
+export function getLockedRelics(profile: PlayerProfile): RelicId[] {
+  return UNLOCKABLE_RELIC_IDS.filter((id) => !profile.unlockedRelics.includes(id));
+}
+
+export function unlockRelic(profile: PlayerProfile, relicId: RelicId): ShopResult {
+  if (!(relicId in RELICS)) return { ok: false, profile, reason: 'Unknown relic.' };
+  if (profile.unlockedRelics.includes(relicId)) {
+    return { ok: false, profile, reason: 'Already unlocked.' };
+  }
+  if (profile.coins < RELIC_UNLOCK_COST) return { ok: false, profile, reason: 'Not enough coins.' };
+  const next = cloneProfile(profile);
+  next.coins -= RELIC_UNLOCK_COST;
+  next.unlockedRelics.push(relicId);
+  return { ok: true, profile: next };
+}
+
+// ---------------------------------------------------------------------------
+// Gacha (gems) — purely cosmetic
+// ---------------------------------------------------------------------------
+
+export type GachaResult = {
+  ok: boolean;
+  profile: PlayerProfile;
+  reason?: string | undefined;
+  cosmeticId?: AccessoryId | CostumeId | undefined;
+  duplicate?: boolean | undefined;
+};
+
+/** `rand` returns a float in [0, 1). Server and client each supply their own source. */
+export function pullGacha(profile: PlayerProfile, rand: () => number): GachaResult {
+  if (profile.gems < GACHA_PULL_COST) {
+    return { ok: false, profile, reason: `Need ${GACHA_PULL_COST} gems.` };
   }
 
-  if (slot.kind === 'relic' && isRelicId(slot.itemId)) {
-    if (!next.unlockedRelics.includes(slot.itemId)) {
-      next.unlockedRelics.push(slot.itemId);
+  const totalWeight = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
+  let roll = rand() * totalWeight;
+  let rarity: CosmeticRarity = 'common';
+  for (const key of ['epic', 'rare', 'common'] as const) {
+    roll -= RARITY_WEIGHTS[key];
+    if (roll < 0) {
+      rarity = key;
+      break;
     }
-    return { ok: true, profile: next };
   }
 
-  if (slot.kind === 'consumable' && isConsumableId(slot.itemId)) {
-    if (next.pendingConsumable !== null) {
-      return {
-        ok: false,
-        profile,
-        reason: 'A next-run boost is already armed for your next run.',
-      };
-    }
-    next.pendingConsumable = slot.itemId;
-    return { ok: true, profile: next };
-  }
+  const pool = COSMETIC_IDS.filter((id) => COSMETICS[id].rarity === rarity);
+  const cosmeticId = pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
+  if (!cosmeticId) return { ok: false, profile, reason: 'Gacha pool empty.' };
 
-  if (slot.kind === 'cosmetic' && isCosmeticId(slot.itemId)) {
-    if (!next.ownedCosmetics.includes(slot.itemId)) {
-      next.ownedCosmetics.push(slot.itemId);
-    }
-    next.equippedCosmetic = slot.itemId;
-    return { ok: true, profile: next };
+  const next = cloneProfile(profile);
+  next.gems -= GACHA_PULL_COST;
+  const duplicate = next.ownedCosmetics.includes(cosmeticId);
+  if (duplicate) {
+    next.coins += GACHA_DUPLICATE_COINS;
+  } else {
+    // New cosmetics are equipped straight away so the pull feels rewarding.
+    next.ownedCosmetics.push(cosmeticId);
+    if (COSMETICS[cosmeticId].slot === 'costume') next.equippedCostume = cosmeticId;
+    else next.equippedCosmetic = cosmeticId;
   }
+  return { ok: true, profile: next, cosmeticId, duplicate };
+}
 
-  return { ok: false, profile, reason: 'Invalid shop item.' };
+/** Equip an owned cosmetic, or pass 'none' with a slot to unequip that slot. */
+export function equipCosmetic(
+  profile: PlayerProfile,
+  cosmeticId: CosmeticId,
+  slotHint?: CosmeticSlot,
+): ShopResult {
+  if (cosmeticId === 'none') {
+    if (slotHint === 'costume') return { ok: true, profile: { ...profile, equippedCostume: 'none' } };
+    return { ok: true, profile: { ...profile, equippedCosmetic: 'none' } };
+  }
+  if (!isCosmeticId(cosmeticId) || !profile.ownedCosmetics.includes(cosmeticId)) {
+    return { ok: false, profile, reason: 'You do not own that cosmetic.' };
+  }
+  const slot = COSMETICS[cosmeticId].slot;
+  return {
+    ok: true,
+    profile:
+      slot === 'costume'
+        ? { ...profile, equippedCostume: cosmeticId }
+        : { ...profile, equippedCosmetic: cosmeticId },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Single entry point shared by the local adapter and the Devvit server
+// ---------------------------------------------------------------------------
+
+export type ShopAction =
+  | { action: 'buy_weapon'; weaponId: WeaponId }
+  | { action: 'equip_weapon'; weaponId: WeaponId }
+  | { action: 'unlock_relic'; relicId: RelicId }
+  | { action: 'gacha_pull' }
+  | { action: 'equip_cosmetic'; cosmeticId: CosmeticId; slot: CosmeticSlot }
+  | { action: 'set_tutorial_dismissed'; dismissed: boolean };
+
+export function applyShopAction(
+  profile: PlayerProfile,
+  req: ShopAction,
+  rand: () => number,
+): GachaResult {
+  switch (req.action) {
+    case 'buy_weapon':
+      return purchaseWeapon(profile, req.weaponId);
+    case 'equip_weapon':
+      return equipWeapon(profile, req.weaponId);
+    case 'unlock_relic':
+      return unlockRelic(profile, req.relicId);
+    case 'gacha_pull':
+      return pullGacha(profile, rand);
+    case 'equip_cosmetic':
+      return equipCosmetic(profile, req.cosmeticId, req.slot);
+    case 'set_tutorial_dismissed':
+      return { ok: true, profile: { ...profile, tutorialDismissed: req.dismissed } };
+    default:
+      return { ok: false, profile, reason: 'Unknown shop action.' };
+  }
 }

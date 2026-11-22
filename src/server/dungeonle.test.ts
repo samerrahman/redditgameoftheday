@@ -13,11 +13,7 @@ import {
   PLAY_MIN_Y,
 } from '../shared/game/constants.ts';
 import { createEnemy } from '../shared/game/enemies.ts';
-import {
-  buildDailyDungeonMap,
-  buildRoomBlueprint,
-  oppositeDirection,
-} from '../shared/game/rooms.ts';
+import { buildDailyDungeonMap, getFloorScaling, oppositeDirection } from '../shared/game/rooms.ts';
 import { GameSimulation } from '../shared/game/simulation.ts';
 import {
   BUILD_ID,
@@ -29,15 +25,57 @@ import { getDailyHazard, getDailyModifier } from '../shared/modifiers.ts';
 import {
   applyRunToProfile,
   clearDailyRun,
+  compareLeaderboardEntries,
   createDefaultProfile,
   getDailyRunSummary,
+  getPlayerTitle,
   hasCompletedDailyRun,
+  normalizeProfile,
+  toLeaderboardEntry,
 } from '../shared/profile.ts';
 import { draftRelics } from '../shared/relics.ts';
 import { createDailyStream, formatTimeUntilNextUtcDay } from '../shared/rng.ts';
 import { formatShareComment } from '../shared/share.ts';
-import { getDailyShopRotation, purchaseShopSlot, UPGRADES } from '../shared/shop.ts';
-import type { InputFrame } from '../shared/types.ts';
+import {
+  applyShopAction,
+  COSMETIC_IDS,
+  GACHA_PULL_COST,
+  RELIC_UNLOCK_COST,
+  getLockedRelics,
+} from '../shared/shop.ts';
+import type { InputFrame, RunSummary } from '../shared/types.ts';
+import { WEAPONS, WEAPON_IDS } from '../shared/weapons.ts';
+
+function makeSummary(overrides: Partial<RunSummary> = {}): RunSummary {
+  return {
+    utcDate: '2026-11-19',
+    outcome: 'defeated',
+    bossDefeated: false,
+    floorReached: 1,
+    roomsCleared: 2,
+    floorsCleared: 0,
+    roomReached: 3,
+    progressPct: 40,
+    totalRooms: 5,
+    elapsedSec: 185,
+    coinsEarned: 45,
+    gemsEarned: 0,
+    damageTaken: 100,
+    enemiesKilled: 22,
+    weapon: 'longsword',
+    relics: {},
+    score: 420,
+    ...overrides,
+  };
+}
+
+/** Kill everything in the current room and advance one frame so it registers as cleared. */
+function clearRoom(sim: GameSimulation): void {
+  sim.state.totalWaves = 1;
+  sim.state.waveIndex = 0;
+  sim.state.enemies = [];
+  sim.step(idleInput());
+}
 
 function idleInput(overrides: Partial<InputFrame> = {}): InputFrame {
   return {
@@ -59,40 +97,65 @@ function stepFrames(sim: GameSimulation, count: number, inputFn: (i: number) => 
   }
 }
 
-void describe('Deterministic Daily RNG & Blueprints', () => {
-  void it('produces identical results for the same UTC date and differs across dates', () => {
+void describe('Deterministic Daily RNG & Floor Layouts', () => {
+  void it('gives everyone the same floor layout for a date and differs across dates/floors', () => {
     const dateA = '2026-11-20';
     const dateB = '2026-11-25';
-    const profile = createDefaultProfile();
-
     const hazardA = getDailyHazard(dateA);
     const hazardB = getDailyHazard(dateB);
-    const mapA = buildDailyDungeonMap(dateA, hazardA);
-    const mapB = buildDailyDungeonMap(dateB, hazardB);
+    const mapA = buildDailyDungeonMap(dateA, 1, hazardA);
+    const mapB = buildDailyDungeonMap(dateB, 1, hazardB);
 
     assert.deepEqual(getDailyModifier(dateA), getDailyModifier(dateA));
     assert.equal(hazardA, getDailyHazard(dateA));
-    assert.deepEqual(getDailyShopRotation(dateA, profile), getDailyShopRotation(dateA, profile));
-    assert.deepEqual(buildRoomBlueprint(dateA, 1, hazardA), buildRoomBlueprint(dateA, 1, hazardA));
-    assert.deepEqual(mapA, buildDailyDungeonMap(dateA, hazardA));
-
-    assert.ok(mapA.totalRooms >= 6 && mapA.totalRooms <= 8);
-    assert.equal(mapA.rooms.length, mapA.totalRooms);
-    const startRoom = mapA.rooms.find((r) => r.id === mapA.startRoomId);
-    assert.ok(startRoom !== undefined);
-    assert.ok(Object.keys(startRoom.doors).length >= 2);
-    assert.ok(
-      mapA.rooms.some((r) => r.id !== mapA.startRoomId && Object.keys(r.doors).length >= 2),
-    );
-    const bossNode = mapA.rooms.find((r) => r.id === mapA.bossRoomId);
-    assert.ok(bossNode !== undefined);
-    assert.equal(bossNode.blueprint.roomType, 'boss');
+    assert.deepEqual(mapA, buildDailyDungeonMap(dateA, 1, hazardA));
+    assert.notDeepEqual(mapA, buildDailyDungeonMap(dateA, 2, hazardA));
 
     const differs =
       getDailyModifier(dateA).id !== getDailyModifier(dateB).id ||
       hazardA !== hazardB ||
       JSON.stringify(mapA) !== JSON.stringify(mapB);
     assert.equal(differs, true);
+  });
+
+  void it('builds 4-6 rooms per floor, a single-exit entrance, and a boss in the farthest room', () => {
+    for (const date of ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-12-01']) {
+      for (let floor = 1; floor <= 12; floor += 1) {
+        const map = buildDailyDungeonMap(date, floor, getDailyHazard(date));
+        assert.equal(map.floor, floor);
+        assert.ok(map.totalRooms >= 4 && map.totalRooms <= 6, `${date} F${floor}: ${map.totalRooms}`);
+        assert.equal(map.rooms.length, map.totalRooms);
+        const start = map.rooms.find((r) => r.id === map.startRoomId);
+        assert.ok(start !== undefined);
+        assert.equal(Object.keys(start.doors).length, 1, 'entrance must have exactly one exit');
+        const boss = map.rooms.find((r) => r.id === map.bossRoomId);
+        assert.ok(boss !== undefined);
+        assert.equal(boss.blueprint.roomType, 'boss');
+        const maxDist = Math.max(...map.rooms.map((r) => r.bfsDist));
+        assert.equal(boss.bfsDist, maxDist);
+        assert.equal(
+          map.rooms.filter((r) => r.blueprint.waves.flat().some((w) => w.archetype === 'boss')).length,
+          1,
+          'exactly one boss per floor',
+        );
+      }
+    }
+  });
+
+  void it('scales enemies and bosses up with each floor', () => {
+    const f1 = getFloorScaling(1);
+    const f5 = getFloorScaling(5);
+    assert.equal(f1.hpScale, 1);
+    assert.ok(f5.hpScale > f1.hpScale);
+    assert.ok(f5.bossHpScale > f5.hpScale);
+    assert.ok(f5.damageMult > f1.damageMult);
+    assert.ok(f5.coinMult > f1.coinMult);
+    const date = '2026-11-20';
+    const boss1 = buildDailyDungeonMap(date, 1, getDailyHazard(date));
+    const boss4 = buildDailyDungeonMap(date, 4, getDailyHazard(date));
+    const bp1 = boss1.rooms.find((r) => r.id === boss1.bossRoomId)!.blueprint;
+    const bp4 = boss4.rooms.find((r) => r.id === boss4.bossRoomId)!.blueprint;
+    assert.ok(bp4.hpScale > bp1.hpScale);
   });
 });
 
@@ -337,44 +400,23 @@ void describe('Attack Relics (Blade & Arcane)', () => {
   });
 });
 
-void describe('Branching Dungeon, Progress %, Fountain, Boss Extract vs Endless', () => {
-  void it('navigates branching exits, remembers cleared rooms, heals at fountain, and supports Endless after boss', () => {
+void describe('Floors: rooms, relics, boss, stairs and descent', () => {
+  void it('clears rooms, claims relics, beats the boss, and descends to a harder floor', () => {
     const utcDate = '2026-11-20';
     const profile = createDefaultProfile();
-    const map = buildDailyDungeonMap(utcDate, getDailyHazard(utcDate));
+    const map = buildDailyDungeonMap(utcDate, 1, getDailyHazard(utcDate));
     const sim = new GameSimulation(utcDate, profile);
     sim.startNewRun(utcDate, profile);
 
+    assert.equal(sim.state.floor, 1);
     assert.equal(sim.state.progressPct, 0);
-    assert.ok(sim.state.doors.length >= 2);
+    assert.equal(sim.state.doors.length, 1, 'entrance has one exit');
 
-    sim.state.totalWaves = 1;
-    sim.state.enemies = [];
-    sim.step(idleInput());
-
-    assert.equal(sim.state.progressPct, Math.round((1 / map.totalRooms) * 100));
-    assert.equal(sim.state.roomState, 'reward');
-    assert.equal(sim.state.pedestals.length, 3);
-
-    const chosen = sim.state.pedestals[1];
-    assert.ok(chosen !== undefined);
-    sim.state.player.x = chosen.x;
-    sim.state.player.y = chosen.y;
-    stepFrames(sim, 32, () => idleInput());
-
-    // Standing near/on a pedestal previews it but does NOT auto-claim
-    assert.equal(sim.state.roomState, 'reward');
-    assert.equal(sim.state.pedestals.length, 3);
-    assert.equal(chosen.hovered, true);
-
-    // Slashing at the pedestal claims the relic and opens the door
-    sim.state.player.x = chosen.x;
-    sim.state.player.y = chosen.y + 56;
-    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
-
+    // Entrance pays out a coin cache and opens its single door.
+    clearRoom(sim);
     assert.equal(sim.state.roomState, 'door_open');
-    assert.equal(sim.state.pedestals.length, 0);
-    assert.equal(sim.state.player.relics[chosen.relic.id], 1);
+    assert.equal(sim.state.roomsClearedTotal, 1);
+    assert.equal(sim.state.progressPct, Math.round((1 / map.totalRooms) * 100));
 
     const doorCoords = {
       north: { x: ARENA_W / 2, y: PLAY_MIN_Y + 8 },
@@ -382,102 +424,96 @@ void describe('Branching Dungeon, Progress %, Fountain, Boss Extract vs Endless'
       west: { x: PLAY_MIN_X + 8, y: ARENA_H / 2 },
       east: { x: PLAY_MAX_X - 8, y: ARENA_H / 2 },
     };
-
     stepFrames(sim, 22, () => idleInput());
-    const firstDoor = sim.state.doors[0];
-    assert.ok(firstDoor !== undefined);
-    sim.state.player.x = doorCoords[firstDoor.dir].x;
-    sim.state.player.y = doorCoords[firstDoor.dir].y;
+    const door = sim.state.doors[0];
+    assert.ok(door !== undefined);
+    sim.state.player.x = doorCoords[door.dir].x;
+    sim.state.player.y = doorCoords[door.dir].y;
     sim.step(idleInput());
+    assert.equal(sim.state.currentRoomId, door.targetRoomId);
+    stepFrames(sim, 40, () => idleInput());
 
-    assert.equal(sim.state.currentRoomId, firstDoor.targetRoomId);
-    assert.equal(sim.state.roomTransitionKind, 'door');
-    assert.equal(sim.state.roomTransitionDir, firstDoor.dir);
-    assert.ok(sim.state.roomTransitionTimer > 0);
-
-    const timeDuringTransition = sim.state.elapsedTime;
-    sim.step(idleInput());
-    assert.equal(sim.state.elapsedTime, timeDuringTransition);
-
-    stepFrames(sim, 32, () => idleInput());
-    assert.equal(sim.state.roomTransitionTimer, 0);
-    assert.equal(sim.state.roomTransitionKind, 'none');
-
-    // Clear neighbor room and walk back to Room 0 via opposite doorway
-    sim.state.totalWaves = 1;
-    sim.state.enemies = [];
-    sim.step(idleInput());
-    if (sim.state.roomState === 'reward' && sim.state.pedestals.length > 0) {
-      const nextRelic = sim.state.pedestals[0];
-      assert.ok(nextRelic !== undefined);
-      sim.state.player.x = nextRelic.x;
-      sim.state.player.y = nextRelic.y + 56;
+    // Walking back through the door returns to the cleared entrance.
+    clearRoom(sim);
+    const roomStateAfterClear: string = sim.state.roomState;
+    if (roomStateAfterClear === 'reward') {
+      const ped = sim.state.pedestals[0]!;
+      sim.state.player.x = ped.x;
+      sim.state.player.y = ped.y + 56;
       sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+      assert.equal(sim.state.player.relics[ped.relic.id], 1);
     }
-
     stepFrames(sim, 22, () => idleInput());
-    const returnDir = oppositeDirection(firstDoor.dir);
-    sim.state.player.x = doorCoords[returnDir].x;
-    sim.state.player.y = doorCoords[returnDir].y;
+    const back = oppositeDirection(door.dir);
+    sim.state.player.x = doorCoords[back].x;
+    sim.state.player.y = doorCoords[back].y;
     sim.step(idleInput());
-
     assert.equal(sim.state.currentRoomId, map.startRoomId);
     assert.equal(sim.state.enemies.length, 0);
-    assert.equal(sim.state.roomState, 'door_open');
-    stepFrames(sim, 32, () => idleInput());
+    stepFrames(sim, 40, () => idleInput());
 
-    const fountainNode = map.rooms.find((r) => r.blueprint.rewardType === 'fountain_and_relics');
-    assert.ok(fountainNode !== undefined);
-    sim.enterMapRoom(fountainNode.id);
-    sim.state.player.hp = 40;
-    sim.state.totalWaves = 1;
-    sim.state.enemies = [];
-    sim.step(idleInput());
-
-    assert.ok(sim.state.fountain !== null);
-    sim.state.player.x = sim.state.fountain.x;
-    sim.state.player.y = sim.state.fountain.y;
-    sim.step(idleInput());
-    assert.equal(sim.state.player.hp, 75);
-
-    const bossNode = map.rooms.find((r) => r.id === map.bossRoomId);
-    assert.ok(bossNode !== undefined);
-    sim.enterMapRoom(bossNode.id);
-    sim.state.totalWaves = 1;
-    sim.state.enemies = [];
-    sim.step(idleInput());
-
-    assert.equal(sim.state.roomState, 'boss_choice');
+    // Boss: heal, relic draft, then stairs appear after claiming.
+    sim.enterMapRoom(map.bossRoomId);
+    sim.state.player.hp = 30;
+    clearRoom(sim);
     assert.equal(sim.state.stats.bossDefeated, true);
+    assert.equal(sim.state.floorsCleared, 1);
+    assert.ok(sim.state.player.hp > 30, 'boss kill heals');
+    assert.equal(sim.state.roomState, 'reward');
+    assert.equal(sim.state.portals.length, 0, 'stairs wait for the relic pick');
+    const bossRelic = sim.state.pedestals[1]!;
+    sim.state.player.x = bossRelic.x;
+    sim.state.player.y = bossRelic.y + 56;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    assert.equal(sim.state.roomState, 'boss_choice');
     assert.deepEqual(
-      sim.state.portals.map((p) => p.kind).sort(),
-      ['endless', 'extract'],
+      sim.state.portals.map((p) => p.kind),
+      ['stairs'],
     );
 
-    const endlessPortal = sim.state.portals.find((p) => p.kind === 'endless');
-    assert.ok(endlessPortal !== undefined);
-    sim.state.player.x = endlessPortal.x;
-    sim.state.player.y = endlessPortal.y;
+    const stairs = sim.state.portals[0]!;
+    sim.state.player.x = stairs.x;
+    sim.state.player.y = stairs.y;
     stepFrames(sim, 30, () => idleInput());
-    assert.equal(sim.state.roomIndex, map.totalRooms + 1);
+    assert.equal(sim.state.floor, 2);
     assert.equal(sim.state.roomTransitionKind, 'portal');
-    assert.ok(sim.state.roomTransitionTimer > 0);
+    assert.equal(sim.state.clearedRooms, 0);
+    assert.equal(sim.state.roomType, 'warmup');
+    assert.ok(sim.state.modifier.enemyDamageMult > getDailyModifier(utcDate).enemyDamageMult);
+    const floor2 = buildDailyDungeonMap(utcDate, 2, getDailyHazard(utcDate));
+    assert.equal(sim.state.totalRooms, floor2.totalRooms);
+    assert.ok(Object.keys(sim.state.player.relics).length >= 1, 'relics carry between floors');
 
-    stepFrames(sim, 42, () => idleInput());
-    assert.equal(sim.state.roomTransitionTimer, 0);
+    const summary = sim.getRunSummary();
+    assert.equal(summary.floorReached, 2);
+    assert.equal(summary.floorsCleared, 1);
+    assert.ok(summary.roomsCleared >= 3);
+    assert.equal(summary.weapon, 'longsword');
+  });
 
-    sim.state.totalWaves = 1;
-    sim.state.enemies = [];
-    sim.step(idleInput());
-    const extractPortal = sim.state.portals.find((p) => p.kind === 'extract');
-    assert.ok(extractPortal !== undefined);
-    sim.state.player.x = extractPortal.x;
-    sim.state.player.y = extractPortal.y;
-    stepFrames(sim, 30, () => idleInput());
-
-    assert.equal(sim.state.phase, 'ended');
-    assert.equal(sim.getRunSummary().outcome, 'extracted');
-    assert.equal(sim.getRunSummary().roomReached, map.totalRooms + 1);
+  void it('keeps going: floors are endless', () => {
+    const utcDate = '2026-11-21';
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation(utcDate, profile);
+    sim.startNewRun(utcDate, profile);
+    for (let i = 0; i < 6; i += 1) {
+      const map = buildDailyDungeonMap(utcDate, sim.state.floor, getDailyHazard(utcDate));
+      sim.enterMapRoom(map.bossRoomId);
+      clearRoom(sim);
+      const ped = sim.state.pedestals[0];
+      if (ped) {
+        sim.state.player.x = ped.x;
+        sim.state.player.y = ped.y + 56;
+        sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+      }
+      const stairs = sim.state.portals[0]!;
+      sim.state.player.x = stairs.x;
+      sim.state.player.y = stairs.y;
+      stepFrames(sim, 70, () => idleInput());
+      sim.state.player.hp = sim.state.player.maxHp;
+    }
+    assert.equal(sim.state.floor, 7);
+    assert.equal(sim.getRunSummary().floorsCleared, 6);
   });
 
   void it('plays death sequence before ending run and ignores input while dying', () => {
@@ -536,221 +572,179 @@ void describe('Branching Dungeon, Progress %, Fountain, Boss Extract vs Endless'
   });
 });
 
-void describe('Coins, Streaks, Shop & Share Formatter', () => {
-  void it('keeps coins on defeat/clear, updates UTC streaks, enforces shop rules, and formats share text', () => {
+void describe('Coins, gems, streaks, titles & leaderboard', () => {
+  void it('banks coins and gems on death, tracks best floor, and updates UTC streaks', () => {
     let profile = createDefaultProfile();
     assert.equal(hasCompletedDailyRun(profile, '2026-11-19'), false);
 
-    profile = applyRunToProfile(profile, {
-      utcDate: '2026-11-19',
-      outcome: 'defeated',
-      bossDefeated: false,
-      roomReached: 3,
-      progressPct: 33,
-      totalRooms: 6,
-      elapsedSec: 185,
-      coinsEarned: 45,
-      damageTaken: 100,
-      enemiesKilled: 22,
-      relics: { ember_wake: 1 },
-      score: 420,
-    });
-
+    profile = applyRunToProfile(
+      profile,
+      makeSummary({ coinsEarned: 45, gemsEarned: 1, floorReached: 2, floorsCleared: 1 }),
+    );
     assert.equal(ENFORCE_SINGLE_DAILY_RUN, false);
     assert.equal(profile.coins, 45);
+    assert.equal(profile.gems, 1);
+    assert.equal(profile.bestFloor, 2);
+    assert.equal(profile.totalClears, 1);
     assert.equal(profile.streak, 1);
     assert.equal(hasCompletedDailyRun(profile, '2026-11-19'), true);
-    assert.equal(getDailyRunSummary(profile, '2026-11-19')?.roomReached, 3);
+    assert.equal(getDailyRunSummary(profile, '2026-11-19')?.floorReached, 2);
 
-    // Explicitly enforcing single-daily lock still rejects duplicate same-day run
-    const lockedProfile = applyRunToProfile(
+    const locked = applyRunToProfile(
       profile,
-      {
-        utcDate: '2026-11-19',
-        outcome: 'extracted',
-        bossDefeated: true,
-        roomReached: 6,
-        progressPct: 100,
-        totalRooms: 6,
-        elapsedSec: 99,
-        coinsEarned: 999,
-        damageTaken: 10,
-        enemiesKilled: 60,
-        relics: {},
-        score: 9999,
-      },
+      makeSummary({ coinsEarned: 999, floorReached: 9 }),
       { enforceSingleDailyRun: true },
     );
-    assert.equal(lockedProfile.coins, 45);
-    assert.equal(lockedProfile.totalRuns, 1);
-    assert.equal(lockedProfile.dailyBest['2026-11-19']?.bestScore, 420);
+    assert.equal(locked.coins, 45);
+    assert.equal(locked.bestFloor, 2);
 
-    // Default (dev replayable) allows same-day replays, accumulates coins, updates best, preserves streak
-    const replayedSameDay = applyRunToProfile(profile, {
-      utcDate: '2026-11-19',
-      outcome: 'extracted',
-      bossDefeated: true,
-      roomReached: 6,
-      progressPct: 100,
-      totalRooms: 6,
-      elapsedSec: 120,
-      coinsEarned: 25,
-      damageTaken: 15,
-      enemiesKilled: 50,
-      relics: {},
-      score: 750,
-    });
-    assert.equal(replayedSameDay.coins, 70);
-    assert.equal(replayedSameDay.totalRuns, 2);
-    assert.equal(replayedSameDay.streak, 1);
-    assert.equal(replayedSameDay.dailyBest['2026-11-19']?.bestScore, 750);
-    assert.equal(replayedSameDay.dailyBest['2026-11-19']?.highestRoom, 6);
-    assert.equal(replayedSameDay.dailyBest['2026-11-19']?.extracted, true);
+    const replay = applyRunToProfile(profile, makeSummary({ coinsEarned: 25, floorReached: 1 }));
+    assert.equal(replay.coins, 70);
+    assert.equal(replay.bestFloor, 2, 'best floor never goes down');
+    assert.equal(replay.dailyBest['2026-11-19']?.bestFloor, 2);
+
+    profile = applyRunToProfile(profile, makeSummary({ utcDate: '2026-11-20', floorReached: 4 }));
+    assert.equal(profile.streak, 2);
+    assert.equal(profile.bestFloor, 4);
+    profile = applyRunToProfile(profile, makeSummary({ utcDate: '2026-11-23' }));
+    assert.equal(profile.streak, 1, 'missing a day resets the streak');
+
+    const cleared = clearDailyRun(profile, '2026-11-19');
+    assert.equal(hasCompletedDailyRun(cleared, '2026-11-19'), false);
+    assert.equal(cleared.coins, profile.coins);
 
     assert.equal(isDevResetAccount('Mental_Glove6343'), true);
-    assert.equal(isDevResetAccount('mental_glove6343'), true);
     assert.equal(isDevResetAccount('OtherUser'), false);
-    assert.equal(isDevResetAccount(undefined), false);
     assert.equal(isStampedBuildId(BUILD_ID), false);
     assert.equal(isStampedBuildId('client-12345-1'), true);
-
-    const clearedNov19 = clearDailyRun(profile, '2026-11-19');
-    assert.equal(hasCompletedDailyRun(clearedNov19, '2026-11-19'), false);
-    assert.equal(clearedNov19.coins, 45);
-    assert.equal(clearedNov19.streak, 1);
-    const replayedNov19 = applyRunToProfile(clearedNov19, {
-      utcDate: '2026-11-19',
-      outcome: 'defeated',
-      bossDefeated: false,
-      roomReached: 4,
-      progressPct: 50,
-      totalRooms: 6,
-      elapsedSec: 200,
-      coinsEarned: 15,
-      damageTaken: 90,
-      enemiesKilled: 25,
-      relics: {},
-      score: 510,
-    });
-    assert.equal(hasCompletedDailyRun(replayedNov19, '2026-11-19'), true);
-    assert.equal(replayedNov19.streak, 1);
-    assert.equal(replayedNov19.dailyBest['2026-11-19']?.bestScore, 510);
-
     assert.equal(formatTimeUntilNextUtcDay(Date.UTC(2026, 10, 21, 22, 30, 15)), '01:29:45');
+  });
 
-    profile = applyRunToProfile(profile, {
-      utcDate: '2026-11-20',
-      outcome: 'extracted',
-      bossDefeated: true,
-      roomReached: 5,
-      elapsedSec: 412,
-      coinsEarned: 195,
-      damageTaken: 42,
-      enemiesKilled: 48,
-      relics: { ember_wake: 2, rift_cleave: 1 },
-      score: 1850,
-    });
+  void it('earns titles from the deepest floor ever reached', () => {
+    assert.equal(getPlayerTitle(0).title, 'Fresh Recruit');
+    assert.equal(getPlayerTitle(1).title, 'Fresh Recruit');
+    assert.equal(getPlayerTitle(2).title, 'Dungeon Delver');
+    assert.equal(getPlayerTitle(5).title, 'Depth Stalker');
+    assert.equal(getPlayerTitle(10).title, 'Dungeon Legend');
+    assert.equal(getPlayerTitle(10).next, null);
+    assert.equal(getPlayerTitle(3).next?.minFloor, 5);
+  });
 
-    assert.equal(profile.coins, 240);
-    assert.equal(profile.streak, 2);
-
-    const clearedKeepNov20 = clearDailyRun(profile, '2026-11-19');
-    assert.equal(hasCompletedDailyRun(clearedKeepNov20, '2026-11-19'), false);
-    assert.equal(hasCompletedDailyRun(clearedKeepNov20, '2026-11-20'), true);
-    assert.equal(clearedKeepNov20.coins, 240);
-    assert.equal(clearedKeepNov20.streak, 2);
-
-    const slots = getDailyShopRotation('2026-11-20', profile);
-    assert.equal(slots.length, 3);
-
-    const relicSlot = slots[1];
-    assert.equal(relicSlot.kind, 'relic');
-    const buyRelic = purchaseShopSlot(profile, relicSlot);
-    assert.equal(buyRelic.ok, true);
-    profile = buyRelic.profile;
-    assert.equal(
-      profile.unlockedRelics.some((id) => id === relicSlot.itemId),
-      true,
+  void it('ranks the leaderboard by deepest floor, then rooms, then time', () => {
+    const rows = [
+      toLeaderboardEntry('a', makeSummary({ floorReached: 2, roomsCleared: 7, elapsedSec: 300 })),
+      toLeaderboardEntry('b', makeSummary({ floorReached: 3, roomsCleared: 9, elapsedSec: 500 })),
+      toLeaderboardEntry('c', makeSummary({ floorReached: 2, roomsCleared: 8, elapsedSec: 400 })),
+      toLeaderboardEntry('d', makeSummary({ floorReached: 2, roomsCleared: 8, elapsedSec: 350 })),
+    ].sort(compareLeaderboardEntries);
+    assert.deepEqual(
+      rows.map((r) => r.player),
+      ['b', 'd', 'c', 'a'],
     );
+  });
 
+  void it('migrates old saves that had stat upgrades and consumables', () => {
+    const migrated = normalizeProfile(
+      JSON.parse(
+        '{"coins":120,"upgrades":{"vitality":3},"pendingConsumable":"fury_charm","ownedCosmetics":["none","crown_crest"],"equippedCosmetic":"crown_crest","streak":4}',
+      ),
+    );
+    assert.equal(migrated.coins, 120);
+    assert.equal(migrated.streak, 4);
+    assert.deepEqual(migrated.ownedWeapons, ['longsword']);
+    assert.equal(migrated.equippedWeapon, 'longsword');
+    assert.equal(migrated.equippedCosmetic, 'crown_crest');
+    assert.equal(migrated.gems, 0);
+    assert.equal('upgrades' in migrated, false);
+  });
+});
+
+void describe('Shop: weapons, relic unlocks, gacha', () => {
+  void it('sells weapons once, equips them, and never sells stat upgrades', () => {
+    let profile = { ...createDefaultProfile(), coins: 1000 };
+    const noop = () => 0;
+    assert.equal(applyShopAction(profile, { action: 'equip_weapon', weaponId: 'dagger' }, noop).ok, false);
+    const buy = applyShopAction(profile, { action: 'buy_weapon', weaponId: 'dagger' }, noop);
+    assert.equal(buy.ok, true);
+    profile = buy.profile;
+    assert.equal(profile.coins, 1000 - WEAPONS.dagger.cost);
+    assert.equal(profile.equippedWeapon, 'dagger');
+    assert.equal(applyShopAction(profile, { action: 'buy_weapon', weaponId: 'dagger' }, noop).ok, false);
+    profile = applyShopAction(profile, { action: 'equip_weapon', weaponId: 'longsword' }, noop).profile;
+    assert.equal(profile.equippedWeapon, 'longsword');
+    const poor = applyShopAction(
+      { ...profile, coins: 10 },
+      { action: 'buy_weapon', weaponId: 'arcane_lance' },
+      noop,
+    );
+    assert.equal(poor.ok, false);
+    assert.equal(poor.reason, 'Not enough coins.');
+  });
+
+  void it('keeps weapons as sidegrades (DPS within a narrow band)', () => {
+    const dps = WEAPON_IDS.map((id) => {
+      const w = WEAPONS[id];
+      const perAttack = w.damage * (w.projectile?.count ?? 1);
+      return perAttack / w.cooldown;
+    });
+    const min = Math.min(...dps);
+    const max = Math.max(...dps);
+    assert.ok(max / min < 1.35, `DPS spread too wide: ${dps.map((d) => d.toFixed(0)).join(', ')}`);
+  });
+
+  void it('unlocks relics into the draft pool', () => {
+    let profile = { ...createDefaultProfile(), coins: RELIC_UNLOCK_COST };
+    const target = getLockedRelics(profile)[0]!;
+    const res = applyShopAction(profile, { action: 'unlock_relic', relicId: target }, () => 0);
+    assert.equal(res.ok, true);
+    profile = res.profile;
+    assert.equal(profile.coins, 0);
     const drafted = draftRelics(
       createDailyStream('2026-11-20', 'test-draft'),
       profile.unlockedRelics,
       profile.unlockedRelics.length,
     );
-    assert.equal(
-      drafted.some((d) => d.id === relicSlot.itemId),
-      true,
+    assert.ok(drafted.some((d) => d.id === target));
+  });
+
+  void it('gacha spends gems for cosmetics only and refunds duplicates', () => {
+    let profile = { ...createDefaultProfile(), gems: GACHA_PULL_COST * 2 };
+    const first = applyShopAction(profile, { action: 'gacha_pull' }, () => 0.99);
+    assert.equal(first.ok, true);
+    assert.ok(first.cosmeticId !== undefined && COSMETIC_IDS.includes(first.cosmeticId as never));
+    profile = first.profile;
+    assert.equal(profile.gems, GACHA_PULL_COST);
+    assert.ok(profile.ownedCosmetics.includes(first.cosmeticId!));
+    const coinsBefore = profile.coins;
+    const dupe = applyShopAction(profile, { action: 'gacha_pull' }, () => 0.99);
+    assert.equal(dupe.ok, true);
+    assert.equal(dupe.duplicate, true);
+    assert.ok(dupe.profile.coins > coinsBefore);
+    assert.equal(applyShopAction(dupe.profile, { action: 'gacha_pull' }, () => 0.5).ok, false);
+    const equip = applyShopAction(
+      dupe.profile,
+      { action: 'equip_cosmetic', cosmeticId: first.cosmeticId!, slot: 'accessory' },
+      () => 0,
     );
+    assert.equal(equip.ok, true);
+    const slotField =
+      equip.profile.equippedCostume === first.cosmeticId ? 'costume' : 'accessory';
+    assert.ok(slotField === 'costume' || equip.profile.equippedCosmetic === first.cosmeticId);
+  });
 
-    const upgradeSlot = slots[0];
-    const upgradeId = upgradeSlot.itemId;
-    if (
-      upgradeId === 'vitality' ||
-      upgradeId === 'reroll' ||
-      upgradeId === 'magnet' ||
-      upgradeId === 'shield'
-    ) {
-      profile.upgrades[upgradeId] = UPGRADES[upgradeId].maxLevel;
-    }
-    const maxedRotation = getDailyShopRotation('2026-11-20', profile);
-    assert.equal(maxedRotation[0].maxed, true);
-    const overBuy = purchaseShopSlot(profile, maxedRotation[0]);
-    assert.equal(overBuy.ok, false);
-
-    profile.pendingConsumable = 'bonus_relic';
-    const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
-    assert.equal(Object.keys(sim.state.player.relics).length, 1);
-
-    const shareText = formatShareComment(
-      {
-        utcDate: '2026-11-20',
-        outcome: 'extracted',
-        bossDefeated: true,
-        roomReached: 7,
-        totalRooms: 7,
-        progressPct: 100,
-        elapsedSec: 412,
-        coinsEarned: 195,
-        damageTaken: 42,
-        enemiesKilled: 48,
-        relics: { ember_wake: 2, rift_cleave: 1 },
-        score: 1850,
-      },
+  void it('formats the share comment around floor depth', () => {
+    const text = formatShareComment(
+      makeSummary({ utcDate: '2026-11-20', floorReached: 4, floorsCleared: 3, roomsCleared: 17, elapsedSec: 412, gemsEarned: 2 }),
       'The Archives',
       'Glass Cannon: 2x Damage',
       'KC',
       2,
     );
-    assert.ok(shareText.includes('DUNGEONLE 2026-11-20'));
-    assert.ok(shareText.includes('CLEARED & EXTRACTED'));
-    assert.ok(shareText.includes('100% Progress'));
-    assert.ok(shareText.includes('6:52'));
-    assert.ok(shareText.includes('2🔥'));
-
-    const defeatShare = formatShareComment(
-      {
-        utcDate: '2026-11-20',
-        outcome: 'defeated',
-        bossDefeated: false,
-        roomReached: 3,
-        totalRooms: 7,
-        progressPct: 33,
-        elapsedSec: 95,
-        coinsEarned: 15,
-        damageTaken: 100,
-        enemiesKilled: 12,
-        relics: {},
-        score: 210,
-      },
-      'The Archives',
-      'Glass Cannon: 2x Damage',
-      'KC',
-    );
-    assert.ok(defeatShare.includes('DIED IN ROOM 3'));
-    assert.ok(defeatShare.includes('33% Progress'));
-    assert.ok(defeatShare.includes('1🔥'));
-    assert.equal(defeatShare.includes('FALLEN'), false);
+    assert.ok(text.includes('DUNGEONLE 2026-11-20'));
+    assert.ok(text.includes('REACHED FLOOR 4'));
+    assert.ok(text.includes('17 rooms'));
+    assert.ok(text.includes('6:52'));
+    assert.ok(text.includes('+2 💎'));
+    assert.ok(text.includes('2🔥'));
   });
 });

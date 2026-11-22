@@ -3,7 +3,6 @@ import { ENFORCE_SINGLE_DAILY_RUN } from '../shared/buildMeta.ts';
 import { getDailyModifier } from '../shared/modifiers.ts';
 import { hasCompletedDailyRun } from '../shared/profile.ts';
 import { formatTimeUntilNextUtcDay, getUtcDateString } from '../shared/rng.ts';
-import { formatDuration } from '../shared/share.ts';
 import { GAME_META, getDailyTheme } from './config/theme.ts';
 import { HybridDevvitAdapter } from './platform/adapter.ts';
 
@@ -51,20 +50,9 @@ async function initSplash(): Promise<void> {
   const best = session.profile.dailyBest[utcDate];
 
   setText('splash-streak', `${session.profile.streak}🔥`);
-  setText('splash-coins', String(session.profile.coins));
+  setText('splash-coins', session.profile.bestFloor > 0 ? `F${session.profile.bestFloor}` : '—');
   setText('splash-shop-coins', `${session.profile.coins} ${GAME_META.coinShort}`);
-  if (best) {
-    const bestPct =
-      best.bestProgressPct !== undefined ? `${best.bestProgressPct}%` : `Room ${best.highestRoom}`;
-    setText(
-      'splash-best',
-      best.extracted
-        ? `${bestPct} · ${formatDuration(best.bestClearTimeSec ?? 0)}`
-        : bestPct,
-    );
-  } else {
-    setText('splash-best', '—');
-  }
+  setText('splash-best', best ? `F${best.bestFloor ?? 1}` : '—');
 
   if (ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(session.profile, utcDate)) {
     setText('play-button-label', 'VIEW RESULTS');

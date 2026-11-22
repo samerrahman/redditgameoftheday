@@ -1,31 +1,24 @@
 import { showToast } from '@devvit/web/client';
 import type {
-  CosmeticEquipResponse,
   ProfileResponse,
   RunCompleteResponse,
   ShareCommentResponse,
-  ShopPurchaseResponse,
+  ShopActionRequest,
+  ShopActionResponse,
   SubscribeResponse,
 } from '../../shared/api.ts';
-import {
-  BUILD_ID,
-  ENFORCE_SINGLE_DAILY_RUN,
-  isStampedBuildId,
-} from '../../shared/buildMeta.ts';
+import { BUILD_ID, ENFORCE_SINGLE_DAILY_RUN, isStampedBuildId } from '../../shared/buildMeta.ts';
 import {
   applyRunToProfile,
   clearDailyRun,
+  compareLeaderboardEntries,
   createDefaultProfile,
   hasCompletedDailyRun,
   normalizeProfile,
+  toLeaderboardEntry,
 } from '../../shared/profile.ts';
-import { getDailyShopRotation, purchaseShopSlot } from '../../shared/shop.ts';
-import type {
-  CosmeticId,
-  DailyLeaderboardEntry,
-  PlayerProfile,
-  RunSummary,
-} from '../../shared/types.ts';
+import { applyShopAction } from '../../shared/shop.ts';
+import type { DailyLeaderboardEntry, PlayerProfile, RunSummary } from '../../shared/types.ts';
 
 export type LoadedSession = {
   profile: PlayerProfile;
@@ -37,15 +30,7 @@ export type LoadedSession = {
 
 export type PlatformAdapter = {
   loadSession: (utcDate: string) => Promise<LoadedSession>;
-  buyShopSlot: (
-    utcDate: string,
-    slotIndex: 0 | 1 | 2,
-    currentProfile: PlayerProfile,
-  ) => Promise<{ ok: boolean; profile: PlayerProfile; reason?: string | undefined }>;
-  equipCosmetic: (
-    cosmeticId: CosmeticId,
-    currentProfile: PlayerProfile,
-  ) => Promise<PlayerProfile>;
+  shopAction: (req: ShopActionRequest, currentProfile: PlayerProfile) => Promise<ShopActionResponse>;
   recordRun: (
     summary: RunSummary,
     currentProfile: PlayerProfile,
@@ -127,34 +112,17 @@ export class LocalStoragePlatformAdapter implements PlatformAdapter {
     };
   }
 
-  async buyShopSlot(
-    utcDate: string,
-    slotIndex: 0 | 1 | 2,
+  async shopAction(
+    req: ShopActionRequest,
     currentProfile: PlayerProfile,
-  ): Promise<{ ok: boolean; profile: PlayerProfile; reason?: string | undefined }> {
-    const rotation = getDailyShopRotation(utcDate, currentProfile);
-    const slot = rotation[slotIndex];
-    const result = purchaseShopSlot(currentProfile, slot);
+  ): Promise<ShopActionResponse> {
+    const result = applyShopAction(currentProfile, req, Math.random);
     if (result.ok) {
       const payload = this.readPayload();
       payload.profile = result.profile;
       this.writePayload(payload);
     }
     return result;
-  }
-
-  async equipCosmetic(
-    cosmeticId: CosmeticId,
-    currentProfile: PlayerProfile,
-  ): Promise<PlayerProfile> {
-    const updated: PlayerProfile = {
-      ...currentProfile,
-      equippedCosmetic: cosmeticId,
-    };
-    const payload = this.readPayload();
-    payload.profile = updated;
-    this.writePayload(payload);
-    return updated;
   }
 
   async recordRun(
@@ -172,23 +140,8 @@ export class LocalStoragePlatformAdapter implements PlatformAdapter {
     payload.profile = updatedProfile;
 
     const existing = payload.leaderboards[summary.utcDate] ?? [];
-    const entry: DailyLeaderboardEntry = {
-      player: 'You (Local)',
-      roomReached: summary.roomReached,
-      progressPct: summary.progressPct,
-      elapsedSec: summary.elapsedSec,
-      extracted: summary.outcome === 'extracted',
-      score: summary.score,
-    };
-
-    const sorted = [...existing, entry]
-      .sort((a, b) => {
-        if (a.roomReached !== b.roomReached) return b.roomReached - a.roomReached;
-        if (a.extracted !== b.extracted) return a.extracted ? -1 : 1;
-        if (a.score !== b.score) return b.score - a.score;
-        return a.elapsedSec - b.elapsedSec;
-      })
-      .slice(0, 5);
+    const entry = toLeaderboardEntry('You (Local)', summary);
+    const sorted = [...existing, entry].sort(compareLeaderboardEntries).slice(0, 5);
 
     payload.leaderboards[summary.utcDate] = sorted;
     this.writePayload(payload);
@@ -301,43 +254,21 @@ export class HybridDevvitAdapter implements PlatformAdapter {
     return await this.local.loadSession(utcDate);
   }
 
-  async buyShopSlot(
-    utcDate: string,
-    slotIndex: 0 | 1 | 2,
+  async shopAction(
+    req: ShopActionRequest,
     currentProfile: PlayerProfile,
-  ): Promise<{ ok: boolean; profile: PlayerProfile; reason?: string | undefined }> {
+  ): Promise<ShopActionResponse> {
     if (this.serverAvailable && this.authenticated) {
-      const remote = await fetchJson<ShopPurchaseResponse>('/api/shop/purchase', {
+      const remote = await fetchJson<ShopActionResponse>('/api/shop/action', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ utcDate, slotIndex }),
+        body: JSON.stringify(req),
       });
       if (remote) {
-        return {
-          ok: remote.ok,
-          profile: normalizeProfile(remote.profile),
-          reason: remote.reason,
-        };
+        return { ...remote, profile: normalizeProfile(remote.profile) };
       }
     }
-    return await this.local.buyShopSlot(utcDate, slotIndex, currentProfile);
-  }
-
-  async equipCosmetic(
-    cosmeticId: CosmeticId,
-    currentProfile: PlayerProfile,
-  ): Promise<PlayerProfile> {
-    if (this.serverAvailable && this.authenticated) {
-      const remote = await fetchJson<CosmeticEquipResponse>('/api/profile/cosmetic', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cosmeticId }),
-      });
-      if (remote) {
-        return normalizeProfile(remote.profile);
-      }
-    }
-    return await this.local.equipCosmetic(cosmeticId, currentProfile);
+    return await this.local.shopAction(req, currentProfile);
   }
 
   async recordRun(
