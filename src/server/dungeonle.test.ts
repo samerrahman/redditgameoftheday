@@ -21,6 +21,7 @@ import {
 import { GameSimulation } from '../shared/game/simulation.ts';
 import {
   BUILD_ID,
+  ENFORCE_SINGLE_DAILY_RUN,
   isDevResetAccount,
   isStampedBuildId,
 } from '../shared/buildMeta.ts';
@@ -555,29 +556,56 @@ void describe('Coins, Streaks, Shop & Share Formatter', () => {
       score: 420,
     });
 
+    assert.equal(ENFORCE_SINGLE_DAILY_RUN, false);
     assert.equal(profile.coins, 45);
     assert.equal(profile.streak, 1);
     assert.equal(hasCompletedDailyRun(profile, '2026-11-19'), true);
     assert.equal(getDailyRunSummary(profile, '2026-11-19')?.roomReached, 3);
 
-    // Second run on the same UTC day must be rejected without changing profile or dailyBest
-    profile = applyRunToProfile(profile, {
+    // Explicitly enforcing single-daily lock still rejects duplicate same-day run
+    const lockedProfile = applyRunToProfile(
+      profile,
+      {
+        utcDate: '2026-11-19',
+        outcome: 'extracted',
+        bossDefeated: true,
+        roomReached: 6,
+        progressPct: 100,
+        totalRooms: 6,
+        elapsedSec: 99,
+        coinsEarned: 999,
+        damageTaken: 10,
+        enemiesKilled: 60,
+        relics: {},
+        score: 9999,
+      },
+      { enforceSingleDailyRun: true },
+    );
+    assert.equal(lockedProfile.coins, 45);
+    assert.equal(lockedProfile.totalRuns, 1);
+    assert.equal(lockedProfile.dailyBest['2026-11-19']?.bestScore, 420);
+
+    // Default (dev replayable) allows same-day replays, accumulates coins, updates best, preserves streak
+    const replayedSameDay = applyRunToProfile(profile, {
       utcDate: '2026-11-19',
       outcome: 'extracted',
       bossDefeated: true,
       roomReached: 6,
       progressPct: 100,
       totalRooms: 6,
-      elapsedSec: 99,
-      coinsEarned: 999,
-      damageTaken: 10,
-      enemiesKilled: 60,
+      elapsedSec: 120,
+      coinsEarned: 25,
+      damageTaken: 15,
+      enemiesKilled: 50,
       relics: {},
-      score: 9999,
+      score: 750,
     });
-    assert.equal(profile.coins, 45);
-    assert.equal(profile.totalRuns, 1);
-    assert.equal(profile.dailyBest['2026-11-19']?.bestScore, 420);
+    assert.equal(replayedSameDay.coins, 70);
+    assert.equal(replayedSameDay.totalRuns, 2);
+    assert.equal(replayedSameDay.streak, 1);
+    assert.equal(replayedSameDay.dailyBest['2026-11-19']?.bestScore, 750);
+    assert.equal(replayedSameDay.dailyBest['2026-11-19']?.highestRoom, 6);
+    assert.equal(replayedSameDay.dailyBest['2026-11-19']?.extracted, true);
 
     assert.equal(isDevResetAccount('Mental_Glove6343'), true);
     assert.equal(isDevResetAccount('mental_glove6343'), true);

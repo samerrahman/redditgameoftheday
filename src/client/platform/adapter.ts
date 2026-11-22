@@ -7,7 +7,11 @@ import type {
   ShopPurchaseResponse,
   SubscribeResponse,
 } from '../../shared/api.ts';
-import { BUILD_ID, isStampedBuildId } from '../../shared/buildMeta.ts';
+import {
+  BUILD_ID,
+  ENFORCE_SINGLE_DAILY_RUN,
+  isStampedBuildId,
+} from '../../shared/buildMeta.ts';
 import {
   applyRunToProfile,
   clearDailyRun,
@@ -108,7 +112,7 @@ export class LocalStoragePlatformAdapter implements PlatformAdapter {
 
   async loadSession(utcDate: string): Promise<LoadedSession> {
     const payload = this.readPayload();
-    if (isStampedBuildId(BUILD_ID) && payload.lastBuildId !== BUILD_ID) {
+    if (ENFORCE_SINGLE_DAILY_RUN && isStampedBuildId(BUILD_ID) && payload.lastBuildId !== BUILD_ID) {
       payload.profile = clearDailyRun(payload.profile, utcDate);
       delete payload.leaderboards[utcDate];
       payload.lastBuildId = BUILD_ID;
@@ -158,7 +162,7 @@ export class LocalStoragePlatformAdapter implements PlatformAdapter {
     currentProfile: PlayerProfile,
   ): Promise<{ profile: PlayerProfile; leaderboard: DailyLeaderboardEntry[] }> {
     const payload = this.readPayload();
-    if (hasCompletedDailyRun(payload.profile, summary.utcDate)) {
+    if (ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(payload.profile, summary.utcDate)) {
       return {
         profile: payload.profile,
         leaderboard: payload.leaderboards[summary.utcDate] ?? [],

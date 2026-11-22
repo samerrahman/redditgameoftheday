@@ -14,6 +14,7 @@ import type {
 } from '../../shared/api.ts';
 import {
   BUILD_ID,
+  ENFORCE_SINGLE_DAILY_RUN,
   isDevResetAccount,
   isStampedBuildId,
 } from '../../shared/buildMeta.ts';
@@ -112,7 +113,7 @@ api.get('/profile', async (c) => {
     ]);
 
     let profile = loadedProfile;
-    if (userId && isDevResetAccount(username)) {
+    if (ENFORCE_SINGLE_DAILY_RUN && userId && isDevResetAccount(username)) {
       const stampParts: string[] = [];
       if (isStampedBuildId(BUILD_ID)) {
         stampParts.push(BUILD_ID);
@@ -230,7 +231,7 @@ api.post('/run/complete', async (c) => {
       loadUserProfile(userId),
       reddit.getCurrentUsername(),
     ]);
-    if (hasCompletedDailyRun(profile, utcDate)) {
+    if (ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(profile, utcDate)) {
       const leaderboard = await loadDailyLeaderboard(utcDate);
       return c.json<RunCompleteResponse>({ profile, leaderboard });
     }

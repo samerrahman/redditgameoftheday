@@ -1,3 +1,5 @@
+export const ENFORCE_SINGLE_DAILY_RUN: boolean = false;
+
 export const DEV_RESET_USERNAME = 'Mental_Glove6343';
 
 const UNBUILT_PREFIX = '__DUNGEONLE_';

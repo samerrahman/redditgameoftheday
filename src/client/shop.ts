@@ -1,4 +1,5 @@
 import { exitExpandedMode, requestExpandedMode } from '@devvit/web/client';
+import { ENFORCE_SINGLE_DAILY_RUN } from '../shared/buildMeta.ts';
 import { hasCompletedDailyRun } from '../shared/profile.ts';
 import { getUtcDateString } from '../shared/rng.ts';
 import type { PlayerProfile } from '../shared/types.ts';
@@ -67,7 +68,7 @@ async function initStandaloneShop(): Promise<void> {
   });
 
   const playBtn = getButton('shop-play-btn');
-  if (hasCompletedDailyRun(profile, utcDate)) {
+  if (ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(profile, utcDate)) {
     playBtn.classList.add('is-completed');
     const playLabel = document.getElementById('shop-play-label');
     if (playLabel) {

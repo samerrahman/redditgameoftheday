@@ -1267,6 +1267,16 @@ button:focus-visible {
   gap: 8px;
 }
 
+.end-secondary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.end-secondary-row.is-single {
+  grid-template-columns: 1fr;
+}
+
 .subscribe-bar {
   display: flex;
   align-items: center;

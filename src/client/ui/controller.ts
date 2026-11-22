@@ -3,6 +3,7 @@ import type {
   GamePhase,
   GameSimulation,
 } from '../../shared/game/simulation.ts';
+import { ENFORCE_SINGLE_DAILY_RUN } from '../../shared/buildMeta.ts';
 import { getDailyModifier } from '../../shared/modifiers.ts';
 import { getDailyRunSummary, hasCompletedDailyRun } from '../../shared/profile.ts';
 import { RELICS } from '../../shared/relics.ts';
@@ -127,8 +128,11 @@ export class GameUIController {
   private readonly startDailyNote = getEl('start-daily-note');
 
   private readonly pauseScreen = getEl('pause-screen');
+  private readonly pauseCopy = getEl('pause-copy');
   private readonly resumeBtn = getButton('resume-btn');
+  private readonly restartBtn = getButton('restart-btn');
   private readonly pauseShopBtn = getButton('pause-shop-btn');
+  private readonly quitBtn = getButton('quit-btn');
 
   private readonly endScreen = getEl('end-screen');
   private readonly endBadge = getEl('end-badge');
@@ -143,7 +147,9 @@ export class GameUIController {
   private readonly endScore = getEl('end-score');
   private readonly endLeaderboard = getOList('end-leaderboard');
   private readonly shareBtn = getButton('share-btn');
+  private readonly endSecondaryRow = getEl('end-secondary-row');
   private readonly endShopBtn = getButton('end-shop-btn');
+  private readonly playAgainBtn = getButton('play-again-btn');
   private readonly endNextDaily = getEl('end-next-daily');
   private readonly subscribeLabel = getEl('subscribe-label');
   private readonly subscribeBtn = getButton('subscribe-btn');
@@ -180,12 +186,23 @@ export class GameUIController {
       void this.handleRunEnd(summary);
     });
 
+    this.restartBtn.hidden = ENFORCE_SINGLE_DAILY_RUN;
+    this.quitBtn.hidden = ENFORCE_SINGLE_DAILY_RUN;
+    this.playAgainBtn.hidden = ENFORCE_SINGLE_DAILY_RUN;
+    this.endSecondaryRow.classList.toggle('is-single', ENFORCE_SINGLE_DAILY_RUN);
+    this.endNextDaily.hidden = !ENFORCE_SINGLE_DAILY_RUN;
+    this.pauseCopy.textContent = ENFORCE_SINGLE_DAILY_RUN
+      ? 'One run per day — resume when ready.'
+      : 'Same daily seed stays active until run ends.';
+
     this.bindEvents();
     this.syncStartScreen();
-    this.updateDailyCountdown();
-    this.countdownTimer = window.setInterval(() => {
+    if (ENFORCE_SINGLE_DAILY_RUN) {
       this.updateDailyCountdown();
-    }, 1000);
+      this.countdownTimer = window.setInterval(() => {
+        this.updateDailyCountdown();
+      }, 1000);
+    }
 
     if (this.isDailyCompleted()) {
       if (startImmediately) {
@@ -359,8 +376,22 @@ export class GameUIController {
       }
     });
 
+    this.playAgainBtn.addEventListener('click', () => {
+      this.startRun();
+    });
+
+    this.restartBtn.addEventListener('click', () => {
+      this.startRun();
+    });
+
     this.resumeBtn.addEventListener('click', () => {
       this.resumeRun();
+    });
+
+    this.quitBtn.addEventListener('click', () => {
+      this.sim.setPhase('start');
+      this.syncStartScreen();
+      this.syncVisibility();
     });
 
     this.hudPauseBtn.addEventListener('click', () => {
@@ -444,7 +475,7 @@ export class GameUIController {
   }
 
   private isDailyCompleted(): boolean {
-    return hasCompletedDailyRun(this.profile, this.utcDate);
+    return ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(this.profile, this.utcDate);
   }
 
   private updateDailyCountdown(): void {
@@ -575,7 +606,9 @@ export class GameUIController {
     this.profile = res.profile;
     this.leaderboard = res.leaderboard;
     this.renderEndCard(summary, res.leaderboard);
-    this.updateDailyCountdown();
+    if (ENFORCE_SINGLE_DAILY_RUN) {
+      this.updateDailyCountdown();
+    }
     this.syncStartScreen();
     this.syncVisibility();
   }

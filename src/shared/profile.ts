@@ -1,3 +1,4 @@
+import { ENFORCE_SINGLE_DAILY_RUN } from './buildMeta.ts';
 import { STARTER_RELIC_IDS } from './relics.ts';
 import type { PlayerProfile, RunSummary } from './types.ts';
 
@@ -84,8 +85,13 @@ export function getDailyRunSummary(profile: PlayerProfile, utcDate: string): Run
   };
 }
 
-export function applyRunToProfile(profile: PlayerProfile, summary: RunSummary): PlayerProfile {
-  if (hasCompletedDailyRun(profile, summary.utcDate)) {
+export function applyRunToProfile(
+  profile: PlayerProfile,
+  summary: RunSummary,
+  options?: { enforceSingleDailyRun?: boolean },
+): PlayerProfile {
+  const enforceSingle = options?.enforceSingleDailyRun ?? ENFORCE_SINGLE_DAILY_RUN;
+  if (enforceSingle && hasCompletedDailyRun(profile, summary.utcDate)) {
     return profile;
   }
 
@@ -103,15 +109,20 @@ export function applyRunToProfile(profile: PlayerProfile, summary: RunSummary): 
     }
   }
 
-  const nextBestClearTime = summary.bossDefeated ? summary.elapsedSec : null;
+  const prevBest = profile.dailyBest[summary.utcDate];
+  const nextBestClearTime = summary.bossDefeated
+    ? prevBest?.bestClearTimeSec !== null && prevBest?.bestClearTimeSec !== undefined
+      ? Math.min(prevBest.bestClearTimeSec, summary.elapsedSec)
+      : summary.elapsedSec
+    : (prevBest?.bestClearTimeSec ?? null);
 
   const nextBest = {
     utcDate: summary.utcDate,
-    highestRoom: summary.roomReached,
-    bestProgressPct: summary.progressPct ?? 0,
+    highestRoom: Math.max(prevBest?.highestRoom ?? 0, summary.roomReached),
+    bestProgressPct: Math.max(prevBest?.bestProgressPct ?? 0, summary.progressPct ?? 0),
     bestClearTimeSec: nextBestClearTime,
-    bestScore: summary.score,
-    extracted: summary.outcome === 'extracted',
+    bestScore: Math.max(prevBest?.bestScore ?? 0, summary.score),
+    extracted: Boolean(prevBest?.extracted || summary.outcome === 'extracted'),
     summary: { ...summary, relics: { ...summary.relics } },
   };
 

@@ -196,7 +196,7 @@
               </div>
             </div>
             <div class="strip-stat">
-              <span class="strip-label">Today's Run</span>
+              <span class="strip-label">Today Best</span>
               <strong id="start-best" class="strip-value">—</strong>
             </div>
           </div>
@@ -251,9 +251,10 @@
             />
             <h2 id="pause-title" class="modal-heading">Run Paused</h2>
           </div>
-          <p class="muted-copy">One run per day — resume when ready.</p>
+          <p id="pause-copy" class="muted-copy">Same daily seed stays active until run ends.</p>
           <div class="stack-actions">
             <button id="resume-btn" type="button" class="primary-btn">Resume</button>
+            <button id="restart-btn" type="button" class="secondary-btn">Restart Today's Seed</button>
             <button id="pause-shop-btn" type="button" class="secondary-btn btn-with-icon">
               <img
                 src="./assets/dungeon/chest_icon.png"
@@ -264,6 +265,7 @@
               />
               <span>Shop</span>
             </button>
+            <button id="quit-btn" type="button" class="ghost-btn">Quit to Title</button>
           </div>
         </div>
       </section>
@@ -310,17 +312,20 @@
 
           <div class="end-actions">
             <button id="share-btn" type="button" class="primary-btn">Post Summary to Comments</button>
-            <button id="end-shop-btn" type="button" class="secondary-btn btn-with-icon">
-              <img
-                src="./assets/dungeon/chest_icon.png"
-                class="pixel-icon"
-                width="20"
-                height="20"
-                alt=""
-              />
-              <span>Shop</span>
-            </button>
-            <p id="end-next-daily" class="next-daily-note mono">
+            <div id="end-secondary-row" class="end-secondary-row">
+              <button id="end-shop-btn" type="button" class="secondary-btn btn-with-icon">
+                <img
+                  src="./assets/dungeon/chest_icon.png"
+                  class="pixel-icon"
+                  width="20"
+                  height="20"
+                  alt=""
+                />
+                <span>Shop</span>
+              </button>
+              <button id="play-again-btn" type="button" class="secondary-btn">Play Again</button>
+            </div>
+            <p id="end-next-daily" class="next-daily-note mono" hidden>
               Daily complete · Next dungeon in --:--:--
             </p>
           </div>

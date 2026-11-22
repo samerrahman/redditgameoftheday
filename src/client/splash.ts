@@ -1,4 +1,5 @@
 import { requestExpandedMode } from '@devvit/web/client';
+import { ENFORCE_SINGLE_DAILY_RUN } from '../shared/buildMeta.ts';
 import { getDailyModifier } from '../shared/modifiers.ts';
 import { hasCompletedDailyRun } from '../shared/profile.ts';
 import { formatTimeUntilNextUtcDay, getUtcDateString } from '../shared/rng.ts';
@@ -65,7 +66,7 @@ async function initSplash(): Promise<void> {
     setText('splash-best', '—');
   }
 
-  if (hasCompletedDailyRun(session.profile, utcDate)) {
+  if (ENFORCE_SINGLE_DAILY_RUN && hasCompletedDailyRun(session.profile, utcDate)) {
     setText('play-button-label', 'VIEW RESULTS');
     playButton?.classList.add('is-completed');
     const dailyNote = document.getElementById('splash-daily-note');
