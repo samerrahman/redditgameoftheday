@@ -51,7 +51,8 @@ export type RelicId =
   | 'volt_nova'
   | 'shatter_quake'
   | 'phantom_echo'
-  | 'golden_cleave';
+  | 'golden_cleave'
+  | 'concussion';
 
 export type RelicCategory = 'blade' | 'arcane';
 
@@ -63,6 +64,8 @@ export type RelicDef = {
   shortTag: string;
   starter: boolean;
   synergyImpact: boolean;
+  /** Draft weight; 1 for normal relics, tiny for very rare ones. */
+  draftWeight?: number | undefined;
   summary: (nextLevel: number) => string;
 };
 

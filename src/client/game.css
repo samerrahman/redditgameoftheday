@@ -1,3 +1,8 @@
+@import '@fontsource/jersey-10/400.css';
+@import '@fontsource/pixelify-sans/400.css';
+@import '@fontsource/pixelify-sans/600.css';
+@import '@fontsource/pixelify-sans/700.css';
+
 :root {
   color-scheme: dark;
   --bg-deep: #120d14;
@@ -17,9 +22,8 @@
   --crimson-lo: #7a1e14;
   --text-main: #fff7e8;
   --text-muted: #d4c7d8;
-  --font-display: 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont,
-    sans-serif;
-  --font-body: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Pixelify Sans', system-ui, sans-serif;
+  --font-body: 'Pixelify Sans', system-ui, sans-serif;
   font-family: var(--font-body);
 }
 
@@ -246,9 +250,9 @@ button:focus-visible {
   background: #231927;
   display: grid;
   place-items: center;
-  font-family: ui-monospace, 'Cascadia Mono', 'SFMono-Regular', Menlo, monospace;
-  font-size: 0.62rem;
-  font-weight: 900;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 700;
   line-height: 1;
   color: #fde68a;
 }
@@ -2021,4 +2025,333 @@ button:focus-visible {
 .hud-room-banner-sub[hidden],
 .room-banner-sub[hidden] {
   display: none;
+}
+
+/* ---------- Shop tabs / equip colours ---------- */
+
+.shop-buy-btn.is-equip-btn {
+  background: #1f6f5c;
+  border-color: #0f3d33;
+  color: #e7fff7;
+  box-shadow: 0 3px 0 #0b2b24;
+}
+
+.shop-buy-btn.is-equip-btn:hover {
+  background: #258569;
+}
+
+.shop-buy-btn.is-equipped-btn {
+  background: transparent;
+  border-color: var(--accent-gold);
+  color: #fde68a;
+  opacity: 1;
+}
+
+/* ---------- Cosmetics tab ---------- */
+
+.shop-body {
+  position: relative;
+}
+
+.cosmetics-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 560px) {
+  .cosmetics-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cosmetic-preview-col {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 14px;
+  background: radial-gradient(circle at 50% 40%, #3b2a40 0%, #1b141e 75%);
+  border: 2px solid var(--border-subtle);
+  border-radius: 4px;
+}
+
+.hero-preview {
+  inline-size: 180px;
+  block-size: 180px;
+  image-rendering: pixelated;
+}
+
+.cosmetic-preview-col .gacha-pull-btn {
+  inline-size: 100%;
+}
+
+.wardrobe-col {
+  display: grid;
+  gap: 16px;
+}
+
+.wardrobe-label {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.wardrobe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.wardrobe-tile {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 6px 4px 8px;
+  background: var(--bg-tile);
+  border: 2px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-main);
+  font-family: var(--font-display);
+  cursor: pointer;
+}
+
+.wardrobe-tile.is-equipped {
+  border-color: var(--accent-gold);
+  background: #2a1d22;
+}
+
+.wardrobe-tile.is-locked {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wardrobe-thumb {
+  inline-size: 64px;
+  block-size: 64px;
+  image-rendering: pixelated;
+}
+
+.wardrobe-name {
+  font-size: 0.78rem;
+  text-align: center;
+  line-height: 1.15;
+}
+
+/* ---------- Gacha pull animation ---------- */
+
+.pull-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgb(12 8 14 / 0.92);
+  border-radius: 4px;
+  min-block-size: 360px;
+}
+
+.pull-reel-window {
+  position: relative;
+  inline-size: min(100%, 560px);
+  overflow: hidden;
+  padding-block: 10px;
+  border-block: 2px solid #a21caf;
+  transition: opacity 0.3s ease;
+}
+
+.pull-reel-window.is-done {
+  opacity: 0.25;
+}
+
+.pull-reel {
+  display: flex;
+  gap: 12px;
+  will-change: transform;
+}
+
+.pull-card {
+  flex: 0 0 104px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg-tile);
+  border: 2px solid var(--border-subtle);
+  border-radius: 4px;
+}
+
+.pull-card-hero {
+  inline-size: 72px;
+  block-size: 72px;
+  image-rendering: pixelated;
+}
+
+.pull-card-name {
+  font-size: 0.72rem;
+  text-align: center;
+  color: var(--text-main);
+}
+
+.pull-marker {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  inline-size: 3px;
+  margin-inline-start: -1.5px;
+  background: #f0abfc;
+  box-shadow: 0 0 12px #e879f9;
+}
+
+.pull-reveal {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px 26px;
+  background: var(--bg-card);
+  border: 3px solid var(--border-subtle);
+  border-radius: 6px;
+  animation: pull-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.pull-reveal.rarity-epic {
+  box-shadow: 0 0 32px rgb(232 121 249 / 0.55);
+}
+
+.pull-reveal.rarity-rare {
+  box-shadow: 0 0 26px rgb(56 189 248 / 0.45);
+}
+
+.pull-rarity {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.pull-reveal.rarity-epic .pull-rarity {
+  color: #f0abfc;
+}
+
+.pull-reveal.rarity-rare .pull-rarity {
+  color: #7dd3fc;
+}
+
+.pull-reveal.rarity-common .pull-rarity {
+  color: #cbd5e1;
+}
+
+.pull-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  color: var(--text-main);
+}
+
+.pull-sub {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+@keyframes pull-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---------- End-of-run stats ---------- */
+
+.end-stats-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 16px;
+  display: grid;
+  gap: 2px;
+  background: var(--bg-tile);
+  border: 2px solid var(--border-subtle);
+  border-radius: 4px;
+  box-shadow: inset 2px 2px 0 #110c13;
+}
+
+.end-stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 7px;
+  border-block-end: 1px dashed #3a2c3e;
+  font-size: 1.12rem;
+  opacity: 0;
+  animation: stat-in 0.4s ease-out forwards;
+  animation-delay: var(--row-delay, 0s);
+}
+
+.end-stat-row:last-child {
+  border-block-end: 0;
+}
+
+.end-stat-label {
+  color: var(--text-muted);
+}
+
+.end-stat-value {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  color: var(--text-main);
+}
+
+@keyframes stat-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .end-stat-row {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.end-secondary-row {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+/* Numbers: Pixelify's 3/5/6/8/9 look alike at small sizes, so counters and prices
+   use Jersey 10, a chunky arcade pixel font with distinct digits. font-size-adjust
+   scales it up to match the surrounding text (it renders small at the same px). */
+:root {
+  --font-numbers: 'Jersey 10', 'Pixelify Sans', system-ui, sans-serif;
+}
+
+.shop-balance-pill,
+.coin-pill,
+.hud-chip,
+.hp-text,
+.strip-value,
+.end-stat-value,
+.shop-section-count,
+.shop-buy-btn,
+.gacha-pull-btn,
+.pill.mono,
+.hud-chip.mono {
+  font-family: var(--font-numbers);
+  font-weight: 400;
+  font-size-adjust: 0.56;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
 }

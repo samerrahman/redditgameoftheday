@@ -186,7 +186,7 @@ export class DungeonScene extends Phaser.Scene {
 
     this.fountainLabel = this.add
       .text(0, 0, '+35% HP FOUNTAIN', {
-        fontFamily: "'Trebuchet MS', system-ui, -apple-system, sans-serif",
+        fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
         color: '#86efac',
@@ -200,7 +200,7 @@ export class DungeonScene extends Phaser.Scene {
 
     this.tooltipText = this.add
       .text(ARENA_W / 2, 125, '', {
-        fontFamily: "'Trebuchet MS', system-ui, -apple-system, sans-serif",
+        fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
         color: '#fff7e8',
@@ -216,7 +216,7 @@ export class DungeonScene extends Phaser.Scene {
 
     this.onboardingText = this.add
       .text(0, 0, 'WASD Move · Space / Click Attack', {
-        fontFamily: "'Trebuchet MS', system-ui, -apple-system, sans-serif",
+        fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
         color: '#fff7e8',
@@ -231,7 +231,7 @@ export class DungeonScene extends Phaser.Scene {
     this.labelPool = Array.from({ length: 32 }, () =>
       this.add
         .text(0, 0, '', {
-          fontFamily: "'Trebuchet MS', system-ui, -apple-system, sans-serif",
+          fontFamily: "'Pixelify Sans', system-ui, sans-serif",
           fontSize: '19px',
           fontStyle: 'bold',
           color: '#fff7e8',
@@ -870,6 +870,7 @@ export class DungeonScene extends Phaser.Scene {
     this.syncBreakables(shadowG, state);
     this.syncCoins(shadowG, state);
     this.drawGems(fxG, shadowG, state);
+    this.drawHearts(fxG, shadowG, state);
     this.syncFirePatches(state);
     this.syncDelayedBlasts(teleG, state);
     this.drawTelegraphs(teleG, state);
@@ -1329,6 +1330,40 @@ export class DungeonScene extends Phaser.Scene {
       fxG.lineStyle(2, 0x120d14, 1);
       this.tracePolygon(fxG, pts, true);
       fxG.strokePath();
+    }
+  }
+
+  private drawHearts(
+    fxG: Phaser.GameObjects.Graphics,
+    shadowG: Phaser.GameObjects.Graphics,
+    state: GameState,
+  ): void {
+    // 11x10 pixel heart, same shape as the HUD heart.
+    const rows = ['01110001110', '11111011111', '11111111111', '11111111111', '01111111110', '00111111100', '00011111000', '00001110000', '00000100000'];
+    for (const heart of state.hearts) {
+      const bob = Math.sin(state.elapsedTime * 5 + heart.id) * 2.5;
+      const px = 2;
+      const ox = heart.x - (11 * px) / 2;
+      const oy = heart.y - 12 + bob;
+      shadowG.fillStyle(0x000000, 0.35);
+      shadowG.fillEllipse(heart.x, heart.y + 10, 18, 6);
+      fxG.fillStyle(0xf87171, 0.22 + 0.12 * Math.sin(state.elapsedTime * 6 + heart.id));
+      fxG.fillCircle(heart.x, oy + 9, 15);
+      fxG.fillStyle(0x120d14, 1);
+      rows.forEach((row, ry) => {
+        for (let rx = 0; rx < row.length; rx += 1) {
+          if (row[rx] !== '1') continue;
+          fxG.fillRect(ox + rx * px - px, oy + ry * px - px, px * 3, px * 3);
+        }
+      });
+      rows.forEach((row, ry) => {
+        for (let rx = 0; rx < row.length; rx += 1) {
+          if (row[rx] !== '1') continue;
+          const highlight = ry <= 1 && (rx === 1 || rx === 2);
+          fxG.fillStyle(highlight ? 0xffd1d1 : 0xe23c3c, 1);
+          fxG.fillRect(ox + rx * px, oy + ry * px, px, px);
+        }
+      });
     }
   }
 

@@ -33,8 +33,8 @@ import {
   normalizeProfile,
   toLeaderboardEntry,
 } from '../shared/profile.ts';
-import { RELICS } from '../shared/relics.ts';
-import { formatTimeUntilNextUtcDay } from '../shared/rng.ts';
+import { draftRelics, RELICS } from '../shared/relics.ts';
+import { createDailyStream, formatTimeUntilNextUtcDay } from '../shared/rng.ts';
 import { formatShareComment } from '../shared/share.ts';
 import {
   applyShopAction,
@@ -116,28 +116,44 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
     assert.equal(differs, true);
   });
 
-  void it('builds 4-6 rooms per floor, a single-exit entrance, and a boss in the farthest room', () => {
+  void it('builds branching 5-7 room floors; only floor 1 starts with a single door', () => {
+    let deadEnds = 0;
+    let floors = 0;
     for (const date of ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-12-01']) {
       for (let floor = 1; floor <= 12; floor += 1) {
         const map = buildDailyDungeonMap(date, floor, getDailyHazard(date));
+        floors += 1;
         assert.equal(map.floor, floor);
-        assert.ok(map.totalRooms >= 4 && map.totalRooms <= 6, `${date} F${floor}: ${map.totalRooms}`);
+        assert.ok(map.totalRooms >= 5 && map.totalRooms <= 7, `${date} F${floor}: ${map.totalRooms}`);
         assert.equal(map.rooms.length, map.totalRooms);
-        const start = map.rooms.find((r) => r.id === map.startRoomId);
-        assert.ok(start !== undefined);
-        assert.equal(Object.keys(start.doors).length, 1, 'entrance must have exactly one exit');
-        const boss = map.rooms.find((r) => r.id === map.bossRoomId);
-        assert.ok(boss !== undefined);
+        const start = map.rooms.find((r) => r.id === map.startRoomId)!;
+        const startDoors = Object.keys(start.doors).length;
+        if (floor === 1) assert.equal(startDoors, 1, 'floor 1 entrance has exactly one exit');
+        else assert.ok(startDoors >= 1 && startDoors <= 2);
+        const boss = map.rooms.find((r) => r.id === map.bossRoomId)!;
         assert.equal(boss.blueprint.roomType, 'boss');
-        const maxDist = Math.max(...map.rooms.map((r) => r.bfsDist));
-        assert.equal(boss.bfsDist, maxDist);
+        assert.equal(boss.bfsDist, Math.max(...map.rooms.map((r) => r.bfsDist)));
         assert.equal(
           map.rooms.filter((r) => r.blueprint.waves.flat().some((w) => w.archetype === 'boss')).length,
           1,
           'exactly one boss per floor',
         );
+        deadEnds += map.rooms.filter((r) => r.id !== 0 && Object.keys(r.doors).length === 1).length;
       }
     }
+    assert.ok(deadEnds / floors < 1, `rooms should mostly have 2+ doors (avg dead ends ${deadEnds / floors})`);
+  });
+
+  void it('drafts the very rare Concussion relic far less often than normal relics', () => {
+    const counts: Record<string, number> = {};
+    const all = Object.keys(RELICS) as Array<keyof typeof RELICS>;
+    for (let i = 0; i < 4000; i += 1) {
+      for (const r of draftRelics(createDailyStream(`d${i}`, 'x'), all, 3)) {
+        counts[r.id] = (counts[r.id] ?? 0) + 1;
+      }
+    }
+    assert.ok((counts.concussion ?? 0) < (counts.ember_wake ?? 0) / 4);
+    assert.ok((counts.concussion ?? 0) > 0);
   });
 
   void it('scales enemies and bosses up with each floor', () => {
@@ -215,7 +231,8 @@ void describe('Simple WASD + 1-Button Manual Attack Combat', () => {
     elite.y = 275;
     sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
     assert.equal(elite.armor, 0);
-    assert.equal(elite.state, 'staggered');
+    // Only the War Hammer (or the very rare Concussion relic) stuns.
+    assert.notEqual(elite.state, 'staggered');
     assert.ok(sim.state.hitstopTimer > 0);
   });
 
@@ -483,6 +500,31 @@ void describe('Floors: rooms, relics, boss, stairs and descent', () => {
     assert.equal(summary.floorsCleared, 1);
     assert.ok(summary.roomsCleared >= 3);
     assert.equal(summary.weapon, 'longsword');
+  });
+
+  void it('crates sometimes drop hearts that heal on pickup', () => {
+    const utcDate = '2026-11-20';
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation(utcDate, profile);
+    sim.startNewRun(utcDate, profile);
+    let hearts = 0;
+    for (let i = 0; i < 40 && hearts === 0; i += 1) {
+      sim.state.breakables = [
+        { id: 5000 + i, x: sim.state.player.x, y: sim.state.player.y - 50, hp: 1, maxHp: 1, radius: 16, kind: 'crate', hitFlash: 0 },
+      ];
+      sim.state.player.attackCooldown = 0;
+      sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+      stepFrames(sim, 40, () => idleInput());
+      hearts = sim.state.hearts.length;
+    }
+    assert.ok(hearts > 0, 'some crate should have dropped a heart');
+    const heart = sim.state.hearts[0]!;
+    sim.state.player.hp = 50;
+    sim.state.player.x = heart.x;
+    sim.state.player.y = heart.y;
+    sim.step(idleInput());
+    assert.equal(sim.state.hearts.length, 0);
+    assert.ok(sim.state.player.hp > 50, 'heart heals');
   });
 
   void it('keeps going: floors are endless', () => {

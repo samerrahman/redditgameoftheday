@@ -18,6 +18,16 @@ async function bootstrap(): Promise<void> {
   const adapter = new HybridDevvitAdapter();
   const session = await adapter.loadSession(utcDate);
 
+  // Phaser bakes text into textures, so make sure the pixel font is ready first.
+  try {
+    await Promise.all([
+      document.fonts.load('16px "Pixelify Sans"'),
+      document.fonts.load('700 16px "Pixelify Sans"'),
+    ]);
+  } catch {
+    // Fall back to system fonts if the font can't load.
+  }
+
   const sim = new GameSimulation(utcDate, session.profile);
 
   let input: InputController | null = null;

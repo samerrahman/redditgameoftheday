@@ -90,7 +90,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Nova',
     starter: false,
     synergyImpact: true,
-    summary: (lv) => `Every 3rd hit emits stagger ring (${20 + 8 * (lv - 1)} dmg)`,
+    summary: (lv) => `Every 3rd hit emits a shock ring (${20 + 8 * (lv - 1)} dmg)`,
   },
   shatter_quake: {
     id: 'shatter_quake',
@@ -122,6 +122,18 @@ export const RELICS: Record<RelicId, RelicDef> = {
     synergyImpact: false,
     summary: (lv) => `Melee hits burst +${2 * lv} magnetized coins`,
   },
+  concussion: {
+    id: 'concussion',
+    name: 'Concussion',
+    category: 'blade',
+    emoji: '💫',
+    shortTag: 'Stun',
+    starter: true,
+    synergyImpact: false,
+    // Very rare: roughly 1 in 8 the odds of a normal relic per draft slot.
+    draftWeight: 0.12,
+    summary: (lv) => `Your hits stun enemies for ${(0.3 + 0.1 * (lv - 1)).toFixed(1)}s`,
+  },
 };
 
 export const ALL_RELIC_IDS = Object.keys(RELICS) as RelicId[];
@@ -146,5 +158,22 @@ export function draftRelics(
     }
   }
 
-  return rng.shuffle(pool).slice(0, Math.min(count, pool.length));
+  // Weighted draw without replacement so very rare relics (low draftWeight) seldom appear.
+  const picked: RelicDef[] = [];
+  const remaining = [...pool];
+  while (picked.length < count && remaining.length > 0) {
+    const total = remaining.reduce((sum, def) => sum + (def.draftWeight ?? 1), 0);
+    let roll = rng.next() * total;
+    let idx = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i += 1) {
+      roll -= remaining[i]!.draftWeight ?? 1;
+      if (roll < 0) {
+        idx = i;
+        break;
+      }
+    }
+    picked.push(remaining[idx]!);
+    remaining.splice(idx, 1);
+  }
+  return picked;
 }

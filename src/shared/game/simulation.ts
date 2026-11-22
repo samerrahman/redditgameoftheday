@@ -151,6 +151,14 @@ export type GemEntity = {
   age: number;
 };
 
+/** Heal pickup that sometimes pops out of broken crates. */
+export type HeartEntity = {
+  id: number;
+  x: number;
+  y: number;
+  age: number;
+};
+
 export type PortalEntity = {
   kind: 'stairs';
   x: number;
@@ -319,6 +327,7 @@ export type GameState = {
   breakables: BreakableEntity[];
   coins: CoinEntity[];
   gems: GemEntity[];
+  hearts: HeartEntity[];
   pedestals: PedestalEntity[];
   fountain: FountainEntity | null;
   portals: PortalEntity[];
@@ -540,6 +549,7 @@ export class GameSimulation {
     this.updateProjectiles(dt);
     this.updateCoins(dt);
     this.updateGems(dt);
+    this.updateHearts(dt);
     this.updatePostRoomInteractions(dt);
 
     if (s.player.hp <= 0 && s.phase === 'playing') {
@@ -633,6 +643,7 @@ export class GameSimulation {
       breakables: [],
       coins: [],
       gems: [],
+      hearts: [],
       pedestals: [],
       fountain: null,
       portals: [],
@@ -751,6 +762,7 @@ export class GameSimulation {
     s.rings = [];
     s.coins = [];
     s.gems = [];
+    s.hearts = [];
 
     this.refreshMapView();
 
@@ -1228,6 +1240,18 @@ export class GameSimulation {
     }
   }
 
+  /**
+   * Only the War Hammer stuns by default; any weapon can stun with the very rare
+   * Concussion relic. Returns 0 when hits should not stun.
+   */
+  private getStunSeconds(): number {
+    const w = this.weapon;
+    const base = w.style === 'melee' ? w.staggerSec : 0;
+    const concussionLv = this.state.player.relics.concussion ?? 0;
+    const fromRelic = concussionLv > 0 ? 0.3 + 0.1 * (concussionLv - 1) : 0;
+    return Math.max(base, fromRelic);
+  }
+
   /** Damage one enemy with the equipped weapon and apply per-enemy on-hit relics. */
   private weaponHitEnemy(
     enemy: EnemyEntity,
@@ -1240,9 +1264,10 @@ export class GameSimulation {
     const s = this.state;
     const p = s.player;
     const w = this.weapon;
-    if (enemy.archetype !== 'boss' && w.style === 'melee' && w.staggerSec > 0) {
+    const stunSec = this.getStunSeconds();
+    if (enemy.archetype !== 'boss' && stunSec > 0) {
       enemy.state = 'staggered';
-      enemy.stateTimer = Math.max(enemy.stateTimer, w.staggerSec);
+      enemy.stateTimer = Math.max(enemy.stateTimer, stunSec);
     }
     const killed = this.damageEnemy(
       enemy,
@@ -1416,7 +1441,7 @@ export class GameSimulation {
     for (const enemy of [...s.enemies]) {
       if (enemy.spawnShieldTimer > 0) continue;
       if (Math.hypot(enemy.x - x, enemy.y - y) <= radius + enemy.radius) {
-        if (enemy.archetype !== 'boss') {
+        if (enemy.archetype !== 'boss' && this.getStunSeconds() > 0) {
           enemy.state = 'staggered';
           enemy.stateTimer = Math.max(enemy.stateTimer, 0.35);
         }
@@ -1612,7 +1637,7 @@ export class GameSimulation {
           this.clampToArena(enemy);
           enemy.vx *= -0.25;
           enemy.vy *= -0.25;
-          if (enemy.archetype !== 'boss') {
+          if (enemy.archetype !== 'boss' && this.getStunSeconds() > 0) {
             enemy.state = 'staggered';
             enemy.stateTimer = 0.45;
           }
@@ -2144,8 +2169,10 @@ export class GameSimulation {
       if (stripsArmor) {
         enemy.armor = Math.max(0, enemy.armor - 1);
         if (enemy.armor === 0) {
-          enemy.state = 'staggered';
-          enemy.stateTimer = 1.2;
+          if (this.getStunSeconds() > 0) {
+            enemy.state = 'staggered';
+            enemy.stateTimer = 1.2;
+          }
           this.addFloatingText(enemy.x, enemy.y - 34, 'ARMOR BROKEN!', '#fbbf24', 1.15);
           this.spawnParticles(enemy.x, enemy.y, '#fbbf24', 10, 175);
         } else {
@@ -2257,6 +2284,26 @@ export class GameSimulation {
     s.gems = kept;
   }
 
+  private updateHearts(dt: number): void {
+    const s = this.state;
+    const p = s.player;
+    const kept: HeartEntity[] = [];
+    for (const heart of s.hearts) {
+      heart.age += dt;
+      const touching = Math.hypot(p.x - heart.x, p.y - heart.y) <= p.radius + 16;
+      // Only picked up when it would actually heal, so you can save it for later.
+      if (touching && heart.age > 0.25 && p.hp < p.maxHp) {
+        const before = p.hp;
+        p.hp = Math.min(p.maxHp, p.hp + HEART_HEAL);
+        this.addFloatingText(p.x, p.y - 26, `+${Math.round(p.hp - before)} HP`, '#4ade80', 1.15);
+        this.spawnParticles(heart.x, heart.y, '#f87171', 10, 120);
+        continue;
+      }
+      kept.push(heart);
+    }
+    s.hearts = kept;
+  }
+
   private damageBreakable(br: BreakableEntity, amount: number): void {
     const s = this.state;
     br.hp -= amount;
@@ -2266,6 +2313,9 @@ export class GameSimulation {
       const idx = s.breakables.indexOf(br);
       if (idx !== -1) s.breakables.splice(idx, 1);
       this.spawnCoins(br.x, br.y, 2, false);
+      if (br.kind === 'crate' && this.lootRng.next() < HEART_CRATE_CHANCE) {
+        s.hearts.push({ id: this.nextEntityId++, x: br.x, y: br.y, age: 0 });
+      }
     }
   }
 
@@ -2688,6 +2738,9 @@ export class GameSimulation {
     this.endCallback?.(summary);
   }
 }
+
+const HEART_CRATE_CHANCE = 0.35;
+const HEART_HEAL = 15;
 
 const GEM_DROP_CHANCE: Partial<Record<EnemyEntity['archetype'], number>> = {
   chaser: 0.02,

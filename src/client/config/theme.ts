@@ -4,8 +4,8 @@ import type { EnemyArchetype, HazardType, RelicId, RoomType } from '../../shared
 export const GAME_META = {
   title: 'DUNGEONLE',
   tagline: 'Daily dungeon crawl. One seed. Everyone fights the same floor.',
-  coinName: 'Karma Coins',
-  coinShort: 'KC',
+  coinName: 'Coins',
+  coinShort: 'coins',
   subredditName: 'r/dungeonle',
 } as const;
 
@@ -187,6 +187,7 @@ export const RELIC_SPRITE_FRAMES: Record<RelicId, string> = {
   shatter_quake: 'tile_117',
   phantom_echo: 'tile_105',
   golden_cleave: 'tile_118',
+  concussion: 'tile_119',
 };
 
 export const ENTITY_LABELS = {

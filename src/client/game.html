@@ -213,7 +213,7 @@
                 alt=""
               />
               <span>Shop</span>
-              <span id="start-shop-coins" class="coin-pill">0 KC</span>
+              <span id="start-shop-coins" class="coin-pill">0 coins</span>
             </button>
           </div>
 
@@ -297,24 +297,7 @@
           <h2 id="end-title" class="end-title">You Died</h2>
           <p id="end-subtitle" class="muted-copy">Died in Room 1</p>
 
-          <div class="end-stats-grid">
-            <div class="stat-tile">
-              <span class="stat-label">Floor Reached</span>
-              <strong id="end-room" class="stat-value">1</strong>
-            </div>
-            <div class="stat-tile">
-              <span class="stat-label">Run Time</span>
-              <strong id="end-time" class="stat-value mono">0:00</strong>
-            </div>
-            <div class="stat-tile">
-              <span class="stat-label">Coins Banked</span>
-              <strong id="end-coins" class="stat-value coin-text">+0</strong>
-            </div>
-            <div class="stat-tile">
-              <span class="stat-label">Gems Found</span>
-              <strong id="end-damage" class="stat-value gem-text">0</strong>
-            </div>
-          </div>
+          <ul id="end-stats" class="end-stats-list" aria-label="Run stats"></ul>
 
           <div id="end-relics" class="end-relics"></div>
 
@@ -340,6 +323,7 @@
                 <span>Shop</span>
               </button>
               <button id="play-again-btn" type="button" class="secondary-btn">Play Again</button>
+              <button id="end-menu-btn" type="button" class="secondary-btn">Main Menu</button>
             </div>
             <p id="end-next-daily" class="next-daily-note mono" hidden>
               Daily complete · Next dungeon in --:--:--
@@ -367,7 +351,7 @@
                   height="20"
                   alt=""
                 />
-                <span id="shop-balance">0 KC</span>
+                <span id="shop-balance">0 coins</span>
               </div>
               <div class="shop-balance-pill gem-pill">
                 <span id="shop-gems">0 💎</span>

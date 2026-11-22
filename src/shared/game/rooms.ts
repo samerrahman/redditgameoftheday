@@ -302,7 +302,9 @@ export function buildDailyDungeonMap(
   const f = Math.max(1, Math.floor(floor));
   const scaling = getFloorScaling(f);
   const rng = createDailyStream(utcDate, `floor-${f}-map`);
-  const totalRooms = rng.int(4, 6);
+  const totalRooms = rng.int(5, 7);
+  // Only the very first room of the run is a single-door corridor. Later floors open up.
+  const entranceMaxDoors = f === 1 ? 1 : 2;
 
   const emptyBlueprint = (roomIndex: number): RoomBlueprint => ({
     roomIndex,
@@ -324,8 +326,11 @@ export function buildDailyDungeonMap(
   const start = makeNode(0, 0, 0);
   nodes.push(start);
   const grid = new Map<string, DungeonRoomNode>([['0,0', start]]);
+  const degree = (n: DungeonRoomNode): number => Object.keys(n.doors).length;
+  const canTakeDoor = (n: DungeonRoomNode): boolean =>
+    n.id === 0 ? degree(n) < entranceMaxDoors : degree(n) < 4;
 
-  // Entrance gets exactly one exit.
+  // First exit out of the entrance.
   const firstDir = rng.pick(['north', 'east', 'west'] as const);
   const firstDelta = DIR_DELTAS[firstDir];
   const first = makeNode(firstDelta.dx, firstDelta.dy, 1);
@@ -333,28 +338,56 @@ export function buildDailyDungeonMap(
   grid.set(`${first.gx},${first.gy}`, first);
   connectNodes(start, firstDir, first);
 
-  // Grow the rest from non-entrance rooms so the entrance stays a dead end.
+  // Grow compactly: prefer empty cells that touch several existing rooms, so we can
+  // add loops afterwards and avoid one long corridor.
   while (nodes.length < totalRooms) {
-    const candidates: Array<{ parent: DungeonRoomNode; dir: DoorDirection; nx: number; ny: number }> = [];
+    const candidates: Array<{ parent: DungeonRoomNode; dir: DoorDirection; nx: number; ny: number; score: number }> = [];
     for (const parent of nodes) {
-      if (parent.id === 0) continue;
-      if (Object.keys(parent.doors).length >= 3) continue;
+      if (!canTakeDoor(parent)) continue;
       for (const dir of ALL_DIRS) {
         const delta = DIR_DELTAS[dir];
         const nx = parent.gx + delta.dx;
         const ny = parent.gy + delta.dy;
-        if (Math.abs(nx) > 3 || Math.abs(ny) > 3) continue;
+        if (Math.abs(nx) > 2 || ny < -3 || ny > 1) continue;
+        if (nx === 0 && ny === 1) continue;
         if (grid.has(`${nx},${ny}`)) continue;
-        candidates.push({ parent, dir, nx, ny });
+        let touching = 0;
+        for (const d of ALL_DIRS) {
+          const nb = grid.get(`${nx + DIR_DELTAS[d].dx},${ny + DIR_DELTAS[d].dy}`);
+          if (nb && nb.id !== 0) touching += 1;
+        }
+        const score = touching + (degree(parent) <= 1 ? 0.5 : 0) + rng.next();
+        candidates.push({ parent, dir, nx, ny, score });
       }
     }
     if (candidates.length === 0) break;
-    const chosen = rng.pick(candidates);
+    candidates.sort((x, y) => y.score - x.score);
+    const chosen = candidates[0]!;
     const node = makeNode(chosen.nx, chosen.ny, chosen.parent.bfsDist + 1);
     nodes.push(node);
     grid.set(`${node.gx},${node.gy}`, node);
     connectNodes(chosen.parent, chosen.dir, node);
   }
+
+  // Give dead ends a second door where a neighbour exists, then sprinkle a few loops.
+  const tryLink = (a: DungeonRoomNode, chance: number): void => {
+    for (const dir of rng.shuffle(ALL_DIRS)) {
+      if (a.doors[dir] !== undefined) continue;
+      const b = grid.get(`${a.gx + DIR_DELTAS[dir].dx},${a.gy + DIR_DELTAS[dir].dy}`);
+      if (!b || !canTakeDoor(a) || !canTakeDoor(b)) continue;
+      if (rng.next() < chance) {
+        connectNodes(a, dir, b);
+        return;
+      }
+    }
+  };
+  for (const node of nodes) {
+    if (node.id !== 0 && degree(node) === 1) tryLink(node, 1);
+  }
+  for (const node of nodes) {
+    if (node.id !== 0) tryLink(node, 0.3);
+  }
+  if (f > 1 && degree(start) < entranceMaxDoors) tryLink(start, 1);
 
   // Shortest distances from the entrance.
   const distMap = new Map<number, number>([[0, 0]]);

@@ -157,10 +157,8 @@ export class GameUIController {
   private readonly endStreak = getEl('end-streak');
   private readonly endTitle = getEl('end-title');
   private readonly endSubtitle = getEl('end-subtitle');
-  private readonly endRoom = getEl('end-room');
-  private readonly endTime = getEl('end-time');
-  private readonly endCoins = getEl('end-coins');
-  private readonly endDamage = getEl('end-damage');
+  private readonly endStats = getEl('end-stats');
+  private readonly endMenuBtn = getButton('end-menu-btn');
   private readonly endRelics = getEl('end-relics');
   private readonly endScore = getEl('end-score');
   private readonly endLeaderboard = getOList('end-leaderboard');
@@ -381,6 +379,12 @@ export class GameUIController {
   private bindEvents(): void {
     this.playBtn.addEventListener('click', () => {
       this.beginDungeon();
+    });
+
+    this.endMenuBtn.addEventListener('click', () => {
+      this.sim.setPhase('start');
+      this.syncStartScreen();
+      this.syncVisibility();
     });
 
     this.playAgainBtn.addEventListener('click', () => {
@@ -662,12 +666,34 @@ export class GameUIController {
     this.endBadge.textContent = 'NEW BEST FLOOR!';
     this.endTitle.textContent = `Fell on Floor ${floor}`;
     const floorsCleared = summary.floorsCleared ?? 0;
-    this.endSubtitle.textContent = `${floorsCleared} boss${floorsCleared === 1 ? '' : 'es'} · ${summary.roomsCleared ?? 0} rooms · ${WEAPONS[summary.weapon ?? 'longsword'].name}`;
+    const weapon = WEAPONS[summary.weapon ?? 'longsword'];
+    this.endSubtitle.textContent = `${weapon.emoji} ${weapon.name}`;
 
-    this.endRoom.textContent = `F${floor}`;
-    this.endTime.textContent = formatDuration(summary.elapsedSec);
-    this.endCoins.textContent = `+${summary.coinsEarned} (${this.profile.coins} total)`;
-    this.endDamage.textContent = `+${summary.gemsEarned ?? 0} (${this.profile.gems} total)`;
+    // One stat per line; each row animates in after the one above it (see .end-stat-row).
+    const rows: Array<[string, string]> = [
+      ['Floor reached', `${floor}`],
+      ['Bosses defeated', `${floorsCleared}`],
+      ['Rooms cleared', `${summary.roomsCleared ?? 0}`],
+      ['Enemies defeated', `${summary.enemiesKilled}`],
+      ['Time', formatDuration(summary.elapsedSec)],
+      ['Coins', `+${summary.coinsEarned}`],
+      ['Gems', `+${summary.gemsEarned ?? 0}`],
+    ];
+    this.endStats.replaceChildren(
+      ...rows.map(([label, value], i) => {
+        const li = document.createElement('li');
+        li.className = 'end-stat-row';
+        li.style.setProperty('--row-delay', `${0.15 + i * 0.12}s`);
+        const l = document.createElement('span');
+        l.className = 'end-stat-label';
+        l.textContent = label;
+        const v = document.createElement('strong');
+        v.className = 'end-stat-value';
+        v.textContent = value;
+        li.append(l, v);
+        return li;
+      }),
+    );
     this.endScore.textContent = `Score: ${summary.score}`;
 
     this.endRelics.replaceChildren();
@@ -840,10 +866,10 @@ export class GameUIController {
       if (r.gy > maxY) maxY = r.gy;
     }
 
-    const cellW = 18;
-    const cellH = 14;
-    const stepX = 24;
-    const stepY = 20;
+    const cellW = 30;
+    const cellH = 22;
+    const stepX = 40;
+    const stepY = 32;
     const canvas = document.createElement('div');
     canvas.className = 'mm-canvas';
     canvas.style.inlineSize = `${(maxX - minX + 1) * stepX - (stepX - cellW)}px`;
