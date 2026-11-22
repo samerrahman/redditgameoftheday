@@ -5,11 +5,11 @@ import type {
 } from '../../shared/game/simulation.ts';
 import { ENFORCE_SINGLE_DAILY_RUN } from '../../shared/buildMeta.ts';
 import { getDailyModifier } from '../../shared/modifiers.ts';
-import { getDailyRunSummary, hasCompletedDailyRun } from '../../shared/profile.ts';
+import { getDailyRunSummary, getPlayerTitle, hasCompletedDailyRun } from '../../shared/profile.ts';
 import { RELICS } from '../../shared/relics.ts';
 import { formatTimeUntilNextUtcDay } from '../../shared/rng.ts';
 import { formatDuration, formatShareComment } from '../../shared/share.ts';
-import { CONSUMABLES } from '../../shared/shop.ts';
+import { WEAPONS, getWeapon } from '../../shared/weapons.ts';
 import type {
   DailyLeaderboardEntry,
   DoorDirection,
@@ -33,6 +33,14 @@ function getButton(id: string): HTMLButtonElement {
   const node = document.getElementById(id);
   if (!(node instanceof HTMLButtonElement)) {
     throw new Error(`Missing HTMLButtonElement #${id}`);
+  }
+  return node;
+}
+
+function getInput(id: string): HTMLInputElement {
+  const node = document.getElementById(id);
+  if (!(node instanceof HTMLInputElement)) {
+    throw new Error(`Missing HTMLInputElement #${id}`);
   }
   return node;
 }
@@ -62,7 +70,11 @@ export class GameUIController {
   private profile: PlayerProfile;
   private leaderboard: DailyLeaderboardEntry[];
   private lastSummary: RunSummary | null = null;
+  private prevBestFloor: number | null = null;
   private shopOpen = false;
+  private tutorialOpen = false;
+  private lastFloor = -1;
+  private lastGems = -1;
   private shopReturnPhase: GamePhase = 'start';
   private toastTimer: number | null = null;
   private bannerTimer: number | null = null;
@@ -106,6 +118,8 @@ export class GameUIController {
   private readonly hudAnnouncement = getEl('hud-announcement');
   private readonly hudTimer = getEl('hud-timer');
   private readonly hudCoinsVal = getEl('hud-coins-val');
+  private readonly hudGems = getEl('hud-gems');
+  private readonly hudGemsVal = getEl('hud-gems-val');
   private readonly hudRerollBtn = getButton('hud-reroll-btn');
   private readonly hudRerollCount = getEl('hud-reroll-count');
   private readonly hudShopBtn = getButton('hud-shop-btn');
@@ -120,9 +134,17 @@ export class GameUIController {
   private readonly startDungeon = getEl('start-dungeon');
   private readonly startModifier = getEl('start-modifier');
   private readonly startStreak = getEl('start-streak');
-  private readonly startCoins = getEl('start-coins');
+  private readonly startTitle = getEl('start-title');
+  private readonly startTitleNext = getEl('start-title-next');
+  private readonly startBestFloor = getEl('start-best-floor');
+  private readonly startGems = getEl('start-gems');
   private readonly startBest = getEl('start-best');
-  private readonly startBoostPill = getEl('start-boost-pill');
+  private readonly startWeaponPill = getEl('start-weapon-pill');
+
+  private readonly tutorialScreen = getEl('tutorial-screen');
+  private readonly tutorialCloseBtn = getButton('tutorial-close-btn');
+  private readonly tutorialStartBtn = getButton('tutorial-start-btn');
+  private readonly tutorialDontShow = getInput('tutorial-dont-show');
   private readonly playBtn = getButton('play-btn');
   private readonly playBtnLabel = getEl('play-btn-label');
   private readonly startDailyNote = getEl('start-daily-note');
@@ -157,10 +179,10 @@ export class GameUIController {
   private readonly shopScreen = getEl('shop-screen');
   private readonly shopBackBtn = getButton('shop-back-btn');
   private readonly shopPlayBtn = getButton('shop-play-btn');
-  private readonly shopDateSub = getEl('shop-date-sub');
   private readonly shopBalance = getEl('shop-balance');
-  private readonly shopSlots = getEl('shop-slots');
-  private readonly shopCosmetics = getEl('shop-cosmetics');
+  private readonly shopGems = getEl('shop-gems');
+  private readonly shopTabs = getEl('shop-tabs');
+  private readonly shopBody = getEl('shop-body');
   private readonly toast = getEl('toast');
 
   constructor(
@@ -211,7 +233,7 @@ export class GameUIController {
         this.syncVisibility();
       }
     } else if (startImmediately) {
-      this.startRun();
+      this.beginDungeon();
     } else {
       this.syncVisibility();
     }
@@ -260,24 +282,20 @@ export class GameUIController {
       this.lowHpFx.style.setProperty('--low-hp-strength', strength.toFixed(2));
     }
 
-    const roomText =
-      s.roomType === 'endless'
-        ? `Endless ${Math.max(1, s.roomIndex - s.totalRooms)}`
-        : `${s.progressPct}% · Room ${s.roomIndex}`;
+    const roomText = `Floor ${s.floor} · Room ${s.roomIndex}/${s.totalRooms}`;
     if (roomText !== this.lastRoomText) {
       this.lastRoomText = roomText;
       this.hudRoom.textContent = roomText;
     }
 
     const minimapKey =
-      s.roomType === 'endless'
-        ? 'endless'
-        : s.mapRooms
-            .map((r) => `${r.id}:${r.visited ? 1 : 0}${r.cleared ? 1 : 0}${r.isCurrent ? 1 : 0}`)
-            .join('|');
+      `${s.floor}#` +
+      s.mapRooms
+        .map((r) => `${r.id}:${r.visited ? 1 : 0}${r.cleared ? 1 : 0}${r.isCurrent ? 1 : 0}`)
+        .join('|');
     if (minimapKey !== this.lastMinimapKey) {
       this.lastMinimapKey = minimapKey;
-      this.renderMinimap(s.mapRooms, s.roomType === 'endless');
+      this.renderMinimap(s.mapRooms, false);
     }
 
     if (p.shields !== this.lastShieldCount) {
@@ -297,12 +315,25 @@ export class GameUIController {
       this.hudCoinsVal.textContent = String(s.stats.coinsEarned);
     }
 
-    const bannerKey = `${s.currentRoomId}:${s.roomIndex}:${s.roomType}`;
+    if (s.stats.gemsEarned !== this.lastGems) {
+      this.lastGems = s.stats.gemsEarned;
+      this.hudGems.hidden = s.stats.gemsEarned <= 0;
+      this.hudGemsVal.textContent = String(s.stats.gemsEarned);
+    }
+
+    const bannerKey = `${s.floor}:${s.currentRoomId}:${s.roomIndex}:${s.roomType}`;
     if (bannerKey !== this.lastBannerKey) {
       this.lastBannerKey = bannerKey;
-      if (s.isFirstVisitToRoom) {
-        const sub = s.roomType === 'boss' ? 'Daily Floor Boss' : s.modifier.banner;
-        this.showRoomBanner(s.roomIndex, s.roomType, s.progressPct, s.totalRooms, sub);
+      const newFloor = s.floor !== this.lastFloor;
+      this.lastFloor = s.floor;
+      if (s.isFirstVisitToRoom || newFloor) {
+        const sub =
+          s.roomType === 'boss'
+            ? `Floor ${s.floor} Boss`
+            : newFloor && s.floor > 1
+              ? 'Enemies grow stronger'
+              : s.modifier.banner;
+        this.showRoomBanner(s.floor, s.roomIndex, s.roomType, s.totalRooms, sub);
       }
     }
 
@@ -360,24 +391,24 @@ export class GameUIController {
 
   private bindEvents(): void {
     this.playBtn.addEventListener('click', () => {
-      if (this.isDailyCompleted()) {
-        this.showCompletedDailySummary();
-      } else {
-        this.startRun();
-      }
+      this.beginDungeon();
     });
 
     this.shopPlayBtn.addEventListener('click', () => {
       this.shopOpen = false;
-      if (this.isDailyCompleted()) {
-        this.showCompletedDailySummary();
-      } else {
-        this.startRun();
-      }
+      this.beginDungeon();
     });
 
     this.playAgainBtn.addEventListener('click', () => {
-      this.startRun();
+      this.beginDungeon();
+    });
+
+    this.tutorialCloseBtn.addEventListener('click', () => {
+      void this.finishTutorial();
+    });
+
+    this.tutorialStartBtn.addEventListener('click', () => {
+      void this.finishTutorial();
     });
 
     this.restartBtn.addEventListener('click', () => {
@@ -431,6 +462,13 @@ export class GameUIController {
     });
 
     window.addEventListener('keydown', (e) => {
+      if (this.tutorialOpen) {
+        if (e.code === 'Escape' || e.code === 'Enter') {
+          e.preventDefault();
+          void this.finishTutorial();
+        }
+        return;
+      }
       if (this.shopOpen) {
         if (e.code === 'Escape') {
           e.preventDefault();
@@ -495,6 +533,37 @@ export class GameUIController {
     this.syncVisibility();
   }
 
+  /** Entry point for every "play" button: shows the how-to-play card unless dismissed. */
+  private beginDungeon(): void {
+    if (this.isDailyCompleted()) {
+      this.showCompletedDailySummary();
+      return;
+    }
+    if (!this.profile.tutorialDismissed) {
+      this.shopOpen = false;
+      this.tutorialOpen = true;
+      this.tutorialDontShow.checked = false;
+      this.sim.setPhase('start');
+      this.syncVisibility();
+      this.tutorialStartBtn.focus();
+      return;
+    }
+    this.startRun();
+  }
+
+  private async finishTutorial(): Promise<void> {
+    if (!this.tutorialOpen) return;
+    this.tutorialOpen = false;
+    if (this.tutorialDontShow.checked) {
+      const res = await this.adapter.shopAction(
+        { action: 'set_tutorial_dismissed', dismissed: true },
+        this.profile,
+      );
+      if (res.ok) this.profile = res.profile;
+    }
+    this.startRun();
+  }
+
   private startRun(): void {
     if (this.isDailyCompleted()) {
       this.showCompletedDailySummary();
@@ -518,6 +587,8 @@ export class GameUIController {
     this.lastBossKey = '';
     this.lastBannerKey = '';
     this.lastMinimapKey = '';
+    this.lastFloor = -1;
+    this.lastGems = -1;
     this.hideRoomBanner();
     this.sim.startNewRun(this.utcDate, this.profile);
     this.syncVisibility();
@@ -554,7 +625,8 @@ export class GameUIController {
       this.lowHpFx.classList.remove('is-low', 'is-critical', 'is-hurt');
       this.lowHpFx.style.setProperty('--low-hp-strength', '0');
     }
-    this.startScreen.hidden = this.shopOpen || phase !== 'start';
+    this.tutorialScreen.hidden = !this.tutorialOpen;
+    this.startScreen.hidden = this.shopOpen || this.tutorialOpen || phase !== 'start';
     this.pauseScreen.hidden = this.shopOpen || phase !== 'paused';
     this.endScreen.hidden = this.shopOpen || phase !== 'ended';
     this.shopScreen.hidden = !this.shopOpen;
@@ -568,40 +640,30 @@ export class GameUIController {
     const theme = getDailyTheme(this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
+    const { title, next } = getPlayerTitle(this.profile.bestFloor);
+    const weapon = getWeapon(this.profile.equippedWeapon);
 
     this.startDate.textContent = this.utcDate;
     this.startDungeon.textContent = theme.name;
     this.startModifier.textContent = modifier.banner;
     this.startStreak.textContent = `${this.profile.streak}🔥`;
-    this.startCoins.textContent = String(this.profile.coins);
+    this.startTitle.textContent = `🏅 ${title}`;
+    this.startTitleNext.textContent = next ? `Reach floor ${next.minFloor} → ${next.title}` : 'Max rank!';
+    this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
+    this.startGems.textContent = `${this.profile.gems}💎`;
     this.startShopCoins.textContent = `${this.profile.coins} ${GAME_META.coinShort}`;
-
-    if (best) {
-      const bestPct =
-        best.bestProgressPct !== undefined ? `${best.bestProgressPct}%` : `Room ${best.highestRoom}`;
-      this.startBest.textContent = best.extracted
-        ? `${bestPct} · ${formatDuration(best.bestClearTimeSec ?? 0)}`
-        : bestPct;
-    } else {
-      this.startBest.textContent = '—';
-    }
+    this.startWeaponPill.textContent = `Weapon: ${weapon.emoji} ${weapon.name} · change in Shop`;
+    this.startBest.textContent = best ? `F${best.bestFloor ?? 1}` : '—';
 
     const completed = this.isDailyCompleted();
-    this.playBtnLabel.textContent = completed ? 'VIEW RESULTS' : 'PLAY';
+    this.playBtnLabel.textContent = completed ? 'VIEW RESULTS' : 'BEGIN DUNGEON';
     this.playBtn.classList.toggle('is-completed', completed);
     this.startDailyNote.hidden = !completed;
-
-    if (this.profile.pendingConsumable) {
-      const def = CONSUMABLES[this.profile.pendingConsumable];
-      this.startBoostPill.hidden = false;
-      this.startBoostPill.textContent = `Armed Boost: ${def.title}`;
-    } else {
-      this.startBoostPill.hidden = true;
-    }
   }
 
   private async handleRunEnd(summary: RunSummary): Promise<void> {
     this.lastSummary = summary;
+    this.prevBestFloor = this.profile.bestFloor;
     const res = await this.adapter.recordRun(summary, this.profile);
     this.profile = res.profile;
     this.leaderboard = res.leaderboard;
@@ -614,32 +676,21 @@ export class GameUIController {
   }
 
   private renderEndCard(summary: RunSummary, leaderboard: DailyLeaderboardEntry[]): void {
-    const theme = getDailyTheme(summary.utcDate);
-    const extracted = summary.outcome === 'extracted';
-    const pct = summary.progressPct ?? 0;
-    const totalRooms = summary.totalRooms ?? 5;
+    const floor = summary.floorReached ?? 1;
+    const prevBest = this.prevBestFloor;
+    const isNewBest = prevBest !== null && floor > prevBest;
 
     this.endStreak.textContent = `${this.profile.streak}🔥`;
-    if (extracted) {
-      this.endBadge.hidden = false;
-      this.endBadge.textContent = 'EXTRACTED';
-      this.endTitle.textContent =
-        summary.roomReached > totalRooms
-          ? `Endless Room ${summary.roomReached - totalRooms} Extracted!`
-          : pct >= 100
-            ? 'Dungeon Cleared!'
-            : 'Extracted!';
-      this.endSubtitle.textContent = `${summary.utcDate} · ${theme.name}`;
-    } else {
-      this.endBadge.hidden = true;
-      this.endTitle.textContent = 'You Died';
-      this.endSubtitle.textContent = `Died in Room ${summary.roomReached}`;
-    }
+    this.endBadge.hidden = !isNewBest;
+    this.endBadge.textContent = 'NEW BEST FLOOR!';
+    this.endTitle.textContent = `Fell on Floor ${floor}`;
+    const floorsCleared = summary.floorsCleared ?? 0;
+    this.endSubtitle.textContent = `${floorsCleared} floor${floorsCleared === 1 ? '' : 's'} cleared · ${summary.roomsCleared ?? 0} rooms · ${WEAPONS[summary.weapon ?? 'longsword'].name} · ${getPlayerTitle(this.profile.bestFloor).title}`;
 
-    this.endRoom.textContent = `${pct}%`;
+    this.endRoom.textContent = `F${floor}`;
     this.endTime.textContent = formatDuration(summary.elapsedSec);
     this.endCoins.textContent = `+${summary.coinsEarned} (${this.profile.coins} total)`;
-    this.endDamage.textContent = String(summary.damageTaken);
+    this.endDamage.textContent = `+${summary.gemsEarned ?? 0} (${this.profile.gems} total)`;
     this.endScore.textContent = `Score: ${summary.score}`;
 
     this.endRelics.replaceChildren();
@@ -670,10 +721,7 @@ export class GameUIController {
     } else {
       for (const row of leaderboard) {
         const li = document.createElement('li');
-        const status = row.extracted ? 'Clear' : 'Died';
-        const progressText =
-          row.progressPct !== undefined ? `${row.progressPct}%` : `R${row.roomReached}`;
-        li.textContent = `${row.player} — ${progressText} ${status} · ${formatDuration(row.elapsedSec)} (${row.score} pts)`;
+        li.textContent = `${row.player} — Floor ${row.floorReached ?? 1} · ${row.roomsCleared ?? 0} rooms · ${formatDuration(row.elapsedSec)}`;
         this.endLeaderboard.appendChild(li);
       }
     }
@@ -724,14 +772,13 @@ export class GameUIController {
 
   private renderShop(): void {
     renderShopView(
-      this.utcDate,
       this.profile,
       this.adapter,
       {
-        dateSub: this.shopDateSub,
         balance: this.shopBalance,
-        slotsContainer: this.shopSlots,
-        cosmeticsContainer: this.shopCosmetics,
+        gems: this.shopGems,
+        tabs: this.shopTabs,
+        body: this.shopBody,
       },
       {
         onProfileChange: (nextProfile) => {
@@ -889,16 +936,13 @@ export class GameUIController {
   }
 
   private showRoomBanner(
+    floor: number,
     roomIndex: number,
     roomType: RoomType,
-    progressPct: number,
     totalRooms: number,
     subtitle: string,
   ): void {
-    this.hudRoomBannerKicker.textContent =
-      roomType === 'endless'
-        ? `ENDLESS ${Math.max(1, roomIndex - totalRooms)}`
-        : `ROOM ${roomIndex} · ${progressPct}%`;
+    this.hudRoomBannerKicker.textContent = `FLOOR ${floor} · ROOM ${roomIndex}/${totalRooms}`;
     this.hudRoomBannerTitle.textContent = ENTITY_LABELS.rooms[roomType];
     this.hudRoomBannerSub.textContent = subtitle;
 

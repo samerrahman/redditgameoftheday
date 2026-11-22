@@ -2,8 +2,6 @@ import * as Phaser from 'phaser';
 import {
   ARENA_H,
   ARENA_W,
-  ATTACK_ANIM_DURATION,
-  ATTACK_ENDLAG_DURATION,
   FIXED_DT,
   MAX_FRAME_DT,
   PLAY_MAX_X,
@@ -16,7 +14,15 @@ import type { EnemyEntity } from '../../shared/game/enemies.ts';
 import { oppositeDirection } from '../../shared/game/rooms.ts';
 import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
 import { createDailyStream } from '../../shared/rng.ts';
-import type { DoorDirection, EnemyArchetype } from '../../shared/types.ts';
+import { COSMETICS, isCosmeticId } from '../../shared/shop.ts';
+import { getWeapon } from '../../shared/weapons.ts';
+import type { CosmeticId, DoorDirection, EnemyArchetype } from '../../shared/types.ts';
+
+function getCostumeTint(id: CosmeticId): number | null {
+  if (!isCosmeticId(id)) return null;
+  const def = COSMETICS[id];
+  return def.slot === 'costume' && def.tint !== undefined ? def.tint : null;
+}
 import { hexNum, RELIC_SPRITE_FRAMES, type DungeonTheme } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 
@@ -863,6 +869,7 @@ export class DungeonScene extends Phaser.Scene {
     this.syncPedestals(fxG, shadowG, state);
     this.syncBreakables(shadowG, state);
     this.syncCoins(shadowG, state);
+    this.drawGems(fxG, shadowG, state);
     this.syncFirePatches(state);
     this.syncDelayedBlasts(teleG, state);
     this.drawTelegraphs(teleG, state);
@@ -1131,8 +1138,7 @@ export class DungeonScene extends Phaser.Scene {
       }
       entry.hatch.setPosition(portal.x, portal.y).setVisible(true);
 
-      const isExtract = portal.kind === 'extract';
-      const primary = isExtract ? 0x10b981 : 0xa855f7;
+      const primary = 0xfbbf24;
       const pulse = 1 + Math.sin(state.elapsedTime * 4.5) * 0.08;
 
       fxG.fillStyle(primary, 0.18);
@@ -1296,6 +1302,37 @@ export class DungeonScene extends Phaser.Scene {
         spr.destroy();
         this.coinSprites.delete(id);
       }
+    }
+  }
+
+  private drawGems(
+    fxG: Phaser.GameObjects.Graphics,
+    shadowG: Phaser.GameObjects.Graphics,
+    state: GameState,
+  ): void {
+    for (const gem of state.gems) {
+      const bob = Math.sin(state.elapsedTime * 6 + gem.id) * 3;
+      const x = gem.x;
+      const y = gem.y - 4 + bob;
+      shadowG.fillStyle(0x000000, 0.35);
+      shadowG.fillEllipse(gem.x, gem.y + 10, 16, 6);
+      const glow = 0.25 + 0.15 * Math.sin(state.elapsedTime * 8 + gem.id);
+      fxG.fillStyle(0xe879f9, glow);
+      fxG.fillCircle(x, y, 16);
+      const pts = [
+        { x, y: y - 11 },
+        { x: x + 8, y: y - 2 },
+        { x, y: y + 10 },
+        { x: x - 8, y: y - 2 },
+      ];
+      fxG.fillStyle(0xd946ef, 1);
+      this.tracePolygon(fxG, pts, true);
+      fxG.fillPath();
+      fxG.fillStyle(0xf5d0fe, 1);
+      fxG.fillRect(x - 3, y - 6, 3, 4);
+      fxG.lineStyle(2, 0x120d14, 1);
+      this.tracePolygon(fxG, pts, true);
+      fxG.strokePath();
     }
   }
 
@@ -1635,13 +1672,12 @@ export class DungeonScene extends Phaser.Scene {
         .setFlipX(facingLeft)
         .clearTint()
         .play('hero_run', true);
-      const hasBladeRelic = (p.relics.blood_reset ?? 0) > 0 || (p.relics.rift_cleave ?? 0) > 0;
       this.weaponSprite
         .setPosition(px + Math.cos(walkAngle) * 18, py + Math.sin(walkAngle) * 18 + 3)
         .setScale(2.2)
         .setAlpha(1)
         .clearTint()
-        .setFrame(hasBladeRelic ? 'tile_107' : 'tile_106')
+        .setFrame(getWeapon(p.weaponId).sprite)
         .setRotation(walkAngle + Math.PI / 2);
       return;
     }
@@ -1673,6 +1709,21 @@ export class DungeonScene extends Phaser.Scene {
       fxG.lineStyle(1.5, 0x090d14, 1);
       this.tracePolygon(fxG, pts, true);
       fxG.strokePath();
+    } else if (p.cosmetic === 'angel_halo') {
+      const bob = Math.sin(state.elapsedTime * 3) * 1.5;
+      fxG.lineStyle(3, 0xfef08a, 0.95);
+      fxG.strokeEllipse(p.x, p.y - 30 + bob, 22, 7);
+    } else if (p.cosmetic === 'bunny_ears') {
+      const wob = Math.sin(state.elapsedTime * 4) * 1.5;
+      fxG.fillStyle(0x120d14, 1);
+      fxG.fillRect(p.x - 9, p.y - 38 + wob, 7, 18);
+      fxG.fillRect(p.x + 2, p.y - 38 - wob, 7, 18);
+      fxG.fillStyle(0xfdf2f8, 1);
+      fxG.fillRect(p.x - 8, p.y - 37 + wob, 5, 16);
+      fxG.fillRect(p.x + 3, p.y - 37 - wob, 5, 16);
+      fxG.fillStyle(0xf9a8d4, 1);
+      fxG.fillRect(p.x - 7, p.y - 34 + wob, 3, 10);
+      fxG.fillRect(p.x + 4, p.y - 34 - wob, 3, 10);
     } else if (p.cosmetic === 'snoo_antenna') {
       const bob = Math.sin(state.elapsedTime * 5) * 2;
       fxG.lineStyle(2, 0xf8fafc, 1);
@@ -1681,7 +1732,8 @@ export class DungeonScene extends Phaser.Scene {
       fxG.fillCircle(p.x + 8, p.y - 30 + bob, 4);
     }
 
-    const animDur = Math.max(0.01, ATTACK_ANIM_DURATION);
+    const weaponDef = getWeapon(p.weaponId);
+    const animDur = Math.max(0.01, weaponDef.animDuration);
     const swingT = p.attackAnimTimer > 0 ? 1 - p.attackAnimTimer / animDur : 1;
     const sign = p.swingCount % 2 === 1 ? 1 : -1;
 
@@ -1716,8 +1768,11 @@ export class DungeonScene extends Phaser.Scene {
       .setFlipX(p.facingX < -0.1)
       .play(animKey, true);
 
+    const costumeTint = getCostumeTint(p.costume);
     if (p.hurtFlashTimer > 0) {
       this.heroSprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    } else if (costumeTint !== null) {
+      this.heroSprite.setTint(costumeTint).setTintMode(Phaser.TintModes.MULTIPLY);
     } else {
       this.heroSprite.clearTint();
     }
@@ -1742,7 +1797,7 @@ export class DungeonScene extends Phaser.Scene {
     } else if (p.attackCooldown > 0) {
       const endlagDur = Math.min(
         p.attackMaxCooldown,
-        ATTACK_ENDLAG_DURATION * state.modifier.attackCdMult,
+        weaponDef.endlag * state.modifier.attackCdMult,
       );
       const recoverSpan = Math.max(0.01, p.attackMaxCooldown - endlagDur);
       const recoverT = 1 - Math.min(1, p.attackCooldown / recoverSpan);
@@ -1751,8 +1806,14 @@ export class DungeonScene extends Phaser.Scene {
       handDist = 21 - 3 * ease;
     }
 
+    if (weaponDef.style === 'ranged') {
+      // Staffs point at the target and kick back instead of swinging.
+      swingOffset = 0;
+      const recoil = p.attackAnimTimer > 0 ? Math.sin(swingT * Math.PI) : 0;
+      handDist = 20 - 7 * recoil;
+      weaponScale = 2.3;
+    }
     const handAngle = baseAngle + swingOffset;
-    const hasBladeRelic = (p.relics.blood_reset ?? 0) > 0 || (p.relics.rift_cleave ?? 0) > 0;
     this.weaponSprite
       .setPosition(
         drawPx + Math.cos(handAngle) * handDist,
@@ -1760,7 +1821,7 @@ export class DungeonScene extends Phaser.Scene {
       )
       .setScale(weaponScale)
       .setAlpha(1)
-      .setFrame(hasBladeRelic || p.attackAnimTimer > 0 ? 'tile_107' : 'tile_106')
+      .setFrame(weaponDef.sprite)
       .setRotation(handAngle + Math.PI / 2);
 
     if (p.attackAnimTimer > 0 && swingT < 0.35) {
@@ -1780,6 +1841,27 @@ export class DungeonScene extends Phaser.Scene {
     const activeIds = new Set<number>();
 
     for (const proj of state.projectiles) {
+      if (proj.kind === 'lance') {
+        const len = 34;
+        const tx = proj.x - Math.cos(proj.angle) * len;
+        const ty = proj.y - Math.sin(proj.angle) * len;
+        fxG.lineStyle(9, 0x38bdf8, 0.35);
+        fxG.lineBetween(tx, ty, proj.x, proj.y);
+        fxG.lineStyle(4, 0xe0f2fe, 1);
+        fxG.lineBetween(tx, ty, proj.x, proj.y);
+        fxG.fillStyle(0xffffff, 1);
+        fxG.fillCircle(proj.x, proj.y, 5);
+        continue;
+      }
+      if (proj.kind === 'bolt') {
+        const tx = proj.x - Math.cos(proj.angle) * 12;
+        const ty = proj.y - Math.sin(proj.angle) * 12;
+        fxG.lineStyle(5, 0xc084fc, 0.55);
+        fxG.lineBetween(tx, ty, proj.x, proj.y);
+        fxG.fillStyle(0xf5d0fe, 1);
+        fxG.fillCircle(proj.x, proj.y, proj.radius * 0.6);
+        continue;
+      }
       if (proj.kind === 'rift_wave') {
         fxG.lineStyle(7, 0x38bdf8, 1);
         fxG.beginPath();

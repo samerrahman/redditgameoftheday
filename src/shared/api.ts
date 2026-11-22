@@ -13,23 +13,14 @@ export type ProfileResponse = {
   authenticated: boolean;
 };
 
-export type ShopPurchaseRequest = {
-  utcDate: string;
-  slotIndex: 0 | 1 | 2;
-};
+export type { ShopAction as ShopActionRequest } from './shop.ts';
 
-export type ShopPurchaseResponse = {
+export type ShopActionResponse = {
   ok: boolean;
   profile: PlayerProfile;
   reason?: string | undefined;
-};
-
-export type CosmeticEquipRequest = {
-  cosmeticId: CosmeticId;
-};
-
-export type CosmeticEquipResponse = {
-  profile: PlayerProfile;
+  cosmeticId?: CosmeticId | undefined;
+  duplicate?: boolean | undefined;
 };
 
 export type RunCompleteRequest = {

@@ -11,7 +11,8 @@ import { GameUIController } from './ui/controller.ts';
 async function bootstrap(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const utcDate = getUtcDateString(params.get('date'));
-  const showMenu = params.get('menu') === '1';
+  // Always open on the menu; `?autostart=1` skips straight into a run (handy for testing).
+  const autoStart = params.get('autostart') === '1';
   const theme = getDailyTheme(utcDate);
 
   const adapter = new HybridDevvitAdapter();
@@ -65,7 +66,7 @@ async function bootstrap(): Promise<void> {
     sim,
     adapter,
     input,
-    !showMenu,
+    autoStart,
   );
 }
 

@@ -1,5 +1,6 @@
 import { getDailyHazard, getDailyModifier } from '../modifiers.ts';
 import { draftRelics } from '../relics.ts';
+import { getWeapon, type WeaponDef } from '../weapons.ts';
 import { createDailyStream, type SeededRng } from '../rng.ts';
 import type {
   ActiveRelicMap,
@@ -12,16 +13,12 @@ import type {
   RelicDef,
   RoomType,
   RunSummary,
+  WeaponId,
 } from '../types.ts';
 import {
   ARENA_H,
   ARENA_W,
-  ATTACK_ANIM_DURATION,
   ATTACK_BUFFER_TIME,
-  ATTACK_CD,
-  ATTACK_DMG,
-  ATTACK_ENDLAG_DURATION,
-  ATTACK_RANGE,
   BASE_HP,
   DEATH_ANIM_DURATION,
   FIXED_DT,
@@ -40,8 +37,9 @@ import {
 import { chooseBossPattern, createEnemy, type EnemyEntity } from './enemies.ts';
 import {
   buildDailyDungeonMap,
-  buildEndlessRoomBlueprint,
+  getFloorScaling,
   oppositeDirection,
+  type FloorScaling,
   type DailyDungeonMap,
   type RoomBlueprint,
   type RoomRewardType,
@@ -83,7 +81,11 @@ export type ProjectileEntity = {
   ttl: number;
   pierce: boolean;
   hitEnemyIds: number[];
-  kind: 'orb' | 'rift_wave';
+  kind: 'orb' | 'rift_wave' | 'bolt' | 'lance';
+  /** Weapon projectiles proc on-hit relics; relic/reflected projectiles do not. */
+  weaponShot?: boolean | undefined;
+  stripsArmor?: boolean | undefined;
+  attackSeq?: number | undefined;
   angle: number;
 };
 
@@ -140,8 +142,17 @@ export type FountainEntity = {
   healAmount: number;
 };
 
+export type GemEntity = {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  age: number;
+};
+
 export type PortalEntity = {
-  kind: 'extract' | 'endless';
+  kind: 'stairs';
   x: number;
   y: number;
   label: string;
@@ -258,6 +269,8 @@ export type PlayerState = {
   relics: ActiveRelicMap;
   rerollsRemaining: number;
   cosmetic: CosmeticId;
+  costume: CosmeticId;
+  weaponId: WeaponId;
   damageBonusMult: number;
   coinBonusMult: number;
   magnetRadius: number;
@@ -266,6 +279,11 @@ export type PlayerState = {
 export type GameState = {
   phase: GamePhase;
   utcDate: string;
+  /** Current floor (1-based, endless). */
+  floor: number;
+  /** Rooms cleared across all floors this run. */
+  roomsClearedTotal: number;
+  floorsCleared: number;
   currentRoomId: number;
   roomIndex: number;
   totalRooms: number;
@@ -300,6 +318,7 @@ export type GameState = {
   hazards: HazardEntity[];
   breakables: BreakableEntity[];
   coins: CoinEntity[];
+  gems: GemEntity[];
   pedestals: PedestalEntity[];
   fountain: FountainEntity | null;
   portals: PortalEntity[];
@@ -313,6 +332,7 @@ export type GameState = {
   afterimages: AfterimageEffect[];
   stats: {
     coinsEarned: number;
+    gemsEarned: number;
     damageTaken: number;
     enemiesKilled: number;
     extracted: boolean;
@@ -338,6 +358,12 @@ export class GameSimulation {
   private relicRng: SeededRng;
   private bossRng: SeededRng;
   private fxRng: SeededRng;
+  private lootRng: SeededRng;
+  private attackSeq = 0;
+  private lastHitProcSeq = -1;
+  private weapon: WeaponDef;
+  private baseModifier: DailyModifier;
+  private floorScaling: FloorScaling;
   private endCallback?: ((summary: RunSummary) => void) | undefined;
 
   constructor(
@@ -350,7 +376,11 @@ export class GameSimulation {
     this.relicRng = createDailyStream(utcDate, 'relics');
     this.bossRng = createDailyStream(utcDate, 'boss');
     this.fxRng = createDailyStream(utcDate, 'fx');
-    this.dungeonMap = buildDailyDungeonMap(utcDate, getDailyHazard(utcDate));
+    this.lootRng = createDailyStream(utcDate, 'loot');
+    this.weapon = getWeapon(profile.equippedWeapon);
+    this.baseModifier = getDailyModifier(utcDate);
+    this.floorScaling = getFloorScaling(1);
+    this.dungeonMap = buildDailyDungeonMap(utcDate, 1, getDailyHazard(utcDate));
     const startNode = this.dungeonMap.rooms[0];
     if (!startNode) throw new Error('Dungeon map missing start room');
     this.currentBlueprint = startNode.blueprint;
@@ -367,15 +397,32 @@ export class GameSimulation {
     this.relicRng = createDailyStream(utcDate, 'relics');
     this.bossRng = createDailyStream(utcDate, 'boss');
     this.fxRng = createDailyStream(utcDate, 'fx');
-    this.dungeonMap = buildDailyDungeonMap(utcDate, getDailyHazard(utcDate));
+    this.lootRng = createDailyStream(utcDate, 'loot');
+    this.weapon = getWeapon(profile.equippedWeapon);
+    this.baseModifier = getDailyModifier(utcDate);
+    this.floorScaling = getFloorScaling(1);
+    this.dungeonMap = buildDailyDungeonMap(utcDate, 1, getDailyHazard(utcDate));
     this.roomMemory.clear();
     this.doorEntryLockTimer = 0;
     this.state = this.createFreshState(utcDate, profile, 'playing');
     this.enterMapRoom(this.dungeonMap.startRoomId, 'none', null);
   }
 
+  /** Enemy damage/speed multipliers combine today's modifier with the current floor depth. */
+  private buildScaledModifier(): DailyModifier {
+    return {
+      ...this.baseModifier,
+      enemyDamageMult: this.baseModifier.enemyDamageMult * this.floorScaling.damageMult,
+      enemySpeedMult: this.baseModifier.enemySpeedMult * this.floorScaling.speedMult,
+    };
+  }
+
   public setPhase(phase: GamePhase): void {
     this.state.phase = phase;
+  }
+
+  public getWeapon(): WeaponDef {
+    return this.weapon;
   }
 
   public rerollPedestals(): boolean {
@@ -407,31 +454,29 @@ export class GameSimulation {
 
   public getRunSummary(): RunSummary {
     const s = this.state;
-    const clearBonus = s.stats.bossDefeated ? 350 : 0;
-    const extractBonus = s.stats.extracted ? 200 : 0;
-    const roomScore =
-      s.clearedRooms * 150 +
-      (s.progressPct >= 100 ? 300 : 0) +
-      Math.max(0, s.roomIndex - s.totalRooms) * 180;
-    const killScore = s.stats.enemiesKilled * 20;
-    const speedBonus = s.stats.bossDefeated ? Math.max(0, Math.round(600 - s.elapsedTime)) : 0;
-    const penalty = Math.round(s.stats.damageTaken * 1.5);
+    const roomsOnFloor = s.clearedRooms;
+    // Depth dominates: one extra floor always beats any amount of rooms/kills on a shallower floor.
     const score = Math.max(
       10,
-      roomScore + killScore + clearBonus + extractBonus + speedBonus - penalty,
+      s.floorsCleared * 1000 + roomsOnFloor * 120 + s.stats.enemiesKilled * 5,
     );
 
     return {
       utcDate: s.utcDate,
-      outcome: s.stats.extracted ? 'extracted' : 'defeated',
-      bossDefeated: s.stats.bossDefeated,
+      outcome: 'defeated',
+      bossDefeated: s.floorsCleared > 0,
+      floorReached: s.floor,
+      roomsCleared: s.roomsClearedTotal,
+      floorsCleared: s.floorsCleared,
       roomReached: s.roomIndex,
       progressPct: s.progressPct,
       totalRooms: s.totalRooms,
       elapsedSec: Math.round(s.elapsedTime * 10) / 10,
       coinsEarned: s.stats.coinsEarned,
+      gemsEarned: s.stats.gemsEarned,
       damageTaken: Math.round(s.stats.damageTaken),
       enemiesKilled: s.stats.enemiesKilled,
+      weapon: this.weapon.id,
       relics: { ...s.player.relics },
       score,
     };
@@ -494,6 +539,7 @@ export class GameSimulation {
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
     this.updateCoins(dt);
+    this.updateGems(dt);
     this.updatePostRoomInteractions(dt);
 
     if (s.player.hp <= 0 && s.phase === 'playing') {
@@ -506,23 +552,10 @@ export class GameSimulation {
     profile: PlayerProfile,
     phase: GamePhase,
   ): GameState {
-    const modifier = getDailyModifier(utcDate);
+    const modifier = this.buildScaledModifier();
     const dailyHazard = getDailyHazard(utcDate);
-    const maxHp = BASE_HP + profile.upgrades.vitality * 10;
-    const baseShields =
-      profile.upgrades.shield + (profile.pendingConsumable === 'shield_tonic' ? 2 : 0);
-    const damageBonusMult = profile.pendingConsumable === 'fury_charm' ? 1.15 : 1;
-    const magnetLevel = profile.upgrades.magnet;
-    const coinBonusMult = 1 + magnetLevel * 0.1;
-    const magnetRadius = 115 * (1 + magnetLevel * 0.15);
-
-    const startingRelics: ActiveRelicMap = {};
-    if (profile.pendingConsumable === 'bonus_relic') {
-      const [bonus] = draftRelics(this.relicRng, profile.unlockedRelics, 1);
-      if (bonus) {
-        startingRelics[bonus.id] = 1;
-      }
-    }
+    const maxHp = BASE_HP;
+    const weapon = this.weapon;
 
     const startNode = this.dungeonMap.rooms[0];
     if (!startNode) throw new Error('Dungeon map missing start room');
@@ -531,6 +564,9 @@ export class GameSimulation {
     return {
       phase,
       utcDate,
+      floor: this.dungeonMap.floor,
+      roomsClearedTotal: 0,
+      floorsCleared: 0,
       currentRoomId: startNode.id,
       roomIndex: startNode.roomIndex,
       totalRooms: this.dungeonMap.totalRooms,
@@ -567,12 +603,12 @@ export class GameSimulation {
         radius: PLAYER_RADIUS,
         hp: maxHp,
         maxHp,
-        shields: baseShields,
-        maxShields: baseShields,
+        shields: 0,
+        maxShields: 0,
         facingX: 0,
         facingY: -1,
         attackCooldown: 0,
-        attackMaxCooldown: ATTACK_CD * modifier.attackCdMult,
+        attackMaxCooldown: weapon.cooldown * modifier.attackCdMult,
         attackAnimTimer: 0,
         attackEndlagTimer: 0,
         attackBufferedTimer: 0,
@@ -582,18 +618,21 @@ export class GameSimulation {
         iFramesTimer: 0,
         hurtFlashTimer: 0,
         trailSpawnTimer: 0,
-        relics: startingRelics,
-        rerollsRemaining: profile.upgrades.reroll,
+        relics: {},
+        rerollsRemaining: 1,
         cosmetic: profile.equippedCosmetic,
-        damageBonusMult,
-        coinBonusMult,
-        magnetRadius,
+        costume: profile.equippedCostume,
+        weaponId: weapon.id,
+        damageBonusMult: 1,
+        coinBonusMult: 1,
+        magnetRadius: 115,
       },
       enemies: [],
       projectiles: [],
       hazards: [],
       breakables: [],
       coins: [],
+      gems: [],
       pedestals: [],
       fountain: null,
       portals: [],
@@ -607,6 +646,7 @@ export class GameSimulation {
       afterimages: [],
       stats: {
         coinsEarned: 0,
+        gemsEarned: 0,
         damageTaken: 0,
         enemiesKilled: 0,
         extracted: false,
@@ -619,9 +659,7 @@ export class GameSimulation {
     const node = this.dungeonMap.rooms.find((r) => r.roomIndex === roomIndex);
     if (node) {
       this.enterMapRoom(node.id, transitionKind, null);
-      return;
     }
-    this.enterEndlessRoom(roomIndex, transitionKind);
   }
 
   public enterMapRoom(
@@ -631,10 +669,7 @@ export class GameSimulation {
   ): void {
     const s = this.state;
     const node = this.dungeonMap.rooms.find((r) => r.id === roomId);
-    if (!node) {
-      this.enterEndlessRoom(this.dungeonMap.totalRooms + 1, transitionKind);
-      return;
-    }
+    if (!node) return;
 
     const prevMem = this.roomMemory.get(node.id);
     const isFirstVisit = !prevMem?.visited;
@@ -715,6 +750,7 @@ export class GameSimulation {
     s.delayedBlasts = [];
     s.rings = [];
     s.coins = [];
+    s.gems = [];
 
     this.refreshMapView();
 
@@ -735,18 +771,9 @@ export class GameSimulation {
       }
 
       if (node.id === this.dungeonMap.bossRoomId) {
-        s.portals = [
-          { kind: 'extract', x: ARENA_W / 2 - 116, y: 235, label: 'EXTRACT · LOCK RUN', progress: 0 },
-          { kind: 'endless', x: ARENA_W / 2 + 116, y: 235, label: 'PUSH ENDLESS', progress: 0 },
-        ];
+        s.portals = [this.makeStairsPortal()];
         s.roomState = 'boss_choice';
       } else {
-        if (s.stats.bossDefeated && s.progressPct === 100) {
-          s.portals = [
-            { kind: 'extract', x: ARENA_W / 2 - 116, y: 330, label: 'EXTRACT · LOCK RUN', progress: 0 },
-            { kind: 'endless', x: ARENA_W / 2 + 116, y: 330, label: 'PUSH ENDLESS', progress: 0 },
-          ];
-        }
         s.roomState = 'door_open';
       }
     } else {
@@ -776,82 +803,30 @@ export class GameSimulation {
     s.announcementTimer = 0;
   }
 
-  private enterEndlessRoom(
-    roomIndex: number,
-    transitionKind: RoomTransitionKind = 'portal',
-  ): void {
+  private makeStairsPortal(): PortalEntity {
+    return {
+      kind: 'stairs',
+      x: ARENA_W / 2,
+      y: 300,
+      label: `DESCEND TO FLOOR ${this.state.floor + 1}`,
+      progress: 0,
+    };
+  }
+
+  /** Take the stairs: build the next floor's seeded layout and drop into its entrance. */
+  private descendFloor(): void {
     const s = this.state;
-    const depth = Math.max(1, roomIndex - this.dungeonMap.totalRooms);
-    const blueprint = buildEndlessRoomBlueprint(s.utcDate, depth, roomIndex, s.dailyHazard);
-    this.currentBlueprint = blueprint;
-
-    s.currentRoomId = -roomIndex;
-    s.roomIndex = roomIndex;
-    s.totalRooms = this.dungeonMap.totalRooms;
-    s.roomType = blueprint.roomType;
-    s.roomState = 'combat';
-    s.rewardType = blueprint.rewardType;
+    const nextFloor = s.floor + 1;
+    this.floorScaling = getFloorScaling(nextFloor);
+    this.dungeonMap = buildDailyDungeonMap(s.utcDate, nextFloor, s.dailyHazard);
+    this.roomMemory.clear();
+    s.floor = nextFloor;
+    s.modifier = this.buildScaledModifier();
+    s.slashes = [];
+    s.afterimages = [];
+    this.enterMapRoom(this.dungeonMap.startRoomId, 'portal', null);
     s.isFirstVisitToRoom = true;
-    s.waveIndex = 0;
-    s.totalWaves = blueprint.waves.length;
-    s.waveDelayTimer = 0;
-    s.deathTimer = 0;
-    s.deathDuration = DEATH_ANIM_DURATION;
-    s.roomTransitionKind = transitionKind;
-    s.roomTransitionDir = null;
-    if (transitionKind !== 'none') {
-      const dur = transitionKind === 'portal' ? 0.64 : 0.48;
-      s.roomTransitionDuration = dur;
-      s.roomTransitionTimer = dur;
-    } else {
-      s.roomTransitionDuration = 0.48;
-      s.roomTransitionTimer = 0;
-    }
-
-    s.player.x = PLAYER_SPAWN_X;
-    s.player.y = PLAYER_SPAWN_Y;
-    s.player.vx = 0;
-    s.player.vy = 0;
-    s.player.facingX = 0;
-    s.player.facingY = -1;
-    s.player.attackCooldown = 0;
-    s.player.attackAnimTimer = 0;
-    s.player.attackEndlagTimer = 0;
-    s.player.attackBufferedTimer = 0;
-    s.player.iFramesTimer = Math.max(
-      s.player.iFramesTimer,
-      transitionKind !== 'none' ? s.roomTransitionDuration + 0.35 : 0.35,
-    );
-    this.doorEntryLockTimer = 0.28;
-
-    s.enemies = [];
-    s.projectiles = [];
-    s.pedestals = [];
-    s.fountain = null;
-    s.portals = [];
-    s.firePatches = [];
-    s.delayedBlasts = [];
-    s.rings = [];
-    s.coins = [];
-    s.doors = [];
-    s.mapRooms = [];
-
-    s.hazards = blueprint.hazards.map((h) => ({
-      ...h,
-      timer: h.phaseOffset,
-      hp: 20,
-      destroyed: false,
-    }));
-
-    s.breakables = blueprint.breakables.map((b) => ({
-      ...b,
-      maxHp: b.hp,
-      hitFlash: 0,
-    }));
-
-    this.spawnWave(0);
-    s.announcementText = '';
-    s.announcementTimer = 0;
+    this.announce(`Floor ${nextFloor} · Enemies grow stronger`);
   }
 
   private refreshMapView(): void {
@@ -867,12 +842,6 @@ export class GameSimulation {
       100,
       Math.round((clearedRooms / Math.max(1, this.dungeonMap.totalRooms)) * 100),
     );
-
-    if (s.roomType === 'endless') {
-      s.doors = [];
-      s.mapRooms = [];
-      return;
-    }
 
     const orderedDirs: readonly DoorDirection[] = ['north', 'east', 'west', 'south'];
     const curNode = this.dungeonMap.rooms.find((r) => r.id === s.currentRoomId);
@@ -961,7 +930,13 @@ export class GameSimulation {
       this.executeAttack(aimVec);
     }
 
-    const moveSpeedMult = p.attackAnimTimer > 0 ? 0.35 : p.attackEndlagTimer > 0 ? 0.55 : 1;
+    const attackMove = this.weapon.attackMoveMult;
+    const moveSpeedMult =
+      p.attackAnimTimer > 0
+        ? attackMove
+        : p.attackEndlagTimer > 0
+          ? Math.min(1, attackMove + 0.2)
+          : 1;
     const targetVx = input.moveX * PLAYER_SPEED * moveSpeedMult;
     const targetVy = input.moveY * PLAYER_SPEED * moveSpeedMult;
     const accelRate = (input.moveX !== 0 || input.moveY !== 0 ? 18 : 16) * s.modifier.frictionMult;
@@ -1008,19 +983,19 @@ export class GameSimulation {
   private executeAttack(aimVec: { x: number; y: number }): void {
     const s = this.state;
     const p = s.player;
+    const w = this.weapon;
     const angle = Math.atan2(aimVec.y, aimVec.x);
 
     p.facingX = Math.cos(angle);
     p.facingY = Math.sin(angle);
     p.attackAngle = angle;
-    p.attackMaxCooldown = ATTACK_CD * s.modifier.attackCdMult;
+    p.attackMaxCooldown = w.cooldown * s.modifier.attackCdMult;
     p.attackCooldown = p.attackMaxCooldown;
-    p.attackAnimTimer = ATTACK_ANIM_DURATION;
-    p.attackEndlagTimer = Math.min(
-      p.attackMaxCooldown,
-      ATTACK_ENDLAG_DURATION * s.modifier.attackCdMult,
-    );
+    p.attackAnimTimer = w.animDuration;
+    p.attackEndlagTimer = Math.min(p.attackMaxCooldown, w.endlag * s.modifier.attackCdMult);
     p.swingCount += 1;
+    this.attackSeq += 1;
+    const seq = this.attackSeq;
 
     const vortexLv = p.relics.vortex_slam ?? 0;
     if (vortexLv > 0) {
@@ -1040,152 +1015,32 @@ export class GameSimulation {
     }
 
     const bloodLv = p.relics.blood_reset ?? 0;
-    const swingDmg =
-      ATTACK_DMG *
+    const hitDmg =
+      w.damage *
       s.modifier.attackDamageMult *
       (1 + 0.15 * bloodLv) *
       p.damageBonusMult *
       s.modifier.playerDamageMult;
 
-    const cleaveArc = (85 * Math.PI) / 180;
+    const range = w.range;
+    const cleaveArc = (Math.max(1, w.arcDeg) * Math.PI) / 180;
     const swingSign: 1 | -1 = p.swingCount % 2 === 1 ? 1 : -1;
-    const slashColor = bloodLv > 0 || (p.relics.rift_cleave ?? 0) > 0 ? '#fbbf24' : '#f8fafc';
-    const slashEffect: SlashEffect = {
-      x: p.x,
-      y: p.y,
-      angle,
-      radius: ATTACK_RANGE,
-      arc: cleaveArc,
-      ttl: ATTACK_ANIM_DURATION,
-      maxTtl: ATTACK_ANIM_DURATION,
-      color: slashColor,
-      heavy: false,
-      sign: swingSign,
-      hitCount: 0,
-    };
-    s.slashes.push(slashEffect);
+    const slashColor =
+      bloodLv > 0 || (p.relics.rift_cleave ?? 0) > 0 ? '#fbbf24' : w.slashColor;
 
-    for (let i = 0; i < 4; i += 1) {
-      const frac = i / 3 - 0.5;
-      const pAng = angle + swingSign * frac * cleaveArc * 0.85;
-      const pDist = ATTACK_RANGE * 0.72;
-      const tangAng = pAng + swingSign * (Math.PI * 0.35);
-      const windSpd = this.fxRng.range(70, 130);
-      const ttl = this.fxRng.range(0.14, 0.22);
-      s.particles.push({
-        x: p.x + Math.cos(pAng) * pDist,
-        y: p.y + Math.sin(pAng) * pDist,
-        vx: Math.cos(tangAng) * windSpd,
-        vy: Math.sin(tangAng) * windSpd,
-        radius: 2.6,
-        ttl,
-        maxTtl: ttl,
-        color: slashColor,
-      });
-    }
-
-    let hitCount = 0;
-    let killCount = 0;
-    let chainedArc = false;
-    const arcLv = p.relics.arc_conduit ?? 0;
-    const goldenLv = p.relics.golden_cleave ?? 0;
-
-    for (const enemy of [...s.enemies]) {
-      if (enemy.spawnShieldTimer > 0) continue;
-      const dx = enemy.x - p.x;
-      const dy = enemy.y - p.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= ATTACK_RANGE + enemy.radius) {
-        const ea = Math.atan2(dy, dx);
-        const inFrontCone = Math.abs(normalizeAngle(ea - angle)) <= cleaveArc / 2;
-        const inCloseCleave = dist <= 34 + enemy.radius;
-        if (inFrontCone || inCloseCleave) {
-          hitCount += 1;
-          if (enemy.archetype !== 'boss') {
-            enemy.state = 'staggered';
-            enemy.stateTimer = Math.max(enemy.stateTimer, 0.28);
-          }
-          const dirX = dist > 0 ? dx / dist : Math.cos(angle);
-          const dirY = dist > 0 ? dy / dist : Math.sin(angle);
-          const killed = this.damageEnemy(
-            enemy,
-            swingDmg,
-            dirX * 360,
-            dirY * 360,
-            true,
-            '#f8fafc',
-          );
-          this.spawnParticles(enemy.x, enemy.y, '#fff7e8', 5, 195);
-          s.rings.push({
-            x: enemy.x,
-            y: enemy.y,
-            radius: 8,
-            maxRadius: 34,
-            ttl: 0.14,
-            maxTtl: 0.14,
-            color: '#fff7e8',
-          });
-          if (arcLv > 0 && !chainedArc) {
-            chainedArc = true;
-            this.triggerArcConduit(enemy, arcLv);
-          }
-          if (killed) {
-            killCount += 1;
-            if (bloodLv > 0) {
-              p.attackCooldown = 0;
-              p.attackEndlagTimer = 0;
-              this.addFloatingText(p.x, p.y - 26, 'RESET!', '#f87171', 1.05);
-            }
-          } else if (goldenLv > 0 && enemy.goldenBurstCount < 2) {
-            enemy.goldenBurstCount += 1;
-            this.spawnCoins(enemy.x, enemy.y, 2 * goldenLv, true);
-          }
-          if (killed && goldenLv > 0) {
-            this.spawnCoins(enemy.x, enemy.y, 2 * goldenLv, true);
-          }
-        }
-      }
-    }
-
-    slashEffect.hitCount = hitCount;
-
-    for (const br of [...s.breakables]) {
-      const dx = br.x - p.x;
-      const dy = br.y - p.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= ATTACK_RANGE + br.radius) {
-        const ea = Math.atan2(dy, dx);
-        if (Math.abs(normalizeAngle(ea - angle)) <= cleaveArc / 2 || dist <= 36 + br.radius) {
-          this.damageBreakable(br, swingDmg);
-        }
-      }
-    }
-
-    for (const haz of s.hazards) {
-      if (haz.type === 'barrels' && !haz.destroyed) {
-        const dx = haz.x - p.x;
-        const dy = haz.y - p.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist <= ATTACK_RANGE + 20) {
-          const ea = Math.atan2(dy, dx);
-          if (Math.abs(normalizeAngle(ea - angle)) <= cleaveArc / 2 || dist <= 36) {
-            this.triggerBarrelExplosion(haz);
-          }
-        }
-      }
-    }
-
+    // Claiming a relic: any weapon can "tap" a pedestal in front of the player.
     if (s.roomState === 'reward' && s.pedestals.length > 0) {
+      const claimReach = Math.max(range, 84) + 24;
+      const claimArc = Math.max(cleaveArc, (85 * Math.PI) / 180);
       let bestPed: PedestalEntity | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
       for (const ped of s.pedestals) {
         const dx = ped.x - p.x;
         const dy = ped.y - p.y;
         const dist = Math.hypot(dx, dy);
-        if (dist <= ATTACK_RANGE + 24) {
-          const ea = Math.atan2(dy, dx);
-          const angleDiff = Math.abs(normalizeAngle(ea - angle));
-          if (angleDiff <= cleaveArc / 2 || dist <= 44) {
+        if (dist <= claimReach) {
+          const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle));
+          if (angleDiff <= claimArc / 2 || dist <= 44) {
             const score = angleDiff * 80 + dist;
             if (score < bestScore) {
               bestScore = score;
@@ -1200,36 +1055,127 @@ export class GameSimulation {
       }
     }
 
-    const prevMeleeHits = p.meleeHitCount;
-    if (hitCount > 0) {
-      p.meleeHitCount += hitCount;
-    }
-    const nextMeleeHits = p.meleeHitCount;
-    // Cross-threshold check so multi-target cleaves jumping across N (e.g. 2 -> 4) still proc 3rd-hit relics.
-    const triggeredThirdHit =
-      hitCount > 0 && Math.floor(nextMeleeHits / 3) > Math.floor(prevMeleeHits / 3);
-    const triggeredSecondHit =
-      hitCount > 0 && Math.floor(nextMeleeHits / 2) > Math.floor(prevMeleeHits / 2);
+    if (w.style === 'melee') {
+      const slashEffect: SlashEffect = {
+        x: p.x,
+        y: p.y,
+        angle,
+        radius: range,
+        arc: cleaveArc,
+        ttl: w.animDuration,
+        maxTtl: w.animDuration,
+        color: slashColor,
+        heavy: w.id === 'hammer',
+        sign: swingSign,
+        hitCount: 0,
+      };
+      s.slashes.push(slashEffect);
 
-    if (hitCount > 0) {
-      s.hitstopTimer = Math.max(s.hitstopTimer, 0.03);
-      s.shakeIntensity = Math.max(s.shakeIntensity, 5.2);
-      const quakeLv = p.relics.shatter_quake ?? 0;
-      if (quakeLv > 0) {
-        const quakeMult = 0.65 + 0.1 * (quakeLv - 1);
-        s.delayedBlasts.push({
-          kind: 'shatter_quake',
-          x: p.x + Math.cos(angle) * 56,
-          y: p.y + Math.sin(angle) * 56,
-          radius: 105,
-          timer: 0.45,
-          maxTimer: 0.45,
-          damage: swingDmg * quakeMult,
-          friendly: true,
+      for (let i = 0; i < 4; i += 1) {
+        const frac = i / 3 - 0.5;
+        const pAng = angle + swingSign * frac * cleaveArc * 0.85;
+        const pDist = range * 0.72;
+        const tangAng = pAng + swingSign * (Math.PI * 0.35);
+        const windSpd = this.fxRng.range(70, 130);
+        const ttl = this.fxRng.range(0.14, 0.22);
+        s.particles.push({
+          x: p.x + Math.cos(pAng) * pDist,
+          y: p.y + Math.sin(pAng) * pDist,
+          vx: Math.cos(tangAng) * windSpd,
+          vy: Math.sin(tangAng) * windSpd,
+          radius: 2.6,
+          ttl,
+          maxTtl: ttl,
+          color: slashColor,
         });
       }
+
+      let hitCount = 0;
+      let killCount = 0;
+      const chain = { arcUsed: false };
+      for (const enemy of [...s.enemies]) {
+        if (enemy.spawnShieldTimer > 0) continue;
+        const dx = enemy.x - p.x;
+        const dy = enemy.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > range + enemy.radius) continue;
+        const inFrontCone = Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle)) <= cleaveArc / 2;
+        const inCloseCleave = dist <= 34 + enemy.radius;
+        if (!inFrontCone && !inCloseCleave) continue;
+        hitCount += 1;
+        const dirX = dist > 0 ? dx / dist : Math.cos(angle);
+        const dirY = dist > 0 ? dy / dist : Math.sin(angle);
+        const killed = this.weaponHitEnemy(enemy, hitDmg, dirX, dirY, w.stripsArmor, chain);
+        if (killed) killCount += 1;
+      }
+      slashEffect.hitCount = hitCount;
+
+      for (const br of [...s.breakables]) {
+        const dx = br.x - p.x;
+        const dy = br.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= range + br.radius) {
+          const ea = Math.atan2(dy, dx);
+          if (Math.abs(normalizeAngle(ea - angle)) <= cleaveArc / 2 || dist <= 36 + br.radius) {
+            this.damageBreakable(br, hitDmg);
+          }
+        }
+      }
+
+      for (const haz of s.hazards) {
+        if (haz.type === 'barrels' && !haz.destroyed) {
+          const dx = haz.x - p.x;
+          const dy = haz.y - p.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= range + 20) {
+            const ea = Math.atan2(dy, dx);
+            if (Math.abs(normalizeAngle(ea - angle)) <= cleaveArc / 2 || dist <= 36) {
+              this.triggerBarrelExplosion(haz);
+            }
+          }
+        }
+      }
+
+      this.afterWeaponHits(hitCount, killCount, angle, hitDmg, p.x + Math.cos(angle) * 56, p.y + Math.sin(angle) * 56, seq);
+    } else if (w.projectile) {
+      const spec = w.projectile;
+      const spread = (spec.spreadDeg * Math.PI) / 180;
+      for (let i = 0; i < spec.count; i += 1) {
+        const frac = spec.count > 1 ? i / (spec.count - 1) - 0.5 : 0;
+        const a = angle + frac * spread;
+        s.projectiles.push({
+          id: this.nextEntityId++,
+          friendly: true,
+          x: p.x + Math.cos(a) * 22,
+          y: p.y + Math.sin(a) * 22,
+          vx: Math.cos(a) * spec.speed,
+          vy: Math.sin(a) * spec.speed,
+          radius: spec.radius,
+          damage: hitDmg,
+          ttl: spec.ttl,
+          pierce: spec.pierce,
+          hitEnemyIds: [],
+          kind: w.id === 'arcane_lance' ? 'lance' : 'bolt',
+          angle: a,
+          weaponShot: true,
+          stripsArmor: w.stripsArmor,
+          attackSeq: seq,
+        });
+      }
+      s.rings.push({
+        x: p.x + Math.cos(angle) * 22,
+        y: p.y + Math.sin(angle) * 22,
+        radius: 6,
+        maxRadius: w.id === 'arcane_lance' ? 30 : 40,
+        ttl: 0.12,
+        maxTtl: 0.12,
+        color: w.slashColor,
+      });
+      this.spawnParticles(p.x + Math.cos(angle) * 24, p.y + Math.sin(angle) * 24, w.slashColor, 5, 120);
+      s.shakeIntensity = Math.max(s.shakeIntensity, w.id === 'arcane_lance' ? 4 : 3);
     }
 
+    // On-attack relics fire regardless of weapon style.
     const emberLv = p.relics.ember_wake ?? 0;
     if (emberLv > 0) {
       s.firePatches.push({
@@ -1239,20 +1185,6 @@ export class GameSimulation {
         ttl: 2.2,
         dps: 14 + 7 * (emberLv - 1),
         tickTimer: 0.08,
-      });
-    }
-
-    const mineLv = p.relics.decoy_mine ?? 0;
-    if (mineLv > 0 && triggeredThirdHit) {
-      s.delayedBlasts.push({
-        kind: 'decoy_mine',
-        x: p.x,
-        y: p.y,
-        radius: 95,
-        timer: 0.75,
-        maxTimer: 0.75,
-        damage: 34 + 14 * (mineLv - 1),
-        friendly: true,
       });
     }
 
@@ -1283,7 +1215,7 @@ export class GameSimulation {
       for (const proj of s.projectiles) {
         if (proj.friendly) continue;
         const d = Math.hypot(proj.x - p.x, proj.y - p.y);
-        if (d <= ATTACK_RANGE + 22) {
+        if (d <= Math.max(range, 84) + 22) {
           proj.friendly = true;
           const speed = Math.hypot(proj.vx, proj.vy) * 2.2;
           proj.vx = Math.cos(angle) * speed;
@@ -1293,6 +1225,122 @@ export class GameSimulation {
           this.spawnParticles(proj.x, proj.y, '#38bdf8', 5, 110);
         }
       }
+    }
+  }
+
+  /** Damage one enemy with the equipped weapon and apply per-enemy on-hit relics. */
+  private weaponHitEnemy(
+    enemy: EnemyEntity,
+    dmg: number,
+    dirX: number,
+    dirY: number,
+    stripsArmor: boolean,
+    chain: { arcUsed: boolean },
+  ): boolean {
+    const s = this.state;
+    const p = s.player;
+    const w = this.weapon;
+    if (enemy.archetype !== 'boss') {
+      enemy.state = 'staggered';
+      enemy.stateTimer = Math.max(enemy.stateTimer, w.staggerSec);
+    }
+    const killed = this.damageEnemy(
+      enemy,
+      dmg,
+      dirX * w.knockback,
+      dirY * w.knockback,
+      stripsArmor,
+      '#f8fafc',
+    );
+    this.spawnParticles(enemy.x, enemy.y, '#fff7e8', 5, 195);
+    s.rings.push({
+      x: enemy.x,
+      y: enemy.y,
+      radius: 8,
+      maxRadius: 34,
+      ttl: 0.14,
+      maxTtl: 0.14,
+      color: '#fff7e8',
+    });
+    const arcLv = p.relics.arc_conduit ?? 0;
+    if (arcLv > 0 && !chain.arcUsed) {
+      chain.arcUsed = true;
+      this.triggerArcConduit(enemy, arcLv);
+    }
+    const bloodLv = p.relics.blood_reset ?? 0;
+    const goldenLv = p.relics.golden_cleave ?? 0;
+    if (killed) {
+      if (bloodLv > 0) {
+        p.attackCooldown = 0;
+        p.attackEndlagTimer = 0;
+        this.addFloatingText(p.x, p.y - 26, 'RESET!', '#f87171', 1.05);
+      }
+      if (goldenLv > 0) this.spawnCoins(enemy.x, enemy.y, 2 * goldenLv, true);
+    } else if (goldenLv > 0 && enemy.goldenBurstCount < 2) {
+      enemy.goldenBurstCount += 1;
+      this.spawnCoins(enemy.x, enemy.y, 2 * goldenLv, true);
+    }
+    return killed;
+  }
+
+  /**
+   * Hit-count relics (3rd-hit, 2nd-hit, on-hit). Melee calls this once per swing; ranged
+   * weapons call it on each projectile impact, with once-per-attack effects gated by `seq`.
+   */
+  private afterWeaponHits(
+    hitCount: number,
+    killCount: number,
+    angle: number,
+    hitDmg: number,
+    originX: number,
+    originY: number,
+    seq: number,
+  ): void {
+    if (hitCount <= 0) return;
+    const s = this.state;
+    const p = s.player;
+    const firstProcThisAttack = this.lastHitProcSeq !== seq;
+    this.lastHitProcSeq = seq;
+
+    const prevHits = p.meleeHitCount;
+    p.meleeHitCount += hitCount;
+    const nextHits = p.meleeHitCount;
+    // Cross-threshold check so multi-target hits jumping across N (e.g. 2 -> 4) still proc.
+    const triggeredThirdHit = Math.floor(nextHits / 3) > Math.floor(prevHits / 3);
+    const triggeredSecondHit = Math.floor(nextHits / 2) > Math.floor(prevHits / 2);
+
+    s.hitstopTimer = Math.max(s.hitstopTimer, 0.03);
+    s.shakeIntensity = Math.max(s.shakeIntensity, this.weapon.id === 'hammer' ? 8 : 5.2);
+
+    if (firstProcThisAttack) {
+      const quakeLv = p.relics.shatter_quake ?? 0;
+      if (quakeLv > 0) {
+        const quakeMult = 0.65 + 0.1 * (quakeLv - 1);
+        s.delayedBlasts.push({
+          kind: 'shatter_quake',
+          x: originX,
+          y: originY,
+          radius: 105,
+          timer: 0.45,
+          maxTimer: 0.45,
+          damage: Math.max(hitDmg, 30) * quakeMult,
+          friendly: true,
+        });
+      }
+    }
+
+    const mineLv = p.relics.decoy_mine ?? 0;
+    if (mineLv > 0 && triggeredThirdHit) {
+      s.delayedBlasts.push({
+        kind: 'decoy_mine',
+        x: p.x,
+        y: p.y,
+        radius: 95,
+        timer: 0.75,
+        maxTimer: 0.75,
+        damage: 34 + 14 * (mineLv - 1),
+        friendly: true,
+      });
     }
 
     const siphonLv = p.relics.reaper_siphon ?? 0;
@@ -1315,8 +1363,8 @@ export class GameSimulation {
     if (echoLv > 0 && triggeredSecondHit) {
       s.delayedBlasts.push({
         kind: 'phantom_echo',
-        x: p.x + Math.cos(angle) * 46,
-        y: p.y + Math.sin(angle) * 46,
+        x: originX - Math.cos(angle) * 10,
+        y: originY - Math.sin(angle) * 10,
         radius: 82,
         timer: 0.25,
         maxTimer: 0.25,
@@ -2005,7 +2053,46 @@ export class GameSimulation {
       }
 
       let consumed = false;
-      if (proj.friendly) {
+      if (proj.friendly && proj.weaponShot) {
+        const speed = Math.max(1, Math.hypot(proj.vx, proj.vy));
+        for (const enemy of [...s.enemies]) {
+          if (enemy.spawnShieldTimer > 0 || proj.hitEnemyIds.includes(enemy.id)) continue;
+          if (Math.hypot(enemy.x - proj.x, enemy.y - proj.y) <= enemy.radius + proj.radius) {
+            proj.hitEnemyIds.push(enemy.id);
+            const killed = this.weaponHitEnemy(
+              enemy,
+              proj.damage,
+              proj.vx / speed,
+              proj.vy / speed,
+              Boolean(proj.stripsArmor),
+              { arcUsed: false },
+            );
+            this.afterWeaponHits(1, killed ? 1 : 0, proj.angle, proj.damage, proj.x, proj.y, proj.attackSeq ?? -1);
+            if (!proj.pierce) {
+              consumed = true;
+              break;
+            }
+          }
+        }
+        if (!consumed) {
+          for (const br of [...s.breakables]) {
+            if (Math.hypot(br.x - proj.x, br.y - proj.y) <= br.radius + proj.radius) {
+              this.damageBreakable(br, proj.damage);
+              if (!proj.pierce) consumed = true;
+              break;
+            }
+          }
+        }
+        if (!consumed) {
+          for (const haz of s.hazards) {
+            if (haz.type === 'barrels' && !haz.destroyed && Math.hypot(haz.x - proj.x, haz.y - proj.y) <= 20 + proj.radius) {
+              this.triggerBarrelExplosion(haz);
+              if (!proj.pierce) consumed = true;
+              break;
+            }
+          }
+        }
+      } else if (proj.friendly) {
         for (const enemy of [...s.enemies]) {
           if (enemy.spawnShieldTimer > 0 || proj.hitEnemyIds.includes(enemy.id)) continue;
           if (Math.hypot(enemy.x - proj.x, enemy.y - proj.y) <= enemy.radius + proj.radius) {
@@ -2095,8 +2182,12 @@ export class GameSimulation {
       s.hitstopTimer = Math.max(s.hitstopTimer, HITSTOP_DURATION);
       this.spawnParticles(enemy.x, enemy.y, '#f8fafc', 11, 165);
 
-      const coinCount = Math.max(1, Math.round(enemy.coinDrop * s.modifier.coinDropMult));
+      const coinCount = Math.max(
+        1,
+        Math.round(enemy.coinDrop * s.modifier.coinDropMult * this.floorScaling.coinMult),
+      );
       this.spawnCoins(enemy.x, enemy.y, coinCount, false);
+      this.maybeDropGem(enemy);
 
       if (s.modifier.deathBlast && enemy.archetype !== 'boss') {
         s.delayedBlasts.push({
@@ -2115,6 +2206,55 @@ export class GameSimulation {
     }
 
     return false;
+  }
+
+  /** Gems are the rare gacha currency. Drop odds grow with enemy toughness. */
+  private maybeDropGem(enemy: EnemyEntity): void {
+    const chance = GEM_DROP_CHANCE[enemy.archetype] ?? 0;
+    if (this.lootRng.next() >= chance) return;
+    const ang = this.fxRng.range(0, Math.PI * 2);
+    this.state.gems.push({
+      id: this.nextEntityId++,
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(ang) * 90,
+      vy: Math.sin(ang) * 90,
+      age: 0,
+    });
+    this.addFloatingText(enemy.x, enemy.y - enemy.radius - 22, 'GEM!', '#f0abfc', 1.2);
+    this.spawnParticles(enemy.x, enemy.y, '#e879f9', 12, 150);
+  }
+
+  private updateGems(dt: number): void {
+    const s = this.state;
+    const p = s.player;
+    const kept: GemEntity[] = [];
+    for (const gem of s.gems) {
+      gem.age += dt;
+      const dx = p.x - gem.x;
+      const dy = p.y - gem.y;
+      const dist = Math.hypot(dx, dy);
+      if ((dist <= p.magnetRadius || s.roomState !== 'combat') && gem.age > 0.4 && dist > 1) {
+        const pull = 360 + gem.age * 120;
+        gem.vx = (dx / dist) * pull;
+        gem.vy = (dy / dist) * pull;
+      } else {
+        const damp = Math.exp(-5 * dt);
+        gem.vx *= damp;
+        gem.vy *= damp;
+      }
+      gem.x += gem.vx * dt;
+      gem.y += gem.vy * dt;
+      this.clampToArena(gem, 10);
+      if (Math.hypot(p.x - gem.x, p.y - gem.y) <= p.radius + 14) {
+        s.stats.gemsEarned += 1;
+        this.addFloatingText(p.x, p.y - 30, '+1 💎', '#f0abfc', 1.2);
+        this.spawnParticles(gem.x, gem.y, '#e879f9', 10, 120);
+        continue;
+      }
+      kept.push(gem);
+    }
+    s.gems = kept;
   }
 
   private damageBreakable(br: BreakableEntity, amount: number): void {
@@ -2219,38 +2359,24 @@ export class GameSimulation {
       c.magnetized = true;
     });
 
-    if (s.roomType !== 'endless') {
-      const mem = this.roomMemory.get(s.currentRoomId);
-      if (mem) {
-        mem.cleared = true;
-      } else {
-        this.roomMemory.set(s.currentRoomId, {
-          visited: true,
-          cleared: true,
-          rewardClaimed: false,
-          fountainUsed: false,
-        });
-      }
-      this.refreshMapView();
+    const mem = this.roomMemory.get(s.currentRoomId);
+    if (mem) {
+      mem.cleared = true;
+    } else {
+      this.roomMemory.set(s.currentRoomId, {
+        visited: true,
+        cleared: true,
+        rewardClaimed: false,
+        fountainUsed: false,
+      });
     }
+    s.roomsClearedTotal += 1;
+    this.refreshMapView();
 
-    const fullClearAfterBoss =
-      s.roomType !== 'endless' &&
-      s.progressPct === 100 &&
-      s.stats.bossDefeated &&
-      s.rewardType !== 'boss_chest_and_portals';
+    const coinMult = this.floorScaling.coinMult;
 
     if (s.rewardType === 'coin_cache') {
-      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, 18, true);
-      if (fullClearAfterBoss) {
-        s.portals = [
-          { kind: 'extract', x: ARENA_W / 2 - 116, y: 330, label: 'EXTRACT · LOCK RUN', progress: 0 },
-          { kind: 'endless', x: ARENA_W / 2 + 116, y: 330, label: 'PUSH ENDLESS', progress: 0 },
-        ];
-        s.roomState = 'door_open';
-        this.announce('100% Cleared! Extract or Push Endless');
-        return;
-      }
+      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(10 * coinMult), true);
       s.roomState = 'door_open';
       this.announce('Coin Cache! Doors Open');
       return;
@@ -2258,17 +2384,24 @@ export class GameSimulation {
 
     if (s.rewardType === 'boss_chest_and_portals') {
       s.stats.bossDefeated = true;
-      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, 32, true);
-      s.portals = [
-        { kind: 'extract', x: ARENA_W / 2 - 116, y: 235, label: 'EXTRACT · LOCK RUN', progress: 0 },
-        { kind: 'endless', x: ARENA_W / 2 + 116, y: 235, label: 'PUSH ENDLESS', progress: 0 },
-      ];
-      s.roomState = 'boss_choice';
-      this.announce(
-        s.progressPct === 100
-          ? '100% Cleared! Extract or Push Endless'
-          : 'Boss Defeated! Extract, Explore, or Endless',
-      );
+      s.floorsCleared += 1;
+      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(20 * coinMult), true);
+      const p = s.player;
+      const heal = Math.round(p.maxHp * 0.4);
+      const before = p.hp;
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      const healed = Math.round(p.hp - before);
+      if (healed > 0) this.addFloatingText(p.x, p.y - 26, `+${healed} HP`, '#4ade80', 1.2);
+
+      this.spawnRelicPedestals(undefined, 235);
+      if (s.pedestals.length > 0) {
+        s.roomState = 'reward';
+        this.announce(`Floor ${s.floor} cleared! Claim a relic`);
+      } else {
+        s.portals = [this.makeStairsPortal()];
+        s.roomState = 'boss_choice';
+        this.announce(`Floor ${s.floor} cleared! Take the stairs`);
+      }
       return;
     }
 
@@ -2281,22 +2414,20 @@ export class GameSimulation {
       };
     }
 
-    if (s.rewardType === 'endless_relics_and_portals') {
-      s.portals = [
-        { kind: 'extract', x: ARENA_W / 2 - 150, y: 325, label: 'EXTRACT NOW', progress: 0 },
-      ];
-    } else if (fullClearAfterBoss) {
-      s.portals = [
-        { kind: 'extract', x: ARENA_W / 2 - 116, y: 330, label: 'EXTRACT · LOCK RUN', progress: 0 },
-        { kind: 'endless', x: ARENA_W / 2 + 116, y: 330, label: 'PUSH ENDLESS', progress: 0 },
-      ];
-    }
-
     const filter = s.rewardType === 'synergy_relics' ? 'synergy' : undefined;
+    this.spawnRelicPedestals(filter, s.rewardType === 'fountain_and_relics' ? 205 : 235);
+    s.roomState = s.pedestals.length > 0 ? 'reward' : 'door_open';
+    this.announce(
+      s.rewardType === 'fountain_and_relics'
+        ? 'Drink Fountain & Attack a Relic!'
+        : 'Room Cleared! Attack a Relic to Claim',
+    );
+  }
+
+  private spawnRelicPedestals(filter: 'synergy' | undefined, py: number): void {
+    const s = this.state;
     const drafted = draftRelics(this.relicRng, this.profile.unlockedRelics, 3, filter);
     const xs = [ARENA_W / 2 - 148, ARENA_W / 2, ARENA_W / 2 + 148];
-    const py = s.rewardType === 'fountain_and_relics' ? 205 : 235;
-
     s.pedestals = drafted.map((relic, idx) => ({
       id: this.nextEntityId++,
       x: xs[idx] ?? ARENA_W / 2,
@@ -2306,15 +2437,6 @@ export class GameSimulation {
       claimProgress: 0,
       hovered: false,
     }));
-
-    s.roomState = s.pedestals.length > 0 ? 'reward' : 'door_open';
-    this.announce(
-      fullClearAfterBoss
-        ? '100% Cleared! Extract or Push Endless'
-        : s.rewardType === 'fountain_and_relics'
-          ? 'Drink Fountain & Attack a Relic!'
-          : 'Room Cleared! Attack a Relic to Claim',
-    );
   }
 
   private updatePostRoomInteractions(dt: number): void {
@@ -2358,13 +2480,7 @@ export class GameSimulation {
       if (dist <= 40) {
         portal.progress = Math.min(1, portal.progress + dt / 0.45);
         if (portal.progress >= 1) {
-          if (portal.kind === 'extract') {
-            this.finishRun(true);
-            return;
-          }
-          const nextEndless =
-            s.roomType === 'endless' ? s.roomIndex + 1 : s.totalRooms + 1;
-          this.enterEndlessRoom(nextEndless, 'portal');
+          this.descendFloor();
           return;
         }
       } else {
@@ -2421,6 +2537,12 @@ export class GameSimulation {
       1.15,
     );
     s.pedestals = [];
+    if (s.currentRoomId === this.dungeonMap.bossRoomId) {
+      s.portals = [this.makeStairsPortal()];
+      s.roomState = 'boss_choice';
+      this.announce('The stairs open — descend when ready');
+      return;
+    }
     s.roomState = 'door_open';
     this.announce('Doors Open!');
   }
@@ -2566,6 +2688,14 @@ export class GameSimulation {
     this.endCallback?.(summary);
   }
 }
+
+const GEM_DROP_CHANCE: Partial<Record<EnemyEntity['archetype'], number>> = {
+  chaser: 0.02,
+  shooter: 0.02,
+  charger: 0.035,
+  elite_charger: 0.12,
+  boss: 0.3,
+};
 
 function normalizeAngle(angle: number): number {
   let a = angle;

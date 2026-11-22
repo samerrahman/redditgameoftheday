@@ -36,6 +36,7 @@
 
           <div class="hud-right">
             <span id="hud-timer" class="hud-chip mono">0:00</span>
+            <span id="hud-gems" class="hud-chip gem-chip" hidden>💎 <span id="hud-gems-val">0</span></span>
             <span id="hud-coins" class="hud-chip coin-chip">
               <img
                 src="./assets/dungeon/coin_icon.png"
@@ -172,6 +173,11 @@
             />
           </div>
 
+          <div class="player-title-row">
+            <span id="start-title" class="player-title">🏅 Fresh Recruit</span>
+            <span id="start-title-next" class="player-title-next muted-copy"></span>
+          </div>
+
           <div class="modifier-banner" aria-label="Daily Modifier">
             <span class="modifier-label">TODAY'S MODIFIER</span>
             <strong id="start-modifier" class="modifier-text">Glass Cannon: 2x Damage</strong>
@@ -183,25 +189,20 @@
               <strong id="start-streak" class="strip-value">0🔥</strong>
             </div>
             <div class="strip-stat">
-              <span class="strip-label">Karma Coins</span>
-              <div class="strip-value-row">
-                <img
-                  src="./assets/dungeon/coin_icon.png"
-                  class="pixel-icon"
-                  width="20"
-                  height="20"
-                  alt=""
-                />
-                <strong id="start-coins" class="strip-value coin-text">0</strong>
-              </div>
+              <span class="strip-label">Best Floor</span>
+              <strong id="start-best-floor" class="strip-value">—</strong>
             </div>
             <div class="strip-stat">
-              <span class="strip-label">Today Best</span>
+              <span class="strip-label">Today</span>
               <strong id="start-best" class="strip-value">—</strong>
+            </div>
+            <div class="strip-stat">
+              <span class="strip-label">Gems</span>
+              <strong id="start-gems" class="strip-value gem-text">0</strong>
             </div>
           </div>
 
-          <div id="start-boost-pill" class="boost-pill" hidden></div>
+          <div id="start-weapon-pill" class="boost-pill">Weapon: 🗡️ Longsword</div>
 
           <div class="start-actions">
             <button id="play-btn" type="button" class="primary-btn">
@@ -212,7 +213,7 @@
                 height="24"
                 alt=""
               />
-              <span id="play-btn-label">PLAY</span>
+              <span id="play-btn-label">BEGIN DUNGEON</span>
             </button>
             <button id="start-shop-btn" type="button" class="start-shop-btn">
               <img
@@ -235,6 +236,42 @@
             <strong>Move:</strong> WASD / Drag &nbsp;·&nbsp;
             <strong>Attack:</strong> Space / Click
           </p>
+        </div>
+      </section>
+
+      <!-- How-to-play (shown before every run unless dismissed) -->
+      <section id="tutorial-screen" class="overlay-screen" hidden aria-labelledby="tutorial-title">
+        <div class="card tutorial-card">
+          <button id="tutorial-close-btn" type="button" class="tutorial-close" aria-label="Close and start">
+            ✕
+          </button>
+          <h2 id="tutorial-title" class="modal-heading">How to Play</h2>
+          <ol class="tutorial-steps">
+            <li>
+              <strong>Move</strong> with WASD / arrow keys (or drag on mobile).
+              <strong>Attack</strong> with Space or click toward your target.
+            </li>
+            <li>
+              Each <strong>floor</strong> has 4–6 rooms. Find the <strong>☠ boss</strong>, beat it,
+              then take the <strong>stairs</strong> down. Every floor is harder than the last.
+            </li>
+            <li>
+              After a room is cleared, <strong>attack a relic</strong> to claim it. Relics power you
+              up for the rest of the run.
+            </li>
+            <li>
+              Collect <strong>coins</strong> for new weapons and relics in the shop. Rare
+              <strong>💎 gems</strong> buy cosmetic gacha pulls.
+            </li>
+            <li>
+              <strong>One life.</strong> Everyone gets the same dungeon today — how deep can you go?
+            </li>
+          </ol>
+          <label class="tutorial-dismiss">
+            <input id="tutorial-dont-show" type="checkbox" />
+            Don't show this again
+          </label>
+          <button id="tutorial-start-btn" type="button" class="primary-btn">Let's go!</button>
         </div>
       </section>
 
@@ -283,8 +320,8 @@
 
           <div class="end-stats-grid">
             <div class="stat-tile">
-              <span class="stat-label">Progress</span>
-              <strong id="end-room" class="stat-value">0%</strong>
+              <span class="stat-label">Floor Reached</span>
+              <strong id="end-room" class="stat-value">1</strong>
             </div>
             <div class="stat-tile">
               <span class="stat-label">Run Time</span>
@@ -295,8 +332,8 @@
               <strong id="end-coins" class="stat-value coin-text">+0</strong>
             </div>
             <div class="stat-tile">
-              <span class="stat-label">Damage Taken</span>
-              <strong id="end-damage" class="stat-value">0</strong>
+              <span class="stat-label">Gems Found</span>
+              <strong id="end-damage" class="stat-value gem-text">0</strong>
             </div>
           </div>
 
@@ -304,7 +341,7 @@
 
           <div class="leaderboard-box">
             <div class="leaderboard-head">
-              <span>Today's Top Runs</span>
+              <span>Today's Deepest Runs</span>
               <span id="end-score" class="mono">Score: 0</span>
             </div>
             <ol id="end-leaderboard" class="leaderboard-list"></ol>
@@ -364,17 +401,14 @@
               />
               <span id="shop-balance">0 KC</span>
             </div>
+            <div class="shop-balance-pill gem-pill">
+              <span id="shop-gems">0 💎</span>
+            </div>
           </header>
 
           <div class="shop-page-shell">
-            <p id="shop-date-sub" class="muted-copy">
-              3 rotating daily items · Coins are always kept
-            </p>
-            <div id="shop-slots" class="shop-grid"></div>
-            <section class="cosmetics-bar" aria-label="Runner Cosmetics">
-              <span class="cosmetics-label">Equipped Style:</span>
-              <div id="shop-cosmetics" class="cosmetics-pills"></div>
-            </section>
+            <nav id="shop-tabs" class="shop-tabs" role="tablist" aria-label="Shop sections"></nav>
+            <div id="shop-body" class="shop-body"></div>
             <div class="shop-footer-actions">
               <button id="shop-play-btn" type="button" class="primary-btn">
                 <img
@@ -384,7 +418,7 @@
                   height="24"
                   alt=""
                 />
-                <span>PLAY</span>
+                <span>BEGIN DUNGEON</span>
               </button>
             </div>
           </div>

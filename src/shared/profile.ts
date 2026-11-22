@@ -1,24 +1,25 @@
 import { ENFORCE_SINGLE_DAILY_RUN } from './buildMeta.ts';
 import { STARTER_RELIC_IDS } from './relics.ts';
-import type { PlayerProfile, RunSummary } from './types.ts';
+import { getCosmeticSlot, isCosmeticId } from './shop.ts';
+import type { DailyLeaderboardEntry, PlayerProfile, RunSummary } from './types.ts';
+import { isWeaponId } from './weapons.ts';
 
 export function createDefaultProfile(): PlayerProfile {
   return {
     coins: 0,
-    upgrades: {
-      vitality: 0,
-      reroll: 0,
-      magnet: 0,
-      shield: 0,
-    },
+    gems: 0,
+    ownedWeapons: ['longsword'],
+    equippedWeapon: 'longsword',
     unlockedRelics: [...STARTER_RELIC_IDS],
     ownedCosmetics: ['none'],
     equippedCosmetic: 'none',
-    pendingConsumable: null,
+    equippedCostume: 'none',
     streak: 0,
     lastPlayedDate: null,
     totalRuns: 0,
     totalClears: 0,
+    bestFloor: 0,
+    tutorialDismissed: false,
     subscribed: false,
     dailyBest: {},
   };
@@ -27,20 +28,100 @@ export function createDefaultProfile(): PlayerProfile {
 export function normalizeProfile(raw: Partial<PlayerProfile> | null | undefined): PlayerProfile {
   const def = createDefaultProfile();
   if (!raw) return def;
+  const ownedWeapons = Array.isArray(raw.ownedWeapons)
+    ? raw.ownedWeapons.filter((id) => isWeaponId(id))
+    : [];
+  if (!ownedWeapons.includes('longsword')) ownedWeapons.unshift('longsword');
+  const ownedCosmetics = Array.isArray(raw.ownedCosmetics)
+    ? raw.ownedCosmetics.filter((id) => id === 'none' || isCosmeticId(id))
+    : [];
+  if (!ownedCosmetics.includes('none')) ownedCosmetics.unshift('none');
+  const equippedWeapon =
+    raw.equippedWeapon && ownedWeapons.includes(raw.equippedWeapon)
+      ? raw.equippedWeapon
+      : 'longsword';
+  const equippedCosmetic =
+    raw.equippedCosmetic &&
+    ownedCosmetics.includes(raw.equippedCosmetic) &&
+    getCosmeticSlot(raw.equippedCosmetic) === 'accessory'
+      ? raw.equippedCosmetic
+      : 'none';
+  const equippedCostume =
+    raw.equippedCostume &&
+    ownedCosmetics.includes(raw.equippedCostume) &&
+    getCosmeticSlot(raw.equippedCostume) === 'costume'
+      ? raw.equippedCostume
+      : 'none';
   return {
-    ...def,
-    ...raw,
-    upgrades: { ...def.upgrades, ...(raw.upgrades ?? {}) },
+    coins: typeof raw.coins === 'number' ? Math.max(0, raw.coins) : def.coins,
+    gems: typeof raw.gems === 'number' ? Math.max(0, raw.gems) : def.gems,
+    ownedWeapons,
+    equippedWeapon,
     unlockedRelics:
       Array.isArray(raw.unlockedRelics) && raw.unlockedRelics.length > 0
         ? raw.unlockedRelics
         : def.unlockedRelics,
-    ownedCosmetics:
-      Array.isArray(raw.ownedCosmetics) && raw.ownedCosmetics.length > 0
-        ? raw.ownedCosmetics
-        : def.ownedCosmetics,
+    ownedCosmetics,
+    equippedCosmetic,
+    equippedCostume,
+    streak: typeof raw.streak === 'number' ? raw.streak : def.streak,
+    lastPlayedDate: raw.lastPlayedDate ?? null,
+    totalRuns: typeof raw.totalRuns === 'number' ? raw.totalRuns : 0,
+    totalClears: typeof raw.totalClears === 'number' ? raw.totalClears : 0,
+    bestFloor: typeof raw.bestFloor === 'number' ? raw.bestFloor : 0,
+    tutorialDismissed: Boolean(raw.tutorialDismissed),
+    subscribed: Boolean(raw.subscribed),
     dailyBest: raw.dailyBest ?? {},
   };
+}
+
+// ---------------------------------------------------------------------------
+// Player titles — earned from the deepest floor ever reached
+// ---------------------------------------------------------------------------
+
+export type PlayerTitle = { title: string; minFloor: number };
+
+export const PLAYER_TITLES: readonly PlayerTitle[] = [
+  { title: 'Fresh Recruit', minFloor: 0 },
+  { title: 'Dungeon Delver', minFloor: 2 },
+  { title: 'Crypt Raider', minFloor: 3 },
+  { title: 'Depth Stalker', minFloor: 5 },
+  { title: 'Abyss Walker', minFloor: 7 },
+  { title: 'Dungeon Legend', minFloor: 10 },
+];
+
+export function getPlayerTitle(bestFloor: number): {
+  title: string;
+  next: PlayerTitle | null;
+} {
+  let current = PLAYER_TITLES[0]!;
+  let next: PlayerTitle | null = null;
+  for (const t of PLAYER_TITLES) {
+    if (bestFloor >= t.minFloor) {
+      current = t;
+    } else {
+      next = t;
+      break;
+    }
+  }
+  return { title: current.title, next };
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard ordering — deepest floor, then most rooms cleared, then fastest
+// ---------------------------------------------------------------------------
+
+export function compareLeaderboardEntries(
+  a: DailyLeaderboardEntry,
+  b: DailyLeaderboardEntry,
+): number {
+  const fa = a.floorReached ?? 1;
+  const fb = b.floorReached ?? 1;
+  if (fa !== fb) return fb - fa;
+  const ra = a.roomsCleared ?? 0;
+  const rb = b.roomsCleared ?? 0;
+  if (ra !== rb) return rb - ra;
+  return a.elapsedSec - b.elapsedSec;
 }
 
 function utcDayDiff(prevDate: string, nextDate: string): number {
@@ -74,12 +155,17 @@ export function getDailyRunSummary(profile: PlayerProfile, utcDate: string): Run
     utcDate: record.utcDate,
     outcome: record.extracted ? 'extracted' : 'defeated',
     bossDefeated: record.extracted,
+    floorReached: record.bestFloor ?? 1,
+    roomsCleared: record.highestRoom,
+    floorsCleared: Math.max(0, (record.bestFloor ?? 1) - 1),
     roomReached: record.highestRoom,
     progressPct: record.bestProgressPct ?? (record.extracted ? 100 : 0),
     elapsedSec: record.bestClearTimeSec ?? 0,
     coinsEarned: 0,
+    gemsEarned: 0,
     damageTaken: 0,
     enemiesKilled: 0,
+    weapon: 'longsword',
     relics: {},
     score: record.bestScore,
   };
@@ -118,7 +204,8 @@ export function applyRunToProfile(
 
   const nextBest = {
     utcDate: summary.utcDate,
-    highestRoom: Math.max(prevBest?.highestRoom ?? 0, summary.roomReached),
+    highestRoom: Math.max(prevBest?.highestRoom ?? 0, summary.roomsCleared),
+    bestFloor: Math.max(prevBest?.bestFloor ?? 0, summary.floorReached),
     bestProgressPct: Math.max(prevBest?.bestProgressPct ?? 0, summary.progressPct ?? 0),
     bestClearTimeSec: nextBestClearTime,
     bestScore: Math.max(prevBest?.bestScore ?? 0, summary.score),
@@ -129,14 +216,28 @@ export function applyRunToProfile(
   return {
     ...profile,
     coins: profile.coins + summary.coinsEarned,
-    pendingConsumable: null,
+    gems: profile.gems + (summary.gemsEarned ?? 0),
+    bestFloor: Math.max(profile.bestFloor, summary.floorReached),
     streak: nextStreak,
     lastPlayedDate: summary.utcDate,
     totalRuns: profile.totalRuns + 1,
-    totalClears: profile.totalClears + (summary.bossDefeated ? 1 : 0),
+    totalClears: profile.totalClears + (summary.floorsCleared ?? 0),
     dailyBest: {
       ...profile.dailyBest,
       [summary.utcDate]: nextBest,
     },
+  };
+}
+
+export function toLeaderboardEntry(player: string, summary: RunSummary): DailyLeaderboardEntry {
+  return {
+    player,
+    floorReached: summary.floorReached ?? 1,
+    roomsCleared: summary.roomsCleared ?? 0,
+    roomReached: summary.roomReached,
+    progressPct: summary.progressPct,
+    elapsedSec: summary.elapsedSec,
+    extracted: summary.outcome === 'extracted',
+    score: summary.score,
   };
 }
