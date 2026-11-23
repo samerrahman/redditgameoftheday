@@ -15,10 +15,14 @@ import {
 } from '../shared/game/constants.ts';
 import { createEnemy } from '../shared/game/enemies.ts';
 import {
+  BIOME_SIGNATURE_ENEMY,
   buildDailyDungeonMap,
   CELL_SIZE,
+  getBiomeIdForFloor,
   getFloorScaling,
   isReservedCell,
+  LAYOUT_COLS,
+  LAYOUT_ROWS,
   oppositeDirection,
 } from '../shared/game/rooms.ts';
 import { GameSimulation } from '../shared/game/simulation.ts';
@@ -938,9 +942,9 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
       }
     };
 
-    // Weapons (tile_106, 103, 117, 129, 130), obsidian monolith (tile_064), and 8 relics
-    // must align to the 28-col x 18px-stride 16x16 grid expected by shopView.ts.
-    const gridTileIds = [64, 102, 103, 105, 106, 107, 114, 115, 116, 117, 118, 119, 129, 130];
+    // Weapons (tile_106, 103, 117, 129, 130), obsidian monolith (tile_064), biome enemies (tile_111, 121),
+    // and 8 relics must align to the 28-col x 18px-stride 16x16 grid expected by shopView.ts.
+    const gridTileIds = [64, 102, 103, 105, 106, 107, 111, 114, 115, 116, 117, 118, 119, 121, 129, 130];
     for (const idx of gridTileIds) {
       const key = `tile_${String(idx).padStart(3, '0')}`;
       const col = idx % 28;
@@ -978,6 +982,171 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
         expectRect('hero_charge_0', w, h);
         expectRect('hero_charge_1', w, h);
       }
+    }
+  });
+});
+
+void describe('Gameplay Balance & Biome Enemy Updates', () => {
+  void it('uses compact 672x448 rooms on a larger 56px 10x6 interior tile grid', () => {
+    assert.equal(ARENA_W, 672);
+    assert.equal(ARENA_H, 448);
+    assert.equal(CELL_SIZE, 56);
+    assert.equal(LAYOUT_COLS, 10);
+    assert.equal(LAYOUT_ROWS, 6);
+  });
+
+  void it('keeps monster coin drops low and restricts gem drops to end-of-floor bosses', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile);
+    sim.state.totalWaves = 99;
+    sim.state.player.iFramesTimer = 999;
+
+    const nonBossTypes = [
+      'chaser',
+      'shooter',
+      'charger',
+      'elite_charger',
+      'shade',
+      'yeti',
+      'bomber',
+      'mortar_tank',
+      'stampede',
+    ] as const;
+
+    for (let i = 0; i < 200; i += 1) {
+      const arch = nonBossTypes[i % nonBossTypes.length]!;
+      sim.state.hitstopTimer = 0;
+      sim.state.waveIndex = 0;
+      sim.state.totalWaves = 2;
+      sim.state.waveDelayTimer = 0;
+      sim.state.player.x = ARENA_W / 2;
+      sim.state.player.y = ARENA_H / 2;
+      const e = createEnemy(10_000 + i, arch, sim.state.player.x, sim.state.player.y - 36, 1, 1, 1, 1);
+      e.spawnShieldTimer = 0;
+      e.hp = 1;
+      e.armor = 0;
+      assert.ok(e.coinDrop <= (arch === 'elite_charger' ? 6 : 3), `unexpected coinDrop for ${arch}: ${e.coinDrop}`);
+      sim.state.enemies = [e];
+      sim.state.player.attackCooldown = 0;
+      sim.state.player.attackEndlagTimer = 0;
+      sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+      assert.equal(sim.state.enemies.length, 0, `${arch} should die in hit`);
+    }
+    assert.equal(sim.state.gems.length, 0, 'non-boss enemies must never drop gems');
+
+    sim.state.hitstopTimer = 0;
+    sim.state.waveDelayTimer = 0;
+    sim.state.player.x = ARENA_W / 2;
+    sim.state.player.y = ARENA_H / 2;
+    const boss = createEnemy(99_999, 'boss', sim.state.player.x, sim.state.player.y - 40, 1, 1, 1, 1);
+    boss.spawnShieldTimer = 0;
+    boss.hp = 1;
+    assert.ok(boss.coinDrop <= 14);
+    sim.state.enemies = [boss];
+    sim.state.player.attackCooldown = 0;
+    sim.state.player.attackEndlagTimer = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    assert.equal(sim.state.enemies.length, 0, 'boss should die in hit');
+    assert.equal(sim.state.gems.length, 1, 'floor boss kill must drop a gem');
+  });
+
+  void it('cycles through all 5 biomes with biome-specific signature enemies and repeats from floor 6', () => {
+    assert.deepEqual(
+      [1, 2, 3, 4, 5, 6, 7].map((f) => getBiomeIdForFloor(f)),
+      ['dungeon', 'snow', 'town', 'battle', 'farm', 'dungeon', 'snow'],
+    );
+    const hazard = getDailyHazard('2026-11-20');
+    for (let floor = 1; floor <= 6; floor += 1) {
+      const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor)];
+      const map = buildDailyDungeonMap('2026-11-20', floor, hazard);
+      const spawnedTypes = new Set(map.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
+      assert.equal(spawnedTypes.has(expectedSig), true, `Floor ${floor} missing signature enemy ${expectedSig}`);
+    }
+  });
+
+  void it('runs distinct AI behaviors for shade, yeti, bomber, mortar_tank, and stampede', () => {
+    const profile = createDefaultProfile();
+    const setupWith = (
+      arch: 'shade' | 'yeti' | 'bomber' | 'mortar_tank' | 'stampede',
+      x: number,
+      y: number,
+    ): GameSimulation => {
+      const sim = new GameSimulation('2026-11-20', profile);
+      sim.startNewRun('2026-11-20', profile);
+      sim.state.obstacles = [];
+      sim.state.hazards = [];
+      sim.state.totalWaves = 5;
+      sim.state.player.iFramesTimer = 999;
+      const e = createEnemy(5001, arch, x, y, 1, 1, 1, 1);
+      e.spawnShieldTimer = 0;
+      e.state = 'chase';
+      e.stateTimer = 0;
+      sim.state.enemies = [e];
+      return sim;
+    };
+
+    // Shade: blinks and fires 3 projectiles
+    const shadeSim = setupWith('shade', ARENA_W / 2, 170);
+    let maxShadeProj = 0;
+    for (let i = 0; i < 75; i += 1) {
+      shadeSim.step(idleInput());
+      maxShadeProj = Math.max(maxShadeProj, shadeSim.state.projectiles.length);
+    }
+    assert.ok(maxShadeProj >= 3, 'shade should blink and fire a 3-shot fan');
+
+    // Yeti: launches ice_mortar that bursts into 4 cardinal frost shards
+    const yetiSim = setupWith('yeti', ARENA_W / 2, 160);
+    yetiSim.state.player.x = ARENA_W / 2;
+    yetiSim.state.player.y = ARENA_H / 2;
+    stepFrames(yetiSim, 45, () => idleInput());
+    assert.equal(yetiSim.state.delayedBlasts.some((b) => b.kind === 'ice_mortar'), true, 'yeti should queue ice_mortar');
+    let maxYetiShards = 0;
+    for (let i = 0; i < 50; i += 1) {
+      yetiSim.step(idleInput());
+      maxYetiShards = Math.max(maxYetiShards, yetiSim.state.projectiles.length);
+    }
+    assert.ok(maxYetiShards >= 4, 'ice_mortar should burst into 4 shards');
+
+    // Bomber: drops sapper_bomb and retreats away from the player
+    const bomberSim = setupWith('bomber', ARENA_W / 2, 230);
+    stepFrames(bomberSim, 30, () => idleInput());
+    assert.equal(bomberSim.state.delayedBlasts.some((b) => b.kind === 'sapper_bomb'), true, 'bomber should drop bomb');
+    const bombDropDist = Math.hypot(
+      bomberSim.state.enemies[0]!.x - bomberSim.state.player.x,
+      bomberSim.state.enemies[0]!.y - bomberSim.state.player.y,
+    );
+    stepFrames(bomberSim, 30, () => idleInput());
+    const afterRetreatDist = Math.hypot(
+      bomberSim.state.enemies[0]!.x - bomberSim.state.player.x,
+      bomberSim.state.enemies[0]!.y - bomberSim.state.player.y,
+    );
+    assert.ok(afterRetreatDist > bombDropDist, 'bomber should retreat after dropping bomb');
+
+    // Mortar Tank: fires a 3-round burst
+    const tankSim = setupWith('mortar_tank', 140, 140);
+    stepFrames(tankSim, 70, () => idleInput());
+    assert.ok(tankSim.state.projectiles.length >= 3, 'mortar_tank should fire a 3-shot burst');
+
+    // Stampede: charges and ricochets off arena wall
+    const stampedeSim = setupWith('stampede', PLAY_MAX_X - 45, 220);
+    stampedeSim.state.player.x = PLAY_MAX_X - 30;
+    stampedeSim.state.player.y = 220;
+    stepFrames(stampedeSim, 55, () => idleInput());
+    const bull = stampedeSim.state.enemies[0]!;
+    assert.ok(bull.bouncesLeft < 2, 'stampede should ricochet off wall during charge');
+  });
+
+  void it('fires Scatter Staff faster and keeps relic descriptions weapon-neutral', () => {
+    assert.ok(WEAPONS.scatter_staff.cooldown < 0.75, 'shotgun cooldown should be buffed below 0.75s');
+    assert.equal(WEAPONS.scatter_staff.staggerSec, 0);
+    assert.equal(WEAPONS.scatter_staff.stripsArmor, false);
+
+    for (const def of Object.values(RELICS)) {
+      const desc1 = def.summary(1);
+      const desc2 = def.summary(2);
+      assert.equal(/\b(blade|swing|swings|melee|slash)\b/i.test(desc1), false, `Relic ${def.id} mentions melee terms: ${desc1}`);
+      assert.equal(/\b(blade|swing|swings|melee|slash)\b/i.test(desc2), false, `Relic ${def.id} mentions melee terms: ${desc2}`);
     }
   });
 });

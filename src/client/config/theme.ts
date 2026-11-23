@@ -209,6 +209,11 @@ export const ENTITY_LABELS = {
     charger: 'Cyclops',
     elite_charger: 'Armored Warden',
     boss: 'Crimson King',
+    shade: 'Crypt Shade',
+    yeti: 'Frost Yeti',
+    bomber: 'Alley Sapper',
+    mortar_tank: 'Iron Tank',
+    stampede: 'Stampede Bull',
   } satisfies Record<EnemyArchetype, string>,
   rooms: {
     warmup: 'Floor Entrance',

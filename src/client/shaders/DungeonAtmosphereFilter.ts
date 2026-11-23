@@ -42,7 +42,7 @@ vec3 accumLight(vec2 puv, vec2 cell, vec4 lp, vec3 lc)
     if (lp.z <= 0.001 || lp.w <= 0.001) {
         return vec3(0.0);
     }
-    vec2 diff = (puv - lp.xy) * vec2(1.6, 1.0);
+    vec2 diff = (puv - lp.xy) * vec2(1.5, 1.0);
     float dist = length(diff);
     float falloff = clamp(1.0 - dist / lp.z, 0.0, 1.0);
     float bayer = fract(dot(mod(cell, 2.0), vec2(0.5, 0.25)) + 0.125);
@@ -142,7 +142,7 @@ export class DungeonAtmosphereNode extends Phaser.Renderer.WebGL.RenderNodes.Bas
     if (!(controller instanceof DungeonAtmosphereController)) return;
     const pm = this.programManager;
 
-    pm.setUniform('uPixelGrid', [256, 160]);
+    pm.setUniform('uPixelGrid', [224, 150]);
     pm.setUniform('uAmbientColor', controller.ambientColor);
     pm.setUniform('uVignetteColor', [
       controller.vignetteColor[0],

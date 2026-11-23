@@ -700,6 +700,26 @@
         "h": 16
       }
     },
+    "tile_111": {
+      "frame": {
+        "x": 488,
+        "y": 56,
+        "w": 16,
+        "h": 16
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 16
+      },
+      "sourceSize": {
+        "w": 16,
+        "h": 16
+      }
+    },
     "tile_114": {
       "frame": {
         "x": 38,
@@ -803,6 +823,26 @@
     "tile_119": {
       "frame": {
         "x": 128,
+        "y": 74,
+        "w": 16,
+        "h": 16
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 16
+      },
+      "sourceSize": {
+        "w": 16,
+        "h": 16
+      }
+    },
+    "tile_121": {
+      "frame": {
+        "x": 164,
         "y": 74,
         "w": 16,
         "h": 16

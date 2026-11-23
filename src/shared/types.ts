@@ -171,6 +171,18 @@ export type DailyLeaderboardEntry = {
 
 export type DoorDirection = 'north' | 'south' | 'east' | 'west';
 
-export type EnemyArchetype = 'chaser' | 'shooter' | 'charger' | 'elite_charger' | 'boss';
+export type BiomeId = 'dungeon' | 'snow' | 'town' | 'battle' | 'farm';
+
+export type EnemyArchetype =
+  | 'chaser'
+  | 'shooter'
+  | 'charger'
+  | 'elite_charger'
+  | 'boss'
+  | 'shade'
+  | 'yeti'
+  | 'bomber'
+  | 'mortar_tank'
+  | 'stampede';
 
 export type RoomType = 'warmup' | 'escalation' | 'elite' | 'gauntlet' | 'boss' | 'endless';

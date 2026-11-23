@@ -946,6 +946,54 @@ def build_tiles() -> dict[int, Image.Image]:
     )
     tiles[98] = hero16
 
+    # 111 Alley Sapper (bomber, 16x16): hooded outlaw holding a lit iron bomb
+    tiles[111] = paint(
+        16,
+        16,
+        [
+            "......####......",
+            "....##tbbB##....",
+            "...#ttbbbbBB#...",
+            "..#tbb####bbB#..",
+            "..#tb#kkkk#bB#..",
+            "..#Bb#UkkU#BB#..",
+            "..#B##rRRr##B#..",
+            "...##rrRRrr##...",
+            "..#BbbgBBgbb#v..",
+            ".#BbtbBggBbb#U#.",
+            ".#BbbBbbbbB#cS#.",
+            "..##BbbggbB#SS#.",
+            "...#BbbbbBB####.",
+            "...#BB#..#BB#...",
+            "...#01#..#01#...",
+            "...###....###...",
+        ],
+    )
+
+    # 121 Crypt Shade (shade, 16x16): floating spectral violet wraith with glowing core
+    tiles[121] = paint(
+        16,
+        16,
+        [
+            ".....######.....",
+            "....#pwwwwp#....",
+            "...#pwppppwp#...",
+            "..#pw#NNNN#wp#..",
+            "..#pp#NkkN#pp#..",
+            "..#pV#PkkP#Vp#..",
+            "..#pV#NNNN#Vp#..",
+            ".#pVV#NMMN#VVp#.",
+            ".#pVVVVppVVVVp#.",
+            ".#VVVVpWWpVVVV#.",
+            "..#MMVVppVVMM#..",
+            "..#NMMVVVVMMN#..",
+            "..#NNMMVVMMNN#..",
+            "...#N##NN##N#...",
+            "...#N#.##.#N#...",
+            "....#..##..#....",
+        ],
+    )
+
     return tiles
 
 
