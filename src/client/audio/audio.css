@@ -3,37 +3,67 @@
   inset-block-end: max(10px, env(safe-area-inset-bottom));
   inset-inline-end: max(10px, env(safe-area-inset-right));
   z-index: 100;
-  padding: 8px 12px;
-  color: #fff0b3;
-  background: #261d28;
-  border: 2px solid #5b485e;
-  box-shadow: 3px 3px 0 #120d14;
+  padding: 6px 10px;
+  color: #fde68a;
+  background: rgb(16 11 23 / 0.86);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 3px;
+  box-shadow: 0 2px 0 rgb(8 5 12 / 0.8);
   font-family: 'Pixelify Sans', system-ui, sans-serif;
   font-size: 14px;
 }
+
 .audio-controls summary {
   cursor: pointer;
 }
+
 .audio-controls[open] {
   inline-size: 190px;
 }
+
 .audio-controls button {
-  margin-block: 12px;
+  margin-block: 10px;
   padding: 5px 8px;
-  border: 2px solid #b67b32;
-  background: #1b141e;
+  color: #fff7ed;
+  border: 1px solid #d97706;
+  border-radius: 3px;
+  background: #130c19;
   font: inherit;
+  cursor: pointer;
 }
+
+.audio-controls button:hover:not(:disabled) {
+  border-color: #fbbf24;
+  background: #251930;
+}
+
 .audio-controls label {
   display: grid;
   gap: 4px;
   margin-block-end: 8px;
 }
+
 .audio-controls input {
   inline-size: 100%;
-  accent-color: #f5b82e;
+  accent-color: #fbbf24;
 }
+
 .audio-controls :focus-visible {
-  outline: 2px solid #f5b82e;
+  outline: 2px solid #fbbf24;
   outline-offset: 3px;
+}
+
+@media (forced-colors: active) {
+  .audio-controls {
+    background: Canvas;
+    color: CanvasText;
+    border-color: ButtonBorder;
+    box-shadow: none;
+  }
+
+  .audio-controls button {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
 }

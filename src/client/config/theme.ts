@@ -121,7 +121,7 @@ export const DUNGEON_THEMES: readonly DungeonTheme[] = [
   },
   {
     id: 'front_page',
-    name: 'The Front Page',
+    name: 'The Basalt Forge',
     subtitle: 'Basalt forge of rising heat',
     floorBg: '#191016',
     floorTileAlt: '#24161e',
