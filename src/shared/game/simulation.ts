@@ -40,6 +40,7 @@ import {
   getFloorScaling,
   oppositeDirection,
   type FloorScaling,
+  type ObstacleBlueprint,
   type DailyDungeonMap,
   type RoomBlueprint,
   type RoomRewardType,
@@ -325,6 +326,8 @@ export type GameState = {
   projectiles: ProjectileEntity[];
   hazards: HazardEntity[];
   breakables: BreakableEntity[];
+  /** Solid blocks from the room layout; they never break. */
+  obstacles: ObstacleBlueprint[];
   coins: CoinEntity[];
   gems: GemEntity[];
   hearts: HeartEntity[];
@@ -546,6 +549,7 @@ export class GameSimulation {
     this.updateDelayedBlasts(dt);
     this.updateFirePatches(dt);
     this.updateEnemies(dt);
+    for (const enemy of s.enemies) this.pushOutOfObstacles(enemy, enemy.radius);
     this.updateProjectiles(dt);
     this.updateCoins(dt);
     this.updateGems(dt);
@@ -641,6 +645,7 @@ export class GameSimulation {
       projectiles: [],
       hazards: [],
       breakables: [],
+      obstacles: [],
       coins: [],
       gems: [],
       hearts: [],
@@ -763,6 +768,7 @@ export class GameSimulation {
     s.coins = [];
     s.gems = [];
     s.hearts = [];
+    s.obstacles = node.blueprint.obstacles;
 
     this.refreshMapView();
 
@@ -827,8 +833,23 @@ export class GameSimulation {
 
   /** Take the stairs: build the next floor's seeded layout and drop into its entrance. */
   private descendFloor(): void {
+    this.goToFloor(this.state.floor + 1);
+  }
+
+  /**
+   * Developer shortcut (local testing only): jump straight to a floor, keeping the
+   * current HP and relics. Counts skipped floors as cleared so summaries stay sane.
+   */
+  public debugJumpToFloor(floor: number): void {
     const s = this.state;
-    const nextFloor = s.floor + 1;
+    const target = Math.max(1, Math.floor(floor));
+    if (s.phase !== 'playing' || target === s.floor) return;
+    s.floorsCleared = Math.max(s.floorsCleared, target - 1);
+    this.goToFloor(target);
+  }
+
+  private goToFloor(nextFloor: number): void {
+    const s = this.state;
     this.floorScaling = getFloorScaling(nextFloor);
     this.dungeonMap = buildDailyDungeonMap(s.utcDate, nextFloor, s.dailyHazard);
     this.roomMemory.clear();
@@ -958,6 +979,7 @@ export class GameSimulation {
 
     p.x += p.vx * dt;
     p.y += p.vy * dt;
+    this.pushOutOfObstacles(p, p.radius);
 
     if (p.cosmetic === 'neon_trail' && Math.hypot(p.vx, p.vy) > 120) {
       p.trailSpawnTimer -= dt;
@@ -1913,11 +1935,13 @@ export class GameSimulation {
         this.damagePlayer(enemy.damage);
       }
 
+      // Blocks count as walls, so baiting a charge into one stuns the charger.
       const hitWall =
         enemy.x - enemy.radius <= PLAY_MIN_X + 2 ||
         enemy.x + enemy.radius >= PLAY_MAX_X - 2 ||
         enemy.y - enemy.radius <= PLAY_MIN_Y + 2 ||
-        enemy.y + enemy.radius >= PLAY_MAX_Y - 2;
+        enemy.y + enemy.radius >= PLAY_MAX_Y - 2 ||
+        this.pushOutOfObstacles(enemy, enemy.radius);
 
       enemy.stateTimer -= dt;
       if (hitWall) {
@@ -2073,6 +2097,12 @@ export class GameSimulation {
         proj.y - proj.radius < PLAY_MIN_Y ||
         proj.y + proj.radius > PLAY_MAX_Y
       ) {
+        this.spawnParticles(proj.x, proj.y, proj.friendly ? '#fbbf24' : '#f97316', 4, 80);
+        continue;
+      }
+
+      // Blocks stop every projectile (cover from shooters, and no shooting through walls).
+      if (this.pointInObstacle(proj.x, proj.y, Math.min(proj.radius, 10) * 0.5)) {
         this.spawnParticles(proj.x, proj.y, proj.friendly ? '#fbbf24' : '#f97316', 4, 80);
         continue;
       }
@@ -2694,6 +2724,42 @@ export class GameSimulation {
   private announce(text: string): void {
     this.state.announcementText = text;
     this.state.announcementTimer = 2.6;
+  }
+
+  /** Push a circle out of any solid block it overlaps. Returns true if it touched one. */
+  private pushOutOfObstacles(e: { x: number; y: number }, radius: number): boolean {
+    let hit = false;
+    for (const o of this.state.obstacles) {
+      const cx = Math.max(o.x, Math.min(o.x + o.w, e.x));
+      const cy = Math.max(o.y, Math.min(o.y + o.h, e.y));
+      const dx = e.x - cx;
+      const dy = e.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d >= radius) continue;
+      hit = true;
+      if (d > 0.0001) {
+        e.x = cx + (dx / d) * radius;
+        e.y = cy + (dy / d) * radius;
+      } else {
+        // Centre is inside the block: leave by the shortest side.
+        const left = e.x - o.x;
+        const right = o.x + o.w - e.x;
+        const top = e.y - o.y;
+        const bottom = o.y + o.h - e.y;
+        const m = Math.min(left, right, top, bottom);
+        if (m === left) e.x = o.x - radius;
+        else if (m === right) e.x = o.x + o.w + radius;
+        else if (m === top) e.y = o.y - radius;
+        else e.y = o.y + o.h + radius;
+      }
+    }
+    return hit;
+  }
+
+  private pointInObstacle(x: number, y: number, pad: number): boolean {
+    return this.state.obstacles.some(
+      (o) => x > o.x - pad && x < o.x + o.w + pad && y > o.y - pad && y < o.y + o.h + pad,
+    );
   }
 
   private clampToArena(entity: { x: number; y: number; radius?: number }, pad?: number): void {

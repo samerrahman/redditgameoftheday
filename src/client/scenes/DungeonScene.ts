@@ -13,7 +13,8 @@ import {
 import type { EnemyEntity } from '../../shared/game/enemies.ts';
 import { oppositeDirection } from '../../shared/game/rooms.ts';
 import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
-import { createDailyStream } from '../../shared/rng.ts';
+import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
+import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
 import { COSMETICS, isCosmeticId } from '../../shared/shop.ts';
 import { getWeapon } from '../../shared/weapons.ts';
 import type { CosmeticId, DoorDirection, EnemyArchetype } from '../../shared/types.ts';
@@ -120,6 +121,9 @@ export class DungeonScene extends Phaser.Scene {
       './assets/dungeon/dungeon_atlas.png',
       './assets/dungeon/dungeon_atlas.json',
     );
+    for (const sheet of BIOME_SHEETS) {
+      this.load.spritesheet(sheet.key, sheet.url, { frameWidth: 16, frameHeight: 16 });
+    }
   }
 
   public create(): void {
@@ -370,7 +374,13 @@ export class DungeonScene extends Phaser.Scene {
   ): Phaser.GameObjects.Container {
     const container = this.add.container(0, 0).setDepth(0);
     const theme = this.bridge.theme;
-    const rng = createDailyStream(state.utcDate, `decor-${state.currentRoomId}-${state.roomIndex}`);
+    const biome = getFloorBiome(state.floor);
+    const rng = createDailyStream(
+      state.utcDate,
+      `decor-${state.floor}-${state.currentRoomId}-${state.roomIndex}`,
+    );
+    const wallTint = biome.floor ? biome.wallTint : theme.wallTint;
+    this.cameras.main.setBackgroundColor(biome.floor ? biome.ambientBg : theme.ambientBg);
     const tileSize = 48;
     const cols = Math.round(ARENA_W / tileSize);
     const rows = Math.round(ARENA_H / tileSize);
@@ -384,16 +394,20 @@ export class DungeonScene extends Phaser.Scene {
     floorUnderlay.fillRect(0, 0, ARENA_W, ARENA_H);
     container.add(floorUnderlay);
 
-    for (let r = 1; r < rows - 1; r += 1) {
-      for (let c = 1; c < cols - 1; c += 1) {
-        const cx = c * tileSize + tileSize / 2;
-        const cy = r * tileSize + tileSize / 2;
-        const pickAlt = rng.next() < 0.08 ? 'tile_042' : rng.pick(floorFrames);
-        const img = this.add
-          .image(cx, cy, 'dungeon', pickAlt)
-          .setDisplaySize(tileSize + 1, tileSize + 1)
-          .setTint(theme.floorTint);
-        container.add(img);
+    if (biome.floor) {
+      this.buildBiomeFloor(container, biome, rng, cols, rows, tileSize);
+    } else {
+      for (let r = 1; r < rows - 1; r += 1) {
+        for (let c = 1; c < cols - 1; c += 1) {
+          const cx = c * tileSize + tileSize / 2;
+          const cy = r * tileSize + tileSize / 2;
+          const pickAlt = rng.next() < 0.08 ? 'tile_042' : rng.pick(floorFrames);
+          const img = this.add
+            .image(cx, cy, 'dungeon', pickAlt)
+            .setDisplaySize(tileSize + 1, tileSize + 1)
+            .setTint(theme.floorTint);
+          container.add(img);
+        }
       }
     }
 
@@ -416,14 +430,14 @@ export class DungeonScene extends Phaser.Scene {
           const img = this.add
             .image(cx, cy, 'dungeon', wallFrame)
             .setDisplaySize(tileSize + 0.5, tileSize + 0.5)
-            .setTint(theme.wallTint);
+            .setTint(wallTint);
           container.add(img);
         } else if (c === 0 || c === cols - 1) {
           const sideFrame = c === 0 ? 'tile_057' : 'tile_059';
           const img = this.add
             .image(cx, cy, 'dungeon', sideFrame)
             .setDisplaySize(tileSize + 0.5, tileSize + 0.5)
-            .setTint(theme.wallTint);
+            .setTint(wallTint);
           container.add(img);
         }
       }
@@ -436,7 +450,7 @@ export class DungeonScene extends Phaser.Scene {
       const img = this.add
         .image(cx, botY, 'dungeon', botFrame)
         .setDisplaySize(tileSize + 0.5, tileSize)
-        .setTint(theme.wallTint);
+        .setTint(wallTint);
       container.add(img);
     }
 
@@ -504,8 +518,14 @@ export class DungeonScene extends Phaser.Scene {
       this.doorSprites.set(dir, { left, right });
     }
 
-    // 4 animated flickering wall torches
-    for (const tx of [120, 264, 504, 648]) {
+    this.buildObstacleBlocks(container, biome, state);
+
+    if (biome.decor.length > 0) {
+      this.buildBiomeDecor(container, biome, rng, state, cols, rows, tileSize);
+    }
+
+    // 4 animated flickering wall torches (indoor biomes only)
+    for (const tx of biome.torches ? [120, 264, 504, 648] : []) {
       const torch = this.add.sprite(tx, 24, 'dungeon', 'torch_0').setScale(2.75);
       torch.play('torch_burn');
       container.add(torch);
@@ -516,7 +536,7 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private ensureRoomBackdrop(state: GameState): void {
-    const key = `${state.utcDate}:${state.currentRoomId}:${state.roomIndex}`;
+    const key = `${state.utcDate}:${state.floor}:${state.currentRoomId}:${state.roomIndex}`;
     if (key === this.builtRoomKey) {
       if (state.currentRoomId === 0 && state.elapsedTime === 0 && this.prevEnemies.size > 0) {
         this.decalGraphics?.clear();
@@ -577,6 +597,147 @@ export class DungeonScene extends Phaser.Scene {
     this.transitionPoppedEnemyIds.clear();
     this.pendingPortalSwap = false;
     this.builtRoomKey = key;
+  }
+
+  private buildBiomeFloor(
+    container: Phaser.GameObjects.Container,
+    biome: FloorBiome,
+    rng: SeededRng,
+    cols: number,
+    rows: number,
+    tileSize: number,
+  ): void {
+    const floor = biome.floor;
+    if (!floor) return;
+    const place = (sheet: string, frame: number, c: number, r: number): void => {
+      const img = this.add
+        .image(c * tileSize + tileSize / 2, r * tileSize + tileSize / 2, sheet, frame)
+        .setDisplaySize(tileSize + 1, tileSize + 1)
+        .setTint(biome.floorTint);
+      container.add(img);
+    };
+    for (let r = 1; r < rows - 1; r += 1) {
+      for (let c = 1; c < cols - 1; c += 1) {
+        const accent = floor.accents && rng.next() < 0.06;
+        place(floor.sheet, accent ? rng.pick(floor.accents ?? floor.frames) : rng.pick(floor.frames), c, r);
+      }
+    }
+    // Patches of a second ground (grass in town squares, tilled soil rows on farms).
+    const patches = biome.patches;
+    if (!patches) return;
+    const isStrip = patches.sheet === 'farm';
+    for (let i = 0; i < patches.count; i += 1) {
+      const w = isStrip ? 4 : rng.int(2, 3);
+      const h = isStrip ? 1 : rng.int(1, 2);
+      const c0 = rng.int(2, cols - 3 - w);
+      const r0 = rng.int(2, rows - 3 - h);
+      for (let r = r0; r < r0 + h; r += 1) {
+        for (let c = c0; c < c0 + w; c += 1) {
+          // Farm soil rows are 4-tile strips: left cap, middles, right cap.
+          const frame = isStrip
+            ? (rng.next() < 0.5 ? 48 : 60) + Math.min(3, c - c0)
+            : rng.pick(patches.frames);
+          place(patches.sheet, frame, c, r);
+        }
+      }
+    }
+  }
+
+  /** Solid layout blocks: themed sprites outdoors, chunky stone blocks in the dungeon. */
+  private buildObstacleBlocks(
+    container: Phaser.GameObjects.Container,
+    biome: FloorBiome,
+    state: GameState,
+  ): void {
+    if (state.obstacles.length === 0) return;
+    const g = this.add.graphics();
+    container.add(g);
+    state.obstacles.forEach((o, i) => {
+      // Contact shadow so blocks sit on the floor.
+      g.fillStyle(0x000000, 0.3);
+      g.fillRect(o.x + 3, o.y + o.h - 6, o.w - 2, 8);
+      if (biome.blocks) {
+        const frame = biome.blocks.frames[(o.id + i) % biome.blocks.frames.length]!;
+        container.add(
+          this.add.image(o.x + o.w / 2, o.y + o.h / 2, biome.blocks.sheet, frame).setDisplaySize(o.w, o.h),
+        );
+        return;
+      }
+      g.fillStyle(0x120d14, 1);
+      g.fillRect(o.x, o.y, o.w, o.h);
+      g.fillStyle(0x5f5868, 1);
+      g.fillRect(o.x + 2, o.y + 2, o.w - 4, o.h - 4);
+      g.fillStyle(0x8c8498, 1);
+      g.fillRect(o.x + 2, o.y + 2, o.w - 4, 12);
+      g.fillStyle(0x47404f, 1);
+      g.fillRect(o.x + 2, o.y + 26, o.w - 4, 2);
+      g.fillRect(o.x + 2, o.y + 38, o.w - 4, 2);
+      g.fillRect(o.x + 16, o.y + 14, 2, 12);
+      g.fillRect(o.x + 32, o.y + 28, 2, 10);
+      g.fillRect(o.x + 12, o.y + 40, 2, 6);
+      g.fillStyle(0x3a3441, 1);
+      g.fillRect(o.x + 2, o.y + o.h - 6, o.w - 4, 4);
+    });
+  }
+
+  /** Scatter props around the room's edge, away from doors, crates, hazards and spawn. */
+  private buildBiomeDecor(
+    container: Phaser.GameObjects.Container,
+    biome: FloorBiome,
+    rng: SeededRng,
+    state: GameState,
+    cols: number,
+    rows: number,
+    tileSize: number,
+  ): void {
+    const midC = cols / 2;
+    const midR = rows / 2;
+    const blocked = [
+      ...state.breakables.map((b) => ({ x: b.x, y: b.y })),
+      ...state.hazards.map((h) => ({ x: h.x, y: h.y })),
+      ...state.obstacles.map((o) => ({ x: o.x + o.w / 2, y: o.y + o.h / 2 })),
+    ];
+    const spots: Array<{ c: number; r: number }> = [];
+    for (let r = 1; r <= rows - 2; r += 1) {
+      for (let c = 1; c <= cols - 2; c += 1) {
+        const onEdge = r === 1 || r === rows - 2 || c === 1 || c === cols - 2;
+        if (!onEdge) continue;
+        const inNsLane = Math.abs(c + 0.5 - midC) < 2;
+        const inEwLane = Math.abs(r + 0.5 - midR) < 2;
+        if ((r === 1 || r === rows - 2) && inNsLane) continue;
+        if ((c === 1 || c === cols - 2) && inEwLane) continue;
+        const x = c * tileSize + tileSize / 2;
+        const y = r * tileSize + tileSize / 2;
+        if (blocked.some((b) => Math.hypot(b.x - x, b.y - y) < 64)) continue;
+        spots.push({ c, r });
+      }
+    }
+    const total = biome.decor.reduce((sum, d) => sum + d.weight, 0);
+    const count = Math.min(spots.length, rng.int(biome.decorCount[0], biome.decorCount[1]));
+    const chosen = rng.shuffle(spots).slice(0, count);
+    for (const spot of chosen) {
+      let roll = rng.next() * total;
+      let decor = biome.decor[0]!;
+      for (const d of biome.decor) {
+        roll -= d.weight;
+        if (roll < 0) {
+          decor = d;
+          break;
+        }
+      }
+      // Tall props need a free tile above them; fall back to a 1-tile prop on the top row.
+      if (decor.frames.length > 1 && spot.r <= 1) {
+        decor = biome.decor.find((d) => d.frames.length === 1) ?? decor;
+      }
+      const x = spot.c * tileSize + tileSize / 2;
+      const baseY = spot.r * tileSize + tileSize / 2;
+      const shadow = this.add.ellipse(x, baseY + 18, 34, 10, 0x000000, 0.25);
+      container.add(shadow);
+      decor.frames.forEach((frame, i) => {
+        const y = baseY - (decor.frames.length - 1 - i) * tileSize;
+        container.add(this.add.image(x, y, decor.sheet, frame).setDisplaySize(tileSize, tileSize));
+      });
+    }
   }
 
   private updateRoomTransitionVisuals(state: GameState): void {

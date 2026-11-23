@@ -38,6 +38,15 @@ export type BreakableBlueprint = {
   kind: 'crate' | 'pillar';
 };
 
+/** Solid, indestructible block (one 48px floor cell). Blocks movement and projectiles. */
+export type ObstacleBlueprint = {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export type RoomRewardType =
   | 'relics'
   | 'coin_cache'
@@ -52,6 +61,9 @@ export type RoomBlueprint = {
   waves: WaveSpawn[][];
   hazards: HazardBlueprint[];
   breakables: BreakableBlueprint[];
+  obstacles: ObstacleBlueprint[];
+  /** Which layout pattern was used (for debugging/tests). */
+  layout: RoomLayoutId;
   rewardType: RoomRewardType;
   hpScale: number;
   hasHazard: boolean;
@@ -98,7 +110,145 @@ export function oppositeDirection(dir: DoorDirection): DoorDirection {
   }
 }
 
-function getSafeSpawnPoint(rng: SeededRng, avoidCenter = false): { x: number; y: number } {
+// ---------------------------------------------------------------------------
+// Room layouts: patterns of solid blocks on the interior 14x8 grid of 48px cells.
+// Cell (i, j) covers x = (i + 1) * 48 .. +48, y = (j + 1) * 48 .. +48.
+// ---------------------------------------------------------------------------
+
+export const CELL_SIZE = 48;
+export const LAYOUT_COLS = 14;
+export const LAYOUT_ROWS = 8;
+
+export type RoomLayoutId =
+  | 'open'
+  | 'pillars'
+  | 'side_walls'
+  | 'ledges'
+  | 'corners'
+  | 'columns'
+  | 'scatter';
+
+const LAYOUT_MAPS: Record<Exclude<RoomLayoutId, 'scatter'>, readonly string[]> = {
+  open: [],
+  pillars: [
+    '..............',
+    '.#..........#.',
+    '..............',
+    '..............',
+    '..............',
+    '..............',
+    '.#..........#.',
+    '..............',
+  ],
+  side_walls: [
+    '..............',
+    '..#........#..',
+    '..#........#..',
+    '..............',
+    '..............',
+    '..#........#..',
+    '..#........#..',
+    '..............',
+  ],
+  ledges: [
+    '..............',
+    '.####....####.',
+    '..............',
+    '..............',
+    '..............',
+    '..............',
+    '.####....####.',
+    '..............',
+  ],
+  corners: [
+    '..............',
+    '.##........##.',
+    '.#..........#.',
+    '..............',
+    '..............',
+    '.#..........#.',
+    '.##........##.',
+    '..............',
+  ],
+  columns: [
+    '..............',
+    '..#..#..#..#..',
+    '..............',
+    '..............',
+    '..............',
+    '..............',
+    '..#........#..',
+    '..............',
+  ],
+};
+
+/**
+ * Cells that must stay walkable: door lanes, the centre (relic pedestals, stairs,
+ * fountain, boss spawn) and the player's spawn at the bottom middle.
+ */
+export function isReservedCell(i: number, j: number): boolean {
+  const nsLane = (i === 6 || i === 7) && (j <= 1 || j >= 6);
+  const ewLane = (j === 3 || j === 4) && (i <= 1 || i >= 12);
+  const centre = i >= 3 && i <= 10 && j >= 2 && j <= 5;
+  const spawn = i >= 5 && i <= 8 && j >= 6;
+  return nsLane || ewLane || centre || spawn;
+}
+
+function cellToObstacle(i: number, j: number, id: number): ObstacleBlueprint {
+  return { id, x: (i + 1) * CELL_SIZE, y: (j + 1) * CELL_SIZE, w: CELL_SIZE, h: CELL_SIZE };
+}
+
+export function buildObstacles(rng: SeededRng, layout: RoomLayoutId, roomIndex: number): ObstacleBlueprint[] {
+  const cells: Array<[number, number]> = [];
+  if (layout === 'scatter') {
+    const free: Array<[number, number]> = [];
+    for (let j = 0; j < LAYOUT_ROWS; j += 1) {
+      for (let i = 0; i < LAYOUT_COLS; i += 1) {
+        // Keep the outermost ring mostly clear so scattered rocks read as islands.
+        if (!isReservedCell(i, j) && i > 0 && i < LAYOUT_COLS - 1 && j > 0 && j < LAYOUT_ROWS - 1) {
+          free.push([i, j]);
+        }
+      }
+    }
+    cells.push(...rng.shuffle(free).slice(0, rng.int(5, 8)));
+  } else {
+    LAYOUT_MAPS[layout].forEach((row, j) => {
+      for (let i = 0; i < row.length; i += 1) {
+        if (row[i] === '#' && !isReservedCell(i, j)) cells.push([i, j]);
+      }
+    });
+  }
+  return cells.map(([i, j], k) => cellToObstacle(i, j, roomIndex * 100 + k));
+}
+
+function circleHitsObstacle(x: number, y: number, r: number, obstacles: readonly ObstacleBlueprint[]): boolean {
+  return obstacles.some((o) => {
+    const cx = Math.max(o.x, Math.min(o.x + o.w, x));
+    const cy = Math.max(o.y, Math.min(o.y + o.h, y));
+    return Math.hypot(x - cx, y - cy) < r;
+  });
+}
+
+function pickLayout(rng: SeededRng, role: 'entrance' | 'boss' | 'room', floor: number): RoomLayoutId {
+  if (role === 'entrance' && floor === 1) return 'open';
+  if (role === 'boss') return rng.pick(['open', 'pillars', 'corners'] as const);
+  return rng.pick([
+    'open',
+    'pillars',
+    'side_walls',
+    'ledges',
+    'corners',
+    'columns',
+    'scatter',
+    'scatter',
+  ] as const);
+}
+
+function getSafeSpawnPoint(
+  rng: SeededRng,
+  avoidCenter = false,
+  obstacles: readonly ObstacleBlueprint[] = [],
+): { x: number; y: number } {
   const doorCenters = [
     { x: ARENA_W / 2, y: PLAY_MIN_Y },
     { x: ARENA_W / 2, y: PLAY_MAX_Y },
@@ -112,7 +262,13 @@ function getSafeSpawnPoint(rng: SeededRng, avoidCenter = false): { x: number; y:
     const distFromSpawn = Math.hypot(x - PLAYER_SPAWN_X, y - PLAYER_SPAWN_Y);
     const distFromCenter = Math.hypot(x - ARENA_W / 2, y - ARENA_H / 2);
     const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 96);
-    if (distFromSpawn >= 115 && clearOfDoors && (!avoidCenter || distFromCenter >= 75)) {
+    const clearOfBlocks = !circleHitsObstacle(x, y, 30, obstacles);
+    if (
+      distFromSpawn >= 115 &&
+      clearOfDoors &&
+      clearOfBlocks &&
+      (!avoidCenter || distFromCenter >= 75)
+    ) {
       return { x, y };
     }
   }
@@ -224,9 +380,13 @@ function buildBreakables(
   }));
 }
 
-function makeWave(rng: SeededRng, archetypes: EnemyArchetype[]): WaveSpawn[] {
+function makeWave(
+  rng: SeededRng,
+  archetypes: EnemyArchetype[],
+  obstacles: readonly ObstacleBlueprint[] = [],
+): WaveSpawn[] {
   return archetypes.map((archetype) => {
-    const pt = getSafeSpawnPoint(rng, archetype === 'boss');
+    const pt = getSafeSpawnPoint(rng, archetype === 'boss', obstacles);
     return { archetype, x: pt.x, y: pt.y };
   });
 }
@@ -312,6 +472,8 @@ export function buildDailyDungeonMap(
     waves: [],
     hazards: [],
     breakables: [],
+    obstacles: [],
+    layout: 'open',
     rewardType: 'relics',
     hpScale: 1,
     hasHazard: false,
@@ -417,16 +579,23 @@ export function buildDailyDungeonMap(
 
   for (const node of nodes) {
     const roomRng = createDailyStream(utcDate, `floor-${f}-room-${node.roomIndex}`);
+    const layoutRng = createDailyStream(utcDate, `floor-${f}-layout-${node.roomIndex}`);
+    const role = node.id === 0 ? 'entrance' : node.id === bossRoomId ? 'boss' : 'room';
+    const layout = pickLayout(layoutRng, role, f);
+    const obstacles = buildObstacles(layoutRng, layout, node.roomIndex);
+    const wave = (archetypes: EnemyArchetype[]): WaveSpawn[] => makeWave(roomRng, archetypes, obstacles);
     if (node.id === 0) {
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'warmup',
         waves:
           f === 1
-            ? [makeWave(roomRng, ['chaser', 'chaser']), makeWave(roomRng, ['chaser', 'shooter'])]
-            : [makeWave(roomRng, withExtras(roomRng, ['chaser', 'shooter', 'chaser'], f, extra))],
+            ? [wave(['chaser', 'chaser']), wave(['chaser', 'shooter'])]
+            : [wave(withExtras(roomRng, ['chaser', 'shooter', 'chaser'], f, extra))],
         hazards: [],
         breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 4),
+        obstacles,
+        layout,
         rewardType: 'coin_cache',
         hpScale: scaling.hpScale,
         hasHazard: false,
@@ -437,9 +606,11 @@ export function buildDailyDungeonMap(
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'boss',
-        waves: [[{ archetype: 'boss', x: ARENA_W / 2, y: 145 }, ...makeWave(roomRng, escorts)]],
+        waves: [[{ archetype: 'boss', x: ARENA_W / 2, y: 145 }, ...wave(escorts)]],
         hazards: [],
         breakables: buildBreakables(roomRng, node.roomIndex, 'pillar', 2),
+        obstacles,
+        layout,
         rewardType: 'boss_chest_and_portals',
         hpScale: scaling.bossHpScale,
         hasHazard: false,
@@ -449,11 +620,13 @@ export function buildDailyDungeonMap(
         roomIndex: node.roomIndex,
         roomType: 'gauntlet',
         waves: [
-          makeWave(roomRng, withExtras(roomRng, ['chaser', 'chaser', 'shooter'], f, extra)),
-          makeWave(roomRng, withExtras(roomRng, ['charger', 'shooter', 'chaser', 'shooter'], f, extra)),
+          wave(withExtras(roomRng, ['chaser', 'chaser', 'shooter'], f, extra)),
+          wave(withExtras(roomRng, ['charger', 'shooter', 'chaser', 'shooter'], f, extra)),
         ],
         hazards: buildHazards(roomRng, dailyHazard, node.roomIndex),
         breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 3),
+        obstacles,
+        layout,
         rewardType: 'fountain_and_relics',
         hpScale: scaling.hpScale * 1.1,
         hasHazard: true,
@@ -465,11 +638,13 @@ export function buildDailyDungeonMap(
         waves: [
           [
             { archetype: 'elite_charger', x: ARENA_W / 2, y: 145 },
-            ...makeWave(roomRng, withExtras(roomRng, ['chaser', 'shooter'], f, extra)),
+            ...wave(withExtras(roomRng, ['chaser', 'shooter'], f, extra)),
           ],
         ],
         hazards: [],
         breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 4),
+        obstacles,
+        layout,
         rewardType: 'synergy_relics',
         hpScale: scaling.hpScale * 1.08,
         hasHazard: false,
@@ -484,15 +659,21 @@ export function buildDailyDungeonMap(
         roomType: 'escalation',
         waves:
           node.bfsDist <= 1 && f === 1
-            ? [makeWave(roomRng, waveA)]
-            : [makeWave(roomRng, waveA), makeWave(roomRng, waveB)],
+            ? [wave(waveA)]
+            : [wave(waveA), wave(waveB)],
         hazards: buildHazards(roomRng, dailyHazard, node.roomIndex),
         breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 3),
+        obstacles,
+        layout,
         rewardType,
         hpScale: scaling.hpScale * (1 + 0.04 * node.bfsDist),
         hasHazard: true,
       };
     }
+    // Crates/pillars never sit inside a block.
+    node.blueprint.breakables = node.blueprint.breakables.filter(
+      (b) => !circleHitsObstacle(b.x, b.y, b.radius + 6, obstacles),
+    );
   }
 
   return {

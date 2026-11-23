@@ -13,7 +13,13 @@ import {
   PLAY_MIN_Y,
 } from '../shared/game/constants.ts';
 import { createEnemy } from '../shared/game/enemies.ts';
-import { buildDailyDungeonMap, getFloorScaling, oppositeDirection } from '../shared/game/rooms.ts';
+import {
+  buildDailyDungeonMap,
+  CELL_SIZE,
+  getFloorScaling,
+  isReservedCell,
+  oppositeDirection,
+} from '../shared/game/rooms.ts';
 import { GameSimulation } from '../shared/game/simulation.ts';
 import {
   BUILD_ID,
@@ -142,6 +148,56 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
       }
     }
     assert.ok(deadEnds / floors < 1, `rooms should mostly have 2+ doors (avg dead ends ${deadEnds / floors})`);
+  });
+
+  void it('varies room layouts and never blocks doors, the centre, spawn or enemy spawns', () => {
+    const layouts = new Set<string>();
+    for (const date of ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-12-01']) {
+      for (let floor = 1; floor <= 6; floor += 1) {
+        const map = buildDailyDungeonMap(date, floor, getDailyHazard(date));
+        for (const room of map.rooms) {
+          const bp = room.blueprint;
+          layouts.add(bp.layout);
+          if (floor === 1 && room.id === map.startRoomId) assert.equal(bp.layout, 'open');
+          for (const o of bp.obstacles) {
+            const i = o.x / CELL_SIZE - 1;
+            const j = o.y / CELL_SIZE - 1;
+            assert.ok(Number.isInteger(i) && Number.isInteger(j), 'blocks sit on the tile grid');
+            assert.equal(isReservedCell(i, j), false, `${date} F${floor} R${room.roomIndex} blocks a reserved cell`);
+          }
+          const overlaps = (x: number, y: number, r: number): boolean =>
+            bp.obstacles.some((o) => {
+              const cx = Math.max(o.x, Math.min(o.x + o.w, x));
+              const cy = Math.max(o.y, Math.min(o.y + o.h, y));
+              return Math.hypot(x - cx, y - cy) < r;
+            });
+          for (const spawn of bp.waves.flat()) assert.equal(overlaps(spawn.x, spawn.y, 15), false, 'enemy spawned in a block');
+          for (const br of bp.breakables) assert.equal(overlaps(br.x, br.y, br.radius), false, 'crate inside a block');
+        }
+      }
+    }
+    assert.ok(layouts.size >= 5, `expected varied layouts, got ${[...layouts].join(', ')}`);
+  });
+
+  void it('blocks stop the player and projectiles', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile);
+    const block = { id: 1, x: 200, y: 200, w: 48, h: 48 };
+    sim.state.obstacles = [block];
+    sim.state.enemies = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.x = 170;
+    sim.state.player.y = 224;
+    sim.state.player.iFramesTimer = 99;
+    stepFrames(sim, 60, () => idleInput({ moveX: 1 }));
+    assert.ok(sim.state.player.x <= block.x - sim.state.player.radius + 0.5, 'player stopped at the block');
+    sim.state.projectiles = [
+      { id: 77, friendly: false, x: 300, y: 224, vx: -400, vy: 0, radius: 7, damage: 10, ttl: 2, pierce: false, hitEnemyIds: [], kind: 'orb', angle: Math.PI },
+    ];
+    stepFrames(sim, 30, () => idleInput());
+    assert.equal(sim.state.projectiles.some((pr) => pr.id === 77), false, 'projectile destroyed by the block');
+    assert.equal(sim.state.player.hp, sim.state.player.maxHp, 'block took the hit');
   });
 
   void it('drafts the very rare Concussion relic far less often than normal relics', () => {

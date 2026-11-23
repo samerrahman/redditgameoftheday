@@ -412,25 +412,43 @@ button:focus-visible {
   border-radius: 0;
   overflow: clip;
   display: block;
-  inline-size: clamp(148px, 24vw, 224px);
+  /* Exactly 10 equal segments (10 HP each): the bar width is always 10 x --hp-seg,
+     so the last segment is never cut off. */
+  --hp-seg: 16px;
+  inline-size: calc(var(--hp-seg) * 10);
   block-size: 18px;
+  --hp-gaps: repeating-linear-gradient(
+    90deg,
+    transparent 0 calc(var(--hp-seg) - 2px),
+    rgb(18 13 20 / 0.85) calc(var(--hp-seg) - 2px) var(--hp-seg)
+  );
   --hp-bar-fill:
-    repeating-linear-gradient(90deg, transparent 0 14px, rgb(18 13 20 / 0.85) 14px 16px),
+    var(--hp-gaps),
     linear-gradient(180deg, #ff8b73 0 3px, #e23c3c 3px 13px, #991b1b 13px 18px);
   background:
-    repeating-linear-gradient(90deg, transparent 0 14px, rgb(10 7 14 / 0.95) 14px 16px),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 calc(var(--hp-seg) - 2px),
+      rgb(10 7 14 / 0.95) calc(var(--hp-seg) - 2px) var(--hp-seg)
+    ),
     linear-gradient(180deg, #100a14 0 4px, #1d1322 4px 18px);
+}
+
+@media (min-width: 900px) {
+  .hp-progress {
+    --hp-seg: 21px;
+  }
 }
 
 .hp-frame.is-low .hp-progress {
   --hp-bar-fill:
-    repeating-linear-gradient(90deg, transparent 0 14px, rgb(18 13 20 / 0.85) 14px 16px),
+    var(--hp-gaps),
     linear-gradient(180deg, #fecaca 0 3px, #ef4444 3px 13px, #991b1b 13px 18px);
 }
 
 .hp-frame.is-hurt .hp-progress {
   --hp-bar-fill:
-    repeating-linear-gradient(90deg, transparent 0 14px, rgb(18 13 20 / 0.85) 14px 16px),
+    var(--hp-gaps),
     linear-gradient(180deg, #ffffff 0 3px, #fca5a5 3px 13px, #e23c3c 13px 18px);
 }
 
@@ -576,9 +594,25 @@ button:focus-visible {
 .boss-fill {
   inline-size: 100%;
   block-size: 100%;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 14px, rgb(18 13 20 / 0.85) 14px 16px),
-    linear-gradient(180deg, #fdba74 0 3px, #ef4444 3px 10px, #991b1b 10px 14px);
+  background: linear-gradient(180deg, #fdba74 0 3px, #ef4444 3px 10px, #991b1b 10px 14px);
+}
+
+/* Segment gaps drawn over the whole track (not the shrinking fill), at 10% steps,
+   so the boss bar always shows 10 equal segments whatever its width. */
+.boss-track {
+  position: relative;
+}
+
+.boss-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 calc(10% - 2px),
+    rgb(18 13 20 / 0.9) calc(10% - 2px) 10%
+  );
 }
 
 /* Isaac-style Room Banner Plaque */
@@ -2348,10 +2382,20 @@ button:focus-visible {
 .shop-buy-btn,
 .gacha-pull-btn,
 .pill.mono,
-.hud-chip.mono {
+.hud-chip.mono,
+.room-banner-kicker,
+.hud-announcement {
   font-family: var(--font-numbers);
   font-weight: 400;
   font-size-adjust: 0.56;
   letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
+}
+
+/* Local-only developer button (created in game.ts on localhost). */
+.hud-dev-skip {
+  border-color: #a21caf;
+  color: #f5d0fe;
+  font-family: var(--font-numbers);
+  font-size-adjust: 0.56;
 }

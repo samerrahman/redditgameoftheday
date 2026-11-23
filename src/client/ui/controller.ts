@@ -18,6 +18,7 @@ import type {
   RoomType,
   RunSummary,
 } from '../../shared/types.ts';
+import { getFloorBiome } from '../config/biomes.ts';
 import { ENTITY_LABELS, GAME_META, getDailyTheme } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
@@ -319,7 +320,8 @@ export class GameUIController {
       const newFloor = s.floor !== this.lastFloor;
       this.lastFloor = s.floor;
       if (s.isFirstVisitToRoom || newFloor) {
-        const sub = newFloor && s.floor > 1 ? 'Enemies grow stronger' : '';
+        const biomeName = getFloorBiome(s.floor).name;
+        const sub = !newFloor ? '' : s.floor > 1 ? `${biomeName} · Enemies grow stronger` : biomeName;
         this.showRoomBanner(s.floor, s.roomIndex, s.roomType, s.totalRooms, sub);
       }
     }
