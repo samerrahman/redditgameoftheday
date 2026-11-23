@@ -113,7 +113,7 @@ export const DUNGEON_THEMES: readonly DungeonTheme[] = [
   },
   {
     id: 'front_page',
-    name: 'The Front Page',
+    name: 'The Basalt Forge',
     subtitle: 'Obsidian hall of rising heat',
     floorBg: '#1c1619',
     floorTileAlt: '#231b1f',
