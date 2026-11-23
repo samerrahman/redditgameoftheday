@@ -1319,30 +1319,30 @@ def build_prop_anims() -> dict[str, Image.Image]:
     frames["gem_2"] = set_px(gem0, [(5, 4, "W"), (10, 6, "W")])
     frames["gem_3"] = set_px(gem0, [(8, 3, "p"), (7, 8, "P")])
 
-    # Hearts (16x16 pulsing ruby heart)
+    # Hearts (compact 9x7 ruby heart centered in 16x16 frame -> 27x21px at 3x)
     heart0 = paint(
         16,
         16,
         [
             "................",
             "................",
-            "...####..####...",
-            "..#hhrr##rrrr#..",
-            ".#hWWrrrrrrrrR#.",
-            ".#hWrrrrrrrrRR#.",
-            ".#rrrrrrrrrrRR#.",
-            ".#rrrrrrrrrRRR#.",
-            "..#rrrrrrrRRR#..",
-            "...#rrrrrRRR#...",
-            "....#rrrRRR#....",
-            ".....#rRRX#.....",
-            "......#RX#......",
-            ".......##.......",
+            "................",
+            "................",
+            "................",
+            "....###.###.....",
+            "...#hrr#rrR#....",
+            "...#WrrrrRR#....",
+            "....#rrrRR#.....",
+            ".....#rrR#......",
+            "......#r#.......",
+            ".......#........",
+            "................",
+            "................",
             "................",
             "................",
         ],
     )
-    heart1 = set_px(heart0, [(3, 4, "h"), (4, 4, "W"), (10, 4, "h"), (11, 5, "r")])
+    heart1 = set_px(heart0, [(4, 6, "W"), (5, 6, "h"), (4, 7, "h"), (9, 6, "h")])
     frames["heart_0"] = heart0
     frames["heart_1"] = heart1
 

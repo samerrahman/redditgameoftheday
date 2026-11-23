@@ -1668,7 +1668,7 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const bob = Math.round(Math.sin(state.elapsedTime * 5 + heart.id)) * PIXEL_SCALE;
-      drawPixelShadow(shadowG, heart.x, heart.y + 12, 9, 3, 0.36);
+      drawPixelShadow(shadowG, heart.x, heart.y + 9, 6, 3, 0.34);
       spr.setPosition(heart.x, heart.y - 3 + bob);
     }
 
