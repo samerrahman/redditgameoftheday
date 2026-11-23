@@ -9,7 +9,7 @@ import { getDailyRunSummary, getPlayerTitle, hasCompletedDailyRun } from '../../
 import { RELICS } from '../../shared/relics.ts';
 import { formatTimeUntilNextUtcDay } from '../../shared/rng.ts';
 import { formatDuration, formatShareComment } from '../../shared/share.ts';
-import { WEAPONS, getWeapon } from '../../shared/weapons.ts';
+import { WEAPONS } from '../../shared/weapons.ts';
 import type {
   DailyLeaderboardEntry,
   DoorDirection,
@@ -137,7 +137,6 @@ export class GameUIController {
   private readonly startBestFloor = getEl('start-best-floor');
   private readonly startGems = getEl('start-gems');
   private readonly startBest = getEl('start-best');
-  private readonly startWeaponPill = getEl('start-weapon-pill');
 
   private readonly tutorialScreen = getEl('tutorial-screen');
   private readonly tutorialCloseBtn = getButton('tutorial-close-btn');
@@ -625,17 +624,15 @@ export class GameUIController {
     const modifier = getDailyModifier(this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
     const { title } = getPlayerTitle(this.profile.bestFloor);
-    const weapon = getWeapon(this.profile.equippedWeapon);
 
     this.startDate.textContent = this.utcDate;
     this.startDungeon.textContent = theme.name;
     this.startModifier.textContent = modifier.banner;
     this.startStreak.textContent = `${this.profile.streak}`;
-    this.startTitle.textContent = `🏅 ${title}`;
+    this.startTitle.textContent = title;
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
     this.startGems.textContent = `${this.profile.gems}`;
     this.startShopCoins.textContent = `${this.profile.coins} ${GAME_META.coinShort}`;
-    this.startWeaponPill.textContent = `${weapon.emoji} ${weapon.name}`;
     this.startBest.textContent = best ? `F${best.bestFloor ?? 1}` : '—';
 
     const completed = this.isDailyCompleted();
