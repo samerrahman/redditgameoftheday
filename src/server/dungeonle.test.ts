@@ -906,6 +906,41 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(CELL_SIZE, 56);
     assert.equal(LAYOUT_COLS, 10);
     assert.equal(LAYOUT_ROWS, 6);
+
+    for (const date of ['2026-11-18', '2026-11-19', '2026-11-20']) {
+      for (let floor = 1; floor <= 3; floor += 1) {
+        for (const hazardType of ['spikes', 'barrels', 'currents'] as const) {
+          const map = buildDailyDungeonMap(date, floor, hazardType);
+          for (const room of map.rooms) {
+            const bp = room.blueprint;
+            const seen = new Set(
+              bp.obstacles.map((o) => `${Math.round(o.x / CELL_SIZE) - 1},${Math.round(o.y / CELL_SIZE) - 1}`),
+            );
+            for (const br of bp.breakables) {
+              const i = (br.x - CELL_SIZE / 2) / CELL_SIZE - 1;
+              const j = (br.y - CELL_SIZE / 2) / CELL_SIZE - 1;
+              assert.ok(Number.isInteger(i) && Number.isInteger(j), `breakable (${br.x},${br.y}) off 56px tile grid`);
+              assert.ok(br.radius >= 22, `breakable radius ${br.radius} too small for 56px tiles`);
+              const key = `${i},${j}`;
+              assert.equal(seen.has(key), false, `breakable collides with occupied cell ${key}`);
+              seen.add(key);
+            }
+            for (const haz of bp.hazards) {
+              if (haz.type === 'spikes' || haz.type === 'barrels') {
+                assert.equal(haz.w, CELL_SIZE);
+                assert.equal(haz.h, CELL_SIZE);
+                const i = (haz.x - CELL_SIZE / 2) / CELL_SIZE - 1;
+                const j = (haz.y - CELL_SIZE / 2) / CELL_SIZE - 1;
+                assert.ok(Number.isInteger(i) && Number.isInteger(j), `hazard ${haz.type} (${haz.x},${haz.y}) off 56px tile grid`);
+                const key = `${i},${j}`;
+                assert.equal(seen.has(key), false, `hazard ${haz.type} collides with occupied cell ${key}`);
+                seen.add(key);
+              }
+            }
+          }
+        }
+      }
+    }
   });
 
   void it('keeps monster coin drops low and restricts gem drops to end-of-floor bosses', () => {
