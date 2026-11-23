@@ -368,6 +368,7 @@ type RoomVisitMemory = {
   cleared: boolean;
   rewardClaimed: boolean;
   fountainUsed: boolean;
+  breakables?: BreakableEntity[] | undefined;
 };
 
 export class GameSimulation {
@@ -698,6 +699,13 @@ export class GameSimulation {
     const node = this.dungeonMap.rooms.find((r) => r.id === roomId);
     if (!node) return;
 
+    if (transitionKind === 'door') {
+      const leavingMem = this.roomMemory.get(s.currentRoomId);
+      if (leavingMem) {
+        leavingMem.breakables = s.breakables.map((b) => ({ ...b, hitFlash: 0 }));
+      }
+    }
+
     const prevMem = this.roomMemory.get(node.id);
     const isFirstVisit = !prevMem?.visited;
     const mem: RoomVisitMemory = prevMem ?? {
@@ -785,7 +793,7 @@ export class GameSimulation {
 
     if (mem.cleared) {
       s.hazards = [];
-      s.breakables = [];
+      s.breakables = (mem.breakables ?? []).map((b) => ({ ...b, hitFlash: 0 }));
       s.waveIndex = 0;
       s.totalWaves = 0;
       s.waveDelayTimer = 0;
@@ -824,6 +832,7 @@ export class GameSimulation {
         maxHp: b.hp,
         hitFlash: 0,
       }));
+      mem.breakables = s.breakables.map((b) => ({ ...b, hitFlash: 0 }));
 
       this.spawnWave(0);
     }
@@ -2823,15 +2832,18 @@ export class GameSimulation {
       c.magnetized = true;
     });
 
+    const savedBreakables = s.breakables.map((b) => ({ ...b, hitFlash: 0 }));
     const mem = this.roomMemory.get(s.currentRoomId);
     if (mem) {
       mem.cleared = true;
+      mem.breakables = savedBreakables;
     } else {
       this.roomMemory.set(s.currentRoomId, {
         visited: true,
         cleared: true,
         rewardClaimed: false,
         fountainUsed: false,
+        breakables: savedBreakables,
       });
     }
     s.roomsClearedTotal += 1;

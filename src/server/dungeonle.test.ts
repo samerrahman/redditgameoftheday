@@ -1200,4 +1200,37 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       assert.equal(sim.state.enemies.length, 0, `${arch} should die on the second Arcane Lance shot`);
     }
   });
+
+  void it('preserves unbroken boxes when moving between rooms and keeps broken boxes broken', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile);
+    const startRoomId = sim.state.currentRoomId;
+    assert.equal(sim.state.breakables.length, 4, 'entrance room starts with 4 boxes');
+
+    clearRoom(sim);
+    const brokenTarget = sim.state.breakables[0]!;
+    sim.state.player.x = brokenTarget.x;
+    sim.state.player.y = brokenTarget.y + 32;
+    sim.state.player.attackCooldown = 0;
+    sim.state.player.attackEndlagTimer = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    assert.equal(sim.state.breakables.length, 3, 'breaking 1 box leaves 3 remaining');
+
+    const door = sim.state.doors[0]!;
+    assert.ok(door, 'cleared room must have at least one open door');
+    sim.enterMapRoom(door.targetRoomId, 'door', door.dir);
+    assert.notEqual(sim.state.currentRoomId, startRoomId);
+    assert.ok(sim.state.breakables.length > 0, 'adjacent room loads its own boxes');
+
+    clearRoom(sim);
+    sim.enterMapRoom(startRoomId, 'door', oppositeDirection(door.dir));
+    assert.equal(sim.state.currentRoomId, startRoomId);
+    assert.equal(sim.state.breakables.length, 3, 'revisiting room must keep the 3 unbroken boxes');
+    assert.equal(
+      sim.state.breakables.some((b) => b.id === brokenTarget.id),
+      false,
+      'broken box must stay destroyed after revisiting room',
+    );
+  });
 });

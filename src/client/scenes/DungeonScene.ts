@@ -634,6 +634,15 @@ export class DungeonScene extends Phaser.Scene {
       const entryDir = oppositeDirection(travelDir);
       this.prevRoomContainer?.destroy();
       this.prevRoomContainer = this.roomContainer;
+      for (const spr of this.breakableSprites.values()) {
+        spr.clearTint();
+        this.prevRoomContainer.add(spr);
+      }
+      this.breakableSprites.clear();
+      for (const spr of this.hazardSprites.values()) {
+        this.prevRoomContainer.add(spr);
+      }
+      this.hazardSprites.clear();
       if (travelDir === 'north') {
         this.prevRoomContainer.setPosition(0, ARENA_H);
       } else if (travelDir === 'south') {
@@ -1259,6 +1268,7 @@ export class DungeonScene extends Phaser.Scene {
     shadowG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
+    if (this.pendingPortalSwap) return;
     const activeIds = new Set<number>();
 
     for (const haz of state.hazards) {
@@ -1492,6 +1502,7 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private syncBreakables(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
+    if (this.pendingPortalSwap) return;
     const activeIds = new Set<number>();
 
     for (const br of state.breakables) {
