@@ -1,170 +1,200 @@
 import { COSMETICS, isCosmeticId } from '../../shared/shop.ts';
-import type { CosmeticId } from '../../shared/types.ts';
+import type { AccessoryId, CosmeticId } from '../../shared/types.ts';
 
 /**
- * Draws the hero (with costume tint + accessory) onto a small canvas for the shop.
- * Accessory shapes mirror DungeonScene's in-game drawings, using the same offsets
- * relative to the hero's centre (the in-game hero is drawn at 2.75x).
+ * Composites the hero, equipped pixel-art outfit, and animated pixel-art hat onto a
+ * single native 24×28 buffer before scaling by an exact integer factor (zero mixels).
  */
 
-const ATLAS_URL = './assets/dungeon/dungeon_atlas.png';
-const IDLE_FRAMES = [362, 384, 406, 428].map((x) => ({ x, y: 74, w: 20, h: 20 }));
-const GAME_SCALE = 2.75;
+const COSMETICS_IMG_URL = './assets/dungeon/cosmetics_atlas.png';
+const COSMETICS_JSON_URL = './assets/dungeon/cosmetics_atlas.json';
+const NATIVE_W = 24;
+const NATIVE_H = 28;
+const HERO_OX = 2;
+const HERO_OY = 6;
 
-let atlasPromise: Promise<HTMLImageElement> | null = null;
+type AtlasRect = { x: number; y: number; w: number; h: number };
+type CosmeticsBundle = { img: HTMLImageElement; frames: Map<string, AtlasRect> };
 
-function loadAtlas(): Promise<HTMLImageElement> {
-  if (!atlasPromise) {
-    atlasPromise = new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('atlas failed to load'));
-      img.src = ATLAS_URL;
-    });
+let bundlePromise: Promise<CosmeticsBundle> | null = null;
+let bufCanvas: HTMLCanvasElement | null = null;
+let ghostCanvas: HTMLCanvasElement | null = null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readRect(entry: unknown): AtlasRect | null {
+  if (!isRecord(entry) || !isRecord(entry.frame)) return null;
+  const { x, y, w, h } = entry.frame;
+  if (typeof x === 'number' && typeof y === 'number' && typeof w === 'number' && typeof h === 'number') {
+    return { x, y, w, h };
   }
-  return atlasPromise;
+  return null;
+}
+
+function parseFrames(data: unknown): Map<string, AtlasRect> {
+  const frames = new Map<string, AtlasRect>();
+  if (!isRecord(data) || !isRecord(data.frames)) return frames;
+  for (const [key, entry] of Object.entries(data.frames)) {
+    const rect = readRect(entry);
+    if (rect) frames.set(key, rect);
+  }
+  return frames;
+}
+
+function loadCosmetics(): Promise<CosmeticsBundle> {
+  if (!bundlePromise) {
+    bundlePromise = Promise.all([
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('cosmetics atlas image failed to load'));
+        img.src = COSMETICS_IMG_URL;
+      }),
+      fetch(COSMETICS_JSON_URL)
+        .then((res) => {
+          if (!res.ok) throw new Error('cosmetics atlas json failed to load');
+          return res.json();
+        })
+        .then(parseFrames),
+    ]).then(([img, frames]) => ({ img, frames }));
+  }
+  return bundlePromise;
+}
+
+function getScratch(
+  existing: HTMLCanvasElement | null,
+  w: number,
+  h: number,
+): [HTMLCanvasElement, CanvasRenderingContext2D | null] {
+  const c = existing ?? document.createElement('canvas');
+  if (c.width !== w) c.width = w;
+  if (c.height !== h) c.height = h;
+  return [c, c.getContext('2d')];
 }
 
 export type HeroLook = { costume: CosmeticId; accessory: CosmeticId };
 
-function costumeTint(id: CosmeticId): string | null {
-  if (!isCosmeticId(id)) return null;
-  const def = COSMETICS[id];
-  if (def.slot !== 'costume' || def.tint === undefined) return null;
-  return `#${def.tint.toString(16).padStart(6, '0')}`;
+function heroPrefix(costume: CosmeticId): string {
+  if (isCosmeticId(costume) && COSMETICS[costume].slot === 'costume') {
+    return costume;
+  }
+  return 'default';
+}
+
+function accessoryIdOf(accessory: CosmeticId): AccessoryId | null {
+  if (!isCosmeticId(accessory)) return null;
+  const def = COSMETICS[accessory];
+  return def.slot === 'accessory' ? def.id : null;
 }
 
 function drawFrame(
   ctx: CanvasRenderingContext2D,
-  atlas: HTMLImageElement,
-  frameIdx: number,
+  bundle: CosmeticsBundle,
   look: HeroLook,
   t: number,
+  animate: boolean,
 ): void {
   const { width, height } = ctx.canvas;
   ctx.clearRect(0, 0, width, height);
   ctx.imageSmoothingEnabled = false;
 
-  const scale = Math.floor(Math.min(width, height) / 20 / 1.35);
-  const k = scale / GAME_SCALE; // converts in-game offsets to preview pixels
-  const cx = width / 2;
-  const cy = height / 2 + 6 * k;
-  const n = IDLE_FRAMES.length;
-  const f = IDLE_FRAMES[((Math.floor(frameIdx) % n) + n) % n]!;
-  const dw = f.w * scale;
-  const dh = f.h * scale;
+  const [buf, bctx] = getScratch(bufCanvas, NATIVE_W, NATIVE_H);
+  bufCanvas = buf;
+  if (!bctx) return;
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + dh * 0.42, dw * 0.32, dh * 0.08, 0, 0, Math.PI * 2);
-  ctx.fill();
+  bctx.clearRect(0, 0, NATIVE_W, NATIVE_H);
+  bctx.imageSmoothingEnabled = false;
 
-  if (look.accessory === 'neon_trail') {
-    for (let i = 3; i >= 1; i -= 1) {
-      ctx.globalAlpha = 0.12 * (4 - i);
-      ctx.fillStyle = '#22d3ee';
-      ctx.fillRect(cx - dw / 2 - i * 9 * k, cy - dh / 2 + 6 * k, dw * 0.8, dh * 0.8);
-    }
-    ctx.globalAlpha = 1;
-  }
+  // Pixel-grid ground shadow directly under boots (hero bottom sits at y=23 in 24x28 space).
+  bctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+  bctx.fillRect(8, 22, 8, 1);
+  bctx.fillRect(7, 23, 10, 2);
+  bctx.fillRect(8, 25, 8, 1);
 
-  // Hero sprite, tinted on an offscreen canvas so transparency is preserved.
-  const off = document.createElement('canvas');
-  off.width = f.w;
-  off.height = f.h;
-  const octx = off.getContext('2d');
-  if (octx) {
-    octx.imageSmoothingEnabled = false;
-    octx.drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
-    const tint = costumeTint(look.costume);
-    if (tint) {
-      octx.globalCompositeOperation = 'multiply';
-      octx.fillStyle = tint;
-      octx.fillRect(0, 0, f.w, f.h);
-      octx.globalCompositeOperation = 'destination-in';
-      octx.drawImage(atlas, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
-      octx.globalCompositeOperation = 'source-over';
-    }
-    ctx.drawImage(off, cx - dw / 2, cy - dh / 2, dw, dh);
-  }
+  const idleIdx = animate ? Math.floor(t * 5) % 4 : 0;
+  const hatIdx = animate ? Math.floor(t * 6) % 4 : 0;
+  const prefix = heroPrefix(look.costume);
+  const heroRect = bundle.frames.get(`${prefix}_idle_${idleIdx}`) ?? bundle.frames.get('default_idle_0');
+  const accId = accessoryIdOf(look.accessory);
 
-  const X = (dx: number): number => cx + dx * k;
-  const Y = (dy: number): number => cy + dy * k;
-  const line = (w: number): number => Math.max(1, w * k);
+  if (heroRect) {
+    if (accId === 'neon_trail') {
+      const [gCanvas, gctx] = getScratch(ghostCanvas, heroRect.w, heroRect.h);
+      ghostCanvas = gCanvas;
+      if (gctx) {
+        gctx.globalCompositeOperation = 'source-over';
+        gctx.clearRect(0, 0, heroRect.w, heroRect.h);
+        gctx.imageSmoothingEnabled = false;
+        gctx.drawImage(
+          bundle.img,
+          heroRect.x,
+          heroRect.y,
+          heroRect.w,
+          heroRect.h,
+          0,
+          0,
+          heroRect.w,
+          heroRect.h,
+        );
+        gctx.globalCompositeOperation = 'source-atop';
+        gctx.fillStyle = '#22d3ee';
+        gctx.fillRect(0, 0, heroRect.w, heroRect.h);
+        gctx.globalCompositeOperation = 'source-over';
 
-  switch (look.accessory) {
-    case 'flame_halo': {
-      ctx.fillStyle = '#fb923c';
-      for (let i = 0; i < 4; i += 1) {
-        const ang = t * 3.8 + (i * Math.PI) / 2;
-        ctx.beginPath();
-        ctx.arc(X(Math.cos(ang) * 23), Y(Math.sin(ang) * 23), 3.2 * k, 0, Math.PI * 2);
-        ctx.fill();
+        bctx.globalAlpha = 0.24;
+        bctx.drawImage(gCanvas, HERO_OX - 3, HERO_OY);
+        bctx.globalAlpha = 0.44;
+        bctx.drawImage(gCanvas, HERO_OX - 1, HERO_OY);
+        bctx.globalAlpha = 1;
       }
-      break;
     }
-    case 'crown_crest': {
-      const pts: Array<[number, number]> = [
-        [-8, -22], [-9, -30], [-3, -26], [0, -32], [3, -26], [9, -30], [8, -22],
-      ];
-      ctx.beginPath();
-      pts.forEach(([dx, dy], i) => (i === 0 ? ctx.moveTo(X(dx), Y(dy)) : ctx.lineTo(X(dx), Y(dy))));
-      ctx.closePath();
-      ctx.fillStyle = '#fbbf24';
-      ctx.fill();
-      ctx.lineWidth = line(1.5);
-      ctx.strokeStyle = '#090d14';
-      ctx.stroke();
-      break;
-    }
-    case 'angel_halo': {
-      const bob = Math.sin(t * 3) * 1.5;
-      ctx.lineWidth = line(3);
-      ctx.strokeStyle = '#fef08a';
-      ctx.beginPath();
-      ctx.ellipse(X(0), Y(-30 + bob), 11 * k, 3.5 * k, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      break;
-    }
-    case 'bunny_ears': {
-      const wob = Math.sin(t * 4) * 1.5;
-      const ear = (dx: number, w: number): void => {
-        ctx.fillStyle = '#120d14';
-        ctx.fillRect(X(dx - 1), Y(-38 + w), 7 * k, 18 * k);
-        ctx.fillStyle = '#fdf2f8';
-        ctx.fillRect(X(dx), Y(-37 + w), 5 * k, 16 * k);
-        ctx.fillStyle = '#f9a8d4';
-        ctx.fillRect(X(dx + 1), Y(-34 + w), 3 * k, 10 * k);
-      };
-      ear(-8, wob);
-      ear(3, -wob);
-      break;
-    }
-    case 'snoo_antenna': {
-      const bob = Math.sin(t * 5) * 2;
-      ctx.lineWidth = line(2);
-      ctx.strokeStyle = '#f8fafc';
-      ctx.beginPath();
-      ctx.moveTo(X(0), Y(-20));
-      ctx.lineTo(X(8), Y(-30 + bob));
-      ctx.stroke();
-      ctx.fillStyle = '#fb923c';
-      ctx.beginPath();
-      ctx.arc(X(8), Y(-30 + bob), 4 * k, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    }
-    default:
-      break;
+
+    bctx.drawImage(
+      bundle.img,
+      heroRect.x,
+      heroRect.y,
+      heroRect.w,
+      heroRect.h,
+      HERO_OX,
+      HERO_OY,
+      heroRect.w,
+      heroRect.h,
+    );
   }
+
+  if (accId !== null) {
+    const hatRect = bundle.frames.get(`hat_${accId}_${hatIdx}`) ?? bundle.frames.get(`hat_${accId}_0`);
+    if (hatRect) {
+      const breathBob = idleIdx === 1 ? 1 : 0;
+      bctx.drawImage(
+        bundle.img,
+        hatRect.x,
+        hatRect.y,
+        hatRect.w,
+        hatRect.h,
+        0,
+        breathBob,
+        hatRect.w,
+        hatRect.h,
+      );
+    }
+  }
+
+  const scale = Math.max(1, Math.floor(Math.min(width / NATIVE_W, height / NATIVE_H)));
+  const drawW = NATIVE_W * scale;
+  const drawH = NATIVE_H * scale;
+  const ox = Math.floor((width - drawW) / 2);
+  const oy = Math.floor((height - drawH) / 2);
+  ctx.drawImage(buf, 0, 0, NATIVE_W, NATIVE_H, ox, oy, drawW, drawH);
 }
 
-/** Render a static frame (used for the many small cards in the gacha reel). */
+/** Render a static frame (used for wardrobe thumbnails and gacha reel cards). */
 export function drawHeroStill(canvas: HTMLCanvasElement, look: HeroLook): void {
-  void loadAtlas().then((atlas) => {
+  void loadCosmetics().then((bundle) => {
     const ctx = canvas.getContext('2d');
-    if (ctx) drawFrame(ctx, atlas, 0, look, 0.4);
+    if (ctx) drawFrame(ctx, bundle, look, 0, false);
   });
 }
 
@@ -176,13 +206,12 @@ export function animateHero(canvas: HTMLCanvasElement, initial: HeroLook): (look
   let look = initial;
   const ctx = canvas.getContext('2d');
   const startedAt = performance.now();
-  void loadAtlas().then((atlas) => {
+  void loadCosmetics().then((bundle) => {
     if (!ctx) return;
     const tick = (now: number): void => {
       if (!canvas.isConnected && now - startedAt > 500) return;
-      // rAF timestamps can be slightly earlier than performance.now() at start.
       const t = Math.max(0, (now - startedAt) / 1000);
-      drawFrame(ctx, atlas, Math.floor(t * 5), look, t);
+      drawFrame(ctx, bundle, look, t, true);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

@@ -15,17 +15,46 @@ import { oppositeDirection } from '../../shared/game/rooms.ts';
 import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
 import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
 import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
-import { COSMETICS, isCosmeticId } from '../../shared/shop.ts';
+import { COSMETIC_IDS, COSMETICS, isCosmeticId } from '../../shared/shop.ts';
 import { getWeapon } from '../../shared/weapons.ts';
-import type { CosmeticId, DoorDirection, EnemyArchetype } from '../../shared/types.ts';
-
-function getCostumeTint(id: CosmeticId): number | null {
-  if (!isCosmeticId(id)) return null;
-  const def = COSMETICS[id];
-  return def.slot === 'costume' && def.tint !== undefined ? def.tint : null;
-}
+import type { AccessoryId, CosmeticId, DoorDirection, EnemyArchetype } from '../../shared/types.ts';
 import { hexNum, RELIC_SPRITE_FRAMES, type DungeonTheme } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
+
+function getHeroAsset(costume: CosmeticId): { texture: 'dungeon' | 'cosmetics'; prefix: string } {
+  if (isCosmeticId(costume) && COSMETICS[costume].slot === 'costume') {
+    return { texture: 'cosmetics', prefix: costume };
+  }
+  return { texture: 'dungeon', prefix: 'hero' };
+}
+
+function getAccessoryId(cosmetic: CosmeticId): AccessoryId | null {
+  if (!isCosmeticId(cosmetic)) return null;
+  const def = COSMETICS[cosmetic];
+  return def.slot === 'accessory' ? def.id : null;
+}
+
+function heroFrameBobPx(frameName: string): number {
+  if (frameName === 'hero_dash_0') return 2;
+  if (frameName === 'hero_dash_1') return 0;
+  if (
+    frameName.endsWith('_idle_1') ||
+    frameName.endsWith('_run_1') ||
+    frameName.endsWith('_dash_0') ||
+    frameName.endsWith('_charge_0')
+  ) {
+    return 1;
+  }
+  if (
+    frameName.endsWith('_run_0') ||
+    frameName.endsWith('_run_2') ||
+    frameName.endsWith('_dash_1') ||
+    frameName.endsWith('_charge_1')
+  ) {
+    return -1;
+  }
+  return 0;
+}
 
 export type SceneBridge = {
   sim: GameSimulation;
@@ -77,6 +106,7 @@ export class DungeonScene extends Phaser.Scene {
   private heroTransitionPos: { x: number; y: number; angle: number } | null = null;
 
   private heroSprite: Phaser.GameObjects.Sprite | null = null;
+  private hatSprite: Phaser.GameObjects.Sprite | null = null;
   private weaponSprite: Phaser.GameObjects.Image | null = null;
   private fountainTop: Phaser.GameObjects.Sprite | null = null;
   private fountainBottom: Phaser.GameObjects.Image | null = null;
@@ -121,6 +151,11 @@ export class DungeonScene extends Phaser.Scene {
       './assets/dungeon/dungeon_atlas.png',
       './assets/dungeon/dungeon_atlas.json',
     );
+    this.load.atlas(
+      'cosmetics',
+      './assets/dungeon/cosmetics_atlas.png',
+      './assets/dungeon/cosmetics_atlas.json',
+    );
     for (const sheet of BIOME_SHEETS) {
       this.load.spritesheet(sheet.key, sheet.url, { frameWidth: 16, frameHeight: 16 });
     }
@@ -143,11 +178,18 @@ export class DungeonScene extends Phaser.Scene {
       .setVisible(false);
     this.heroSprite.play('hero_idle');
 
+    this.hatSprite = this.add
+      .sprite(ARENA_W / 2, ARENA_H - 90, 'cosmetics', 'hat_crown_crest_0')
+      .setOrigin(12 / 24, 16 / 28)
+      .setScale(2.75)
+      .setDepth(13)
+      .setVisible(false);
+
     this.weaponSprite = this.add
       .image(ARENA_W / 2, ARENA_H - 90, 'dungeon', 'tile_106')
       .setOrigin(0.5, 0.85)
       .setScale(2.2)
-      .setDepth(13)
+      .setDepth(14)
       .setVisible(false);
 
     this.fountainTop = this.add
@@ -300,11 +342,17 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private registerAnimations(): void {
-    const define = (key: string, frames: string[], frameRate: number, repeat = -1) => {
+    const define = (
+      key: string,
+      frames: string[],
+      frameRate: number,
+      repeat = -1,
+      atlasKey: 'dungeon' | 'cosmetics' = 'dungeon',
+    ) => {
       if (this.anims.exists(key)) return;
       this.anims.create({
         key,
-        frames: frames.map((frame) => ({ key: 'dungeon', frame })),
+        frames: frames.map((frame) => ({ key: atlasKey, frame })),
         frameRate,
         repeat,
       });
@@ -314,6 +362,24 @@ export class DungeonScene extends Phaser.Scene {
     define('hero_run', ['hero_run_0', 'hero_run_1', 'hero_run_2', 'hero_run_3'], 10);
     define('hero_dash', ['hero_dash_0', 'hero_dash_1'], 12);
     define('hero_charge', ['hero_charge_0', 'hero_charge_1'], 8);
+
+    for (const id of COSMETIC_IDS) {
+      const def = COSMETICS[id];
+      if (def.slot === 'costume') {
+        define(`${id}_idle`, [`${id}_idle_0`, `${id}_idle_1`, `${id}_idle_2`, `${id}_idle_3`], 5, -1, 'cosmetics');
+        define(`${id}_run`, [`${id}_run_0`, `${id}_run_1`, `${id}_run_2`, `${id}_run_3`], 10, -1, 'cosmetics');
+        define(`${id}_dash`, [`${id}_dash_0`, `${id}_dash_1`], 12, -1, 'cosmetics');
+        define(`${id}_charge`, [`${id}_charge_0`, `${id}_charge_1`], 8, -1, 'cosmetics');
+      } else {
+        define(
+          `hat_${id}`,
+          [`hat_${id}_0`, `hat_${id}_1`, `hat_${id}_2`, `hat_${id}_3`],
+          6,
+          -1,
+          'cosmetics',
+        );
+      }
+    }
 
     define('slime_idle', ['slime_idle_0', 'slime_idle_1', 'slime_idle_2', 'slime_idle_3'], 6);
     define('slime_run', ['slime_run_0', 'slime_run_1', 'slime_run_2', 'slime_run_3'], 10);
@@ -1581,6 +1647,8 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private syncAfterimages(state: GameState): void {
+    const heroAsset = getHeroAsset(state.player.costume);
+    const facingLeft = state.player.facingX < -0.1;
     for (let i = 0; i < this.afterimagePool.length; i += 1) {
       const spr = this.afterimagePool[i];
       const img = state.afterimages[i];
@@ -1591,7 +1659,9 @@ export class DungeonScene extends Phaser.Scene {
       }
       const alpha = Math.max(0, img.ttl / img.maxTtl) * 0.48;
       spr
+        .setTexture(heroAsset.texture, `${heroAsset.prefix}_dash_0`)
         .setPosition(img.x, img.y)
+        .setFlipX(facingLeft)
         .setTint(hexNum(img.color))
         .setAlpha(alpha)
         .setVisible(true);
@@ -1770,8 +1840,13 @@ export class DungeonScene extends Phaser.Scene {
     const showHero = state.phase !== 'start';
     this.heroSprite.setVisible(showHero);
     this.weaponSprite.setVisible(showHero);
+    const accId = showHero ? getAccessoryId(p.cosmetic) : null;
+    if (!showHero || accId === null) {
+      this.hatSprite?.setVisible(false);
+    }
     if (!showHero) return;
 
+    const heroAsset = getHeroAsset(p.costume);
     const px = this.heroTransitionPos ? this.heroTransitionPos.x : p.x;
     const py = this.heroTransitionPos ? this.heroTransitionPos.y : p.y;
 
@@ -1783,19 +1858,33 @@ export class DungeonScene extends Phaser.Scene {
       const dp =
         state.phase === 'ended' ? 1 : Math.max(0, Math.min(1, 1 - state.deathTimer / dur));
       const fallDir = p.facingX < 0 ? -1 : 1;
+      const facingLeft = p.facingX < -0.1;
 
       if (dp < 0.12) {
         const jitterX = Math.sin(dp * 165) * 3;
         this.heroSprite
           .stop()
-          .setFrame('hero_idle_0')
+          .setTexture(heroAsset.texture, `${heroAsset.prefix}_idle_0`)
           .setPosition(p.x + jitterX, p.y)
           .setRotation(0)
           .setScale(2.75, 2.75)
           .setAlpha(1)
-          .setFlipX(p.facingX < -0.1)
+          .setFlipX(facingLeft)
           .setTint(0xffffff)
           .setTintMode(Phaser.TintModes.FILL);
+        if (this.hatSprite && accId !== null) {
+          this.hatSprite
+            .setVisible(true)
+            .stop()
+            .setTexture('cosmetics', `hat_${accId}_0`)
+            .setPosition(p.x + jitterX, p.y)
+            .setRotation(0)
+            .setScale(2.75, 2.75)
+            .setAlpha(1)
+            .setFlipX(facingLeft)
+            .setTint(0xffffff)
+            .setTintMode(Phaser.TintModes.FILL);
+        }
         this.weaponSprite
           .setPosition(p.x + jitterX + fallDir * 18, p.y + 3)
           .setScale(2.2)
@@ -1812,14 +1901,28 @@ export class DungeonScene extends Phaser.Scene {
 
         this.heroSprite
           .stop()
-          .setFrame('hero_idle_0')
+          .setTexture(heroAsset.texture, `${heroAsset.prefix}_idle_0`)
           .setPosition(p.x, p.y + 8 * fallEase)
           .setRotation(fallDir * (Math.PI * 0.5) * fallEase)
           .setScale(2.75, 2.75 - 0.37 * fallEase)
           .setAlpha(heroAlpha)
-          .setFlipX(p.facingX < -0.1)
+          .setFlipX(facingLeft)
           .setTint(0xb87474)
           .setTintMode(Phaser.TintModes.MULTIPLY);
+
+        if (this.hatSprite && accId !== null) {
+          this.hatSprite
+            .setVisible(true)
+            .stop()
+            .setTexture('cosmetics', `hat_${accId}_0`)
+            .setPosition(p.x, p.y + 8 * fallEase)
+            .setRotation(fallDir * (Math.PI * 0.5) * fallEase)
+            .setScale(2.75, 2.75 - 0.37 * fallEase)
+            .setAlpha(heroAlpha)
+            .setFlipX(facingLeft)
+            .setTint(0xb87474)
+            .setTintMode(Phaser.TintModes.MULTIPLY);
+        }
 
         const clatterX = p.x + fallDir * (18 + 6 * fallEase);
         const clatterY = p.y + 3 + 9 * fallEase - 14 * Math.sin(fallU * Math.PI);
@@ -1863,7 +1966,19 @@ export class DungeonScene extends Phaser.Scene {
         .setAlpha(1)
         .setFlipX(facingLeft)
         .clearTint()
-        .play('hero_run', true);
+        .play(`${heroAsset.prefix}_run`, true);
+      if (this.hatSprite && accId !== null) {
+        const bob = heroFrameBobPx(this.heroSprite.frame?.name ?? '') * 2.75;
+        this.hatSprite
+          .setVisible(true)
+          .setPosition(px, py + bob)
+          .setRotation(0)
+          .setScale(2.75, 2.75)
+          .setAlpha(1)
+          .setFlipX(facingLeft)
+          .clearTint()
+          .play(`hat_${accId}`, true);
+      }
       this.weaponSprite
         .setPosition(px + Math.cos(walkAngle) * 18, py + Math.sin(walkAngle) * 18 + 3)
         .setScale(2.2)
@@ -1877,51 +1992,6 @@ export class DungeonScene extends Phaser.Scene {
     if (p.shields > 0) {
       fxG.lineStyle(2.5, 0x38bdf8, 0.72);
       fxG.strokeCircle(px, py, p.radius + 6);
-    }
-
-    if (p.cosmetic === 'flame_halo') {
-      fxG.fillStyle(0xfb923c, 1);
-      for (let i = 0; i < 4; i += 1) {
-        const ang = state.elapsedTime * 3.8 + (i * Math.PI) / 2;
-        fxG.fillCircle(p.x + Math.cos(ang) * 23, p.y + Math.sin(ang) * 23, 3.2);
-      }
-    } else if (p.cosmetic === 'crown_crest') {
-      const pts = [
-        { x: p.x - 8, y: p.y - 22 },
-        { x: p.x - 9, y: p.y - 30 },
-        { x: p.x - 3, y: p.y - 26 },
-        { x: p.x, y: p.y - 32 },
-        { x: p.x + 3, y: p.y - 26 },
-        { x: p.x + 9, y: p.y - 30 },
-        { x: p.x + 8, y: p.y - 22 },
-      ];
-      fxG.fillStyle(0xfbbf24, 1);
-      this.tracePolygon(fxG, pts, true);
-      fxG.fillPath();
-      fxG.lineStyle(1.5, 0x090d14, 1);
-      this.tracePolygon(fxG, pts, true);
-      fxG.strokePath();
-    } else if (p.cosmetic === 'angel_halo') {
-      const bob = Math.sin(state.elapsedTime * 3) * 1.5;
-      fxG.lineStyle(3, 0xfef08a, 0.95);
-      fxG.strokeEllipse(p.x, p.y - 30 + bob, 22, 7);
-    } else if (p.cosmetic === 'bunny_ears') {
-      const wob = Math.sin(state.elapsedTime * 4) * 1.5;
-      fxG.fillStyle(0x120d14, 1);
-      fxG.fillRect(p.x - 9, p.y - 38 + wob, 7, 18);
-      fxG.fillRect(p.x + 2, p.y - 38 - wob, 7, 18);
-      fxG.fillStyle(0xfdf2f8, 1);
-      fxG.fillRect(p.x - 8, p.y - 37 + wob, 5, 16);
-      fxG.fillRect(p.x + 3, p.y - 37 - wob, 5, 16);
-      fxG.fillStyle(0xf9a8d4, 1);
-      fxG.fillRect(p.x - 7, p.y - 34 + wob, 3, 10);
-      fxG.fillRect(p.x + 4, p.y - 34 - wob, 3, 10);
-    } else if (p.cosmetic === 'snoo_antenna') {
-      const bob = Math.sin(state.elapsedTime * 5) * 2;
-      fxG.lineStyle(2, 0xf8fafc, 1);
-      fxG.lineBetween(p.x, p.y - 20, p.x + 8, p.y - 30 + bob);
-      fxG.fillStyle(0xfb923c, 1);
-      fxG.fillCircle(p.x + 8, p.y - 30 + bob, 4);
     }
 
     const weaponDef = getWeapon(p.weaponId);
@@ -1949,24 +2019,38 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     const moving = Math.hypot(p.vx, p.vy) > 25;
-    const animKey =
-      p.attackAnimTimer > 0 ? 'hero_dash' : moving ? 'hero_run' : 'hero_idle';
+    const animSuffix = p.attackAnimTimer > 0 ? 'dash' : moving ? 'run' : 'idle';
+    const facingLeft = p.facingX < -0.1;
 
     this.heroSprite
       .setPosition(drawPx, drawPy)
       .setRotation(0)
       .setScale(scaleX, scaleY)
       .setAlpha(1)
-      .setFlipX(p.facingX < -0.1)
-      .play(animKey, true);
+      .setFlipX(facingLeft)
+      .play(`${heroAsset.prefix}_${animSuffix}`, true);
 
-    const costumeTint = getCostumeTint(p.costume);
     if (p.hurtFlashTimer > 0) {
       this.heroSprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    } else if (costumeTint !== null) {
-      this.heroSprite.setTint(costumeTint).setTintMode(Phaser.TintModes.MULTIPLY);
     } else {
       this.heroSprite.clearTint();
+    }
+
+    if (this.hatSprite && accId !== null) {
+      const bob = heroFrameBobPx(this.heroSprite.frame?.name ?? '') * scaleY;
+      this.hatSprite
+        .setVisible(true)
+        .setPosition(drawPx, drawPy + bob)
+        .setRotation(0)
+        .setScale(scaleX, scaleY)
+        .setAlpha(1)
+        .setFlipX(facingLeft)
+        .play(`hat_${accId}`, true);
+      if (p.hurtFlashTimer > 0) {
+        this.hatSprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      } else {
+        this.hatSprite.clearTint();
+      }
     }
 
     // Held pixel sword 3-phase swing: whip arc -> heavy endlag follow-through -> eased reset

@@ -79,14 +79,22 @@ export type AccessoryId =
   | 'snoo_antenna'
   | 'flame_halo'
   | 'angel_halo'
-  | 'bunny_ears';
+  | 'bunny_ears'
+  | 'wizard_hat'
+  | 'cat_ears'
+  | 'devil_horns'
+  | 'frog_hat';
 
 export type CostumeId =
   | 'costume_crimson'
   | 'costume_forest'
+  | 'costume_viking'
   | 'costume_royal'
   | 'costume_shadow'
-  | 'costume_gold';
+  | 'costume_yeti'
+  | 'costume_gold'
+  | 'costume_skeleton'
+  | 'costume_phantom';
 
 export type CosmeticId = 'none' | AccessoryId | CostumeId;
 

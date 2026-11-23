@@ -25,98 +25,158 @@ export const GACHA_DUPLICATE_COINS = 40;
 // Cosmetics (gacha-only)
 // ---------------------------------------------------------------------------
 
-export type CosmeticDef = {
-  id: AccessoryId | CostumeId;
-  title: string;
-  description: string;
-  slot: CosmeticSlot;
-  rarity: CosmeticRarity;
-  /** Hex tint for costumes (applied to the hero sprite). */
-  tint?: number | undefined;
-};
+export type CosmeticDef =
+  | {
+      id: AccessoryId;
+      title: string;
+      description: string;
+      slot: 'accessory';
+      rarity: CosmeticRarity;
+    }
+  | {
+      id: CostumeId;
+      title: string;
+      description: string;
+      slot: 'costume';
+      rarity: CosmeticRarity;
+    };
 
 export const COSMETICS: Record<AccessoryId | CostumeId, CosmeticDef> = {
+  // Outfits (distinct 12-frame pixel characters)
+  costume_crimson: {
+    id: 'costume_crimson',
+    title: 'Crimson Berserker',
+    description: 'Scarlet war bandana, sash, and battle boots.',
+    slot: 'costume',
+    rarity: 'common',
+  },
+  costume_forest: {
+    id: 'costume_forest',
+    title: 'Forest Ranger',
+    description: 'Emerald cloak, quiver strap, and woodland beard.',
+    slot: 'costume',
+    rarity: 'common',
+  },
+  costume_viking: {
+    id: 'costume_viking',
+    title: 'Frost Viking',
+    description: 'Horned iron helm and wolf-fur Nordic mantle.',
+    slot: 'costume',
+    rarity: 'common',
+  },
+  costume_royal: {
+    id: 'costume_royal',
+    title: 'Royal Archmage',
+    description: 'Violet arcane robes trimmed in filigree gold.',
+    slot: 'costume',
+    rarity: 'rare',
+  },
+  costume_shadow: {
+    id: 'costume_shadow',
+    title: 'Shadow Shinobi',
+    description: 'Midnight cowl, crimson scarf, and glowing eyes.',
+    slot: 'costume',
+    rarity: 'rare',
+  },
+  costume_yeti: {
+    id: 'costume_yeti',
+    title: 'Snow Yeti',
+    description: 'Shaggy glacier beast from the frozen peaks.',
+    slot: 'costume',
+    rarity: 'rare',
+  },
+  costume_gold: {
+    id: 'costume_gold',
+    title: 'Gilded Paladin',
+    description: 'Gleaming 24k plate armor and royal crimson cape.',
+    slot: 'costume',
+    rarity: 'epic',
+  },
+  costume_skeleton: {
+    id: 'costume_skeleton',
+    title: 'Bone Knight',
+    description: 'Grinning ivory skull, iron ribs, and crypt cloak.',
+    slot: 'costume',
+    rarity: 'epic',
+  },
+  costume_phantom: {
+    id: 'costume_phantom',
+    title: 'Spectral Wraith',
+    description: 'Luminous dungeon spirit trailing cold mist.',
+    slot: 'costume',
+    rarity: 'epic',
+  },
+
+  // Hats & headgear (animated 1:1 pixel overlays)
+  bunny_ears: {
+    id: 'bunny_ears',
+    title: 'Bunny Ears',
+    description: 'Tall floppy ears stitched from lucky felt.',
+    slot: 'accessory',
+    rarity: 'common',
+  },
+  snoo_antenna: {
+    id: 'snoo_antenna',
+    title: 'Snoo Antenna',
+    description: 'Springy pixel antenna with glowing orange beacon.',
+    slot: 'accessory',
+    rarity: 'common',
+  },
+  cat_ears: {
+    id: 'cat_ears',
+    title: 'Shadow Cat Ears',
+    description: 'Perky midnight kitty ears with pink lining.',
+    slot: 'accessory',
+    rarity: 'common',
+  },
+  frog_hat: {
+    id: 'frog_hat',
+    title: 'Frog Hood',
+    description: 'Lucky lime frog cap with blinking bug eyes.',
+    slot: 'accessory',
+    rarity: 'common',
+  },
+  angel_halo: {
+    id: 'angel_halo',
+    title: 'Angel Halo',
+    description: 'Floating ring of forged sanctum gold.',
+    slot: 'accessory',
+    rarity: 'rare',
+  },
   neon_trail: {
     id: 'neon_trail',
-    title: 'Neon Slipstream',
-    description: 'Cyan afterimage ribbon while moving.',
+    title: 'Cyber Visor',
+    description: 'Neon cyan shades that cast pixel afterimages.',
+    slot: 'accessory',
+    rarity: 'rare',
+  },
+  devil_horns: {
+    id: 'devil_horns',
+    title: 'Demon Horns',
+    description: 'Curved scarlet horns forged in deep embers.',
     slot: 'accessory',
     rarity: 'rare',
   },
   crown_crest: {
     id: 'crown_crest',
-    title: 'Thread Crown',
-    description: 'Golden 3-peak crown.',
+    title: 'Royal Crown',
+    description: 'Bejeweled 3-peak monarch crown.',
     slot: 'accessory',
     rarity: 'epic',
-  },
-  snoo_antenna: {
-    id: 'snoo_antenna',
-    title: 'Antenna Beacon',
-    description: 'Bobbing glowing antenna.',
-    slot: 'accessory',
-    rarity: 'common',
   },
   flame_halo: {
     id: 'flame_halo',
-    title: 'Ember Halo',
-    description: 'Orbiting sparks.',
+    title: 'Ember Orbit',
+    description: 'Three crackling pixel fire wisps.',
     slot: 'accessory',
     rarity: 'epic',
   },
-  angel_halo: {
-    id: 'angel_halo',
-    title: 'Angel Halo',
-    description: 'A soft glowing ring overhead.',
+  wizard_hat: {
+    id: 'wizard_hat',
+    title: 'Arcane Hat',
+    description: 'Starlit indigo mage hat with gold buckle.',
     slot: 'accessory',
-    rarity: 'rare',
-  },
-  bunny_ears: {
-    id: 'bunny_ears',
-    title: 'Bunny Ears',
-    description: 'Floppy and fearsome.',
-    slot: 'accessory',
-    rarity: 'common',
-  },
-  costume_crimson: {
-    id: 'costume_crimson',
-    title: 'Crimson Garb',
-    description: 'Blood-red adventurer outfit.',
-    slot: 'costume',
-    rarity: 'common',
-    tint: 0xff8a8a,
-  },
-  costume_forest: {
-    id: 'costume_forest',
-    title: 'Forest Ranger',
-    description: 'Mossy green leathers.',
-    slot: 'costume',
-    rarity: 'common',
-    tint: 0x9ff5a8,
-  },
-  costume_royal: {
-    id: 'costume_royal',
-    title: 'Royal Violet',
-    description: 'Regal purple robes.',
-    slot: 'costume',
-    rarity: 'rare',
-    tint: 0xc9a2ff,
-  },
-  costume_shadow: {
-    id: 'costume_shadow',
-    title: 'Shadow Cloak',
-    description: 'Darker than the dungeon.',
-    slot: 'costume',
-    rarity: 'rare',
-    tint: 0x6b6b88,
-  },
-  costume_gold: {
-    id: 'costume_gold',
-    title: 'Gilded Champion',
-    description: 'Solid gold. Very subtle.',
-    slot: 'costume',
     rarity: 'epic',
-    tint: 0xffd75e,
   },
 };
 

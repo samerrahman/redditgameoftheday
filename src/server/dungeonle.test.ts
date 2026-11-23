@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   ARENA_H,
@@ -44,6 +45,7 @@ import { createDailyStream, formatTimeUntilNextUtcDay } from '../shared/rng.ts';
 import { formatShareComment } from '../shared/share.ts';
 import {
   applyShopAction,
+  COSMETICS,
   COSMETIC_IDS,
   GACHA_PULL_COST,
 } from '../shared/shop.ts';
@@ -848,5 +850,47 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     assert.ok(text.includes('6:52'));
     assert.ok(text.includes('+2 💎'));
     assert.ok(text.includes('2🔥'));
+  });
+
+  void it('ships complete 20x20 costume sheets and 24x28 hat overlays in cosmetics_atlas.json', () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(new URL('../../public/assets/dungeon/cosmetics_atlas.json', import.meta.url), 'utf8'),
+    );
+    assert.ok(typeof raw === 'object' && raw !== null && 'frames' in raw);
+    const framesObj = raw.frames;
+    assert.ok(typeof framesObj === 'object' && framesObj !== null);
+    const frameMap = new Map(Object.entries(framesObj));
+
+    const expectFrame = (key: string, w: number, h: number): void => {
+      const entry: unknown = frameMap.get(key);
+      assert.ok(typeof entry === 'object' && entry !== null && 'frame' in entry, `Missing atlas frame ${key}`);
+      const f: unknown = entry.frame;
+      assert.ok(
+        typeof f === 'object' && f !== null && 'w' in f && 'h' in f && f.w === w && f.h === h,
+        `Unexpected dimensions for ${key}`,
+      );
+    };
+
+    for (let i = 0; i < 4; i += 1) {
+      expectFrame(`default_idle_${i}`, 20, 20);
+    }
+
+    const costumeSuffixes = [
+      'idle_0', 'idle_1', 'idle_2', 'idle_3',
+      'run_0', 'run_1', 'run_2', 'run_3',
+      'dash_0', 'dash_1',
+      'charge_0', 'charge_1',
+    ];
+    for (const id of COSMETIC_IDS) {
+      if (COSMETICS[id].slot === 'costume') {
+        for (const suffix of costumeSuffixes) {
+          expectFrame(`${id}_${suffix}`, 20, 20);
+        }
+      } else {
+        for (let i = 0; i < 4; i += 1) {
+          expectFrame(`hat_${id}_${i}`, 24, 28);
+        }
+      }
+    }
   });
 });
