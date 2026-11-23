@@ -1584,17 +1584,17 @@ export class DungeonScene extends Phaser.Scene {
     shadowG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
-    // 11x10 pixel heart, same shape as the HUD heart.
-    const rows = ['01110001110', '11111011111', '11111111111', '11111111111', '01111111110', '00111111100', '00011111000', '00001110000', '00000100000'];
+    // Compact 7x6 pixel heart pickup.
+    const rows = ['0110110', '1111111', '1111111', '0111110', '0011100', '0001000'];
     for (const heart of state.hearts) {
-      const bob = Math.sin(state.elapsedTime * 5 + heart.id) * 2.5;
+      const bob = Math.sin(state.elapsedTime * 5 + heart.id) * 2;
       const px = 2;
-      const ox = heart.x - (11 * px) / 2;
-      const oy = heart.y - 12 + bob;
+      const ox = heart.x - (7 * px) / 2;
+      const oy = heart.y - 8 + bob;
       shadowG.fillStyle(0x000000, 0.35);
-      shadowG.fillEllipse(heart.x, heart.y + 10, 18, 6);
-      fxG.fillStyle(0xf87171, 0.22 + 0.12 * Math.sin(state.elapsedTime * 6 + heart.id));
-      fxG.fillCircle(heart.x, oy + 9, 15);
+      shadowG.fillEllipse(heart.x, heart.y + 8, 14, 5);
+      fxG.fillStyle(0xf87171, 0.2 + 0.1 * Math.sin(state.elapsedTime * 6 + heart.id));
+      fxG.fillCircle(heart.x, oy + 6, 11);
       fxG.fillStyle(0x120d14, 1);
       rows.forEach((row, ry) => {
         for (let rx = 0; rx < row.length; rx += 1) {
@@ -1605,7 +1605,7 @@ export class DungeonScene extends Phaser.Scene {
       rows.forEach((row, ry) => {
         for (let rx = 0; rx < row.length; rx += 1) {
           if (row[rx] !== '1') continue;
-          const highlight = ry <= 1 && (rx === 1 || rx === 2);
+          const highlight = ry === 1 && rx === 1;
           fxG.fillStyle(highlight ? 0xffd1d1 : 0xe23c3c, 1);
           fxG.fillRect(ox + rx * px, oy + ry * px, px, px);
         }
