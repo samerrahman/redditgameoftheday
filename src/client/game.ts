@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { DungeonAudio } from './audio/dungeonAudio.ts';
 import { ARENA_H, ARENA_W } from '../shared/game/constants.ts';
 import { GameSimulation } from '../shared/game/simulation.ts';
 import { getUtcDateString } from '../shared/rng.ts';
@@ -29,6 +30,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const sim = new GameSimulation(utcDate, session.profile);
+  const audio = new DungeonAudio();
 
   let input: InputController | null = null;
   let uiController: GameUIController | null = null;
@@ -36,6 +38,7 @@ async function bootstrap(): Promise<void> {
   const scene = new DungeonScene({
     sim,
     theme,
+    onAudioSync: (state) => audio.sync(state),
     getInput: () => input,
     onHudSync: () => {
       uiController?.syncHud();

@@ -1,0 +1,39 @@
+.audio-controls {
+  position: fixed;
+  inset-block-end: max(10px, env(safe-area-inset-bottom));
+  inset-inline-end: max(10px, env(safe-area-inset-right));
+  z-index: 100;
+  padding: 8px 12px;
+  color: #fff0b3;
+  background: #261d28;
+  border: 2px solid #5b485e;
+  box-shadow: 3px 3px 0 #120d14;
+  font-family: 'Pixelify Sans', system-ui, sans-serif;
+  font-size: 14px;
+}
+.audio-controls summary {
+  cursor: pointer;
+}
+.audio-controls[open] {
+  inline-size: 190px;
+}
+.audio-controls button {
+  margin-block: 12px;
+  padding: 5px 8px;
+  border: 2px solid #b67b32;
+  background: #1b141e;
+  font: inherit;
+}
+.audio-controls label {
+  display: grid;
+  gap: 4px;
+  margin-block-end: 8px;
+}
+.audio-controls input {
+  inline-size: 100%;
+  accent-color: #f5b82e;
+}
+.audio-controls :focus-visible {
+  outline: 2px solid #f5b82e;
+  outline-offset: 3px;
+}
