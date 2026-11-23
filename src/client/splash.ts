@@ -49,7 +49,7 @@ async function initSplash(): Promise<void> {
   const session = await adapter.loadSession(utcDate);
   const best = session.profile.dailyBest[utcDate];
 
-  setText('splash-streak', `${session.profile.streak}🔥`);
+  setText('splash-streak', `${session.profile.streak}`);
   setText('splash-coins', session.profile.bestFloor > 0 ? `F${session.profile.bestFloor}` : '—');
   setText('splash-shop-coins', `${session.profile.coins} ${GAME_META.coinShort}`);
   setText('splash-best', best ? `F${best.bestFloor ?? 1}` : '—');

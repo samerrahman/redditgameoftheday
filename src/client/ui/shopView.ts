@@ -74,7 +74,7 @@ export function renderShopView(
   callbacks: ShopViewCallbacks,
 ): void {
   els.balance.textContent = `${profile.coins} ${GAME_META.coinShort}`;
-  els.gems.textContent = `${profile.gems} 💎`;
+  els.gems.textContent = `${profile.gems}`;
 
   const apply = (next: PlayerProfile): void => {
     callbacks.onProfileChange(next);
@@ -103,7 +103,7 @@ export function renderShopView(
     const won = result.cosmeticId;
     // Update balances right away, but keep the reveal on screen until dismissed.
     callbacks.onProfileChange(result.profile);
-    els.gems.textContent = `${result.profile.gems} 💎`;
+    els.gems.textContent = `${result.profile.gems}`;
     els.balance.textContent = `${result.profile.coins} ${GAME_META.coinShort}`;
     showPullReveal(els.body, won, Boolean(result.duplicate), lookOf(profile), () => {
       pulling = false;
@@ -184,10 +184,17 @@ function renderCosmetics(profile: PlayerProfile, run: RunFn, pull: () => Promise
   canvas.height = 180;
   animateHero(canvas, lookOf(profile));
   const ownedCount = COSMETIC_IDS.filter((id) => profile.ownedCosmetics.includes(id)).length;
-  const pullBtn = el('button', 'primary-btn gacha-pull-btn');
+  const pullBtn = el('button', 'primary-btn gacha-pull-btn pixel-stat');
   pullBtn.type = 'button';
   pullBtn.disabled = profile.gems < GACHA_PULL_COST;
-  pullBtn.textContent = `Pull · ${GACHA_PULL_COST} 💎`;
+  pullBtn.textContent = `Pull · ${GACHA_PULL_COST}`;
+  const gemIcon = el('img', 'stat-icon');
+  gemIcon.src = './assets/icons/gem.svg';
+  gemIcon.alt = '';
+  gemIcon.width = 16;
+  gemIcon.height = 16;
+  pullBtn.appendChild(gemIcon);
+  pullBtn.setAttribute('aria-label', `Pull for ${GACHA_PULL_COST} gems`);
   pullBtn.addEventListener('click', () => {
     void pull();
   });

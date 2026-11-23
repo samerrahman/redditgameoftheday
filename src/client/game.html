@@ -36,7 +36,7 @@
 
           <div class="hud-right">
             <span id="hud-timer" class="hud-chip mono">0:00</span>
-            <span id="hud-gems" class="hud-chip gem-chip" hidden>💎 <span id="hud-gems-val">0</span></span>
+            <span id="hud-gems" class="hud-chip gem-chip" hidden><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="Gems" /> <span id="hud-gems-val">0</span></span>
             <span id="hud-coins" class="hud-chip coin-chip">
               <img
                 src="./assets/dungeon/coin_icon.png"
@@ -175,7 +175,7 @@
           <div class="start-stats-strip">
             <div class="strip-stat">
               <span class="strip-label">Streak</span>
-              <strong id="start-streak" class="strip-value">0🔥</strong>
+              <strong class="strip-value pixel-stat"><span id="start-streak">0</span><img src="./assets/icons/streak.svg" class="stat-icon" width="16" height="16" alt="" aria-hidden="true" /></strong>
             </div>
             <div class="strip-stat">
               <span class="strip-label">Best Floor</span>
@@ -187,7 +187,7 @@
             </div>
             <div class="strip-stat">
               <span class="strip-label">Gems</span>
-              <strong id="start-gems" class="strip-value gem-text">0</strong>
+              <strong class="strip-value gem-text pixel-stat"><span id="start-gems">0</span><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="" aria-hidden="true" /></strong>
             </div>
           </div>
 
@@ -249,7 +249,7 @@
               run.
             </li>
             <li>
-              <strong>Coins</strong> buy new weapons. Rare <strong>💎 gems</strong> buy
+              <strong>Coins</strong> buy new weapons. Rare <strong><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="" aria-hidden="true" /> gems</strong> buy
               cosmetics.
             </li>
             <li>
@@ -291,7 +291,7 @@
         <div class="card end-card">
           <div class="end-header">
             <span id="end-badge" class="pill accent-pill" hidden>EXTRACTED</span>
-            <span id="end-streak" class="pill streak-pill">1🔥</span>
+            <span class="pill streak-pill pixel-stat"><span id="end-streak">1</span><img src="./assets/icons/streak.svg" class="stat-icon" width="16" height="16" alt="day streak" /></span>
           </div>
 
           <h2 id="end-title" class="end-title">You Died</h2>
@@ -382,7 +382,7 @@
                 <span id="shop-balance">0 coins</span>
               </div>
               <div class="shop-balance-pill gem-pill">
-                <span id="shop-gems">0 💎</span>
+                <span class="pixel-stat"><span id="shop-gems">0</span><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="gems" /></span>
               </div>
             </div>
             <button id="shop-back-btn" type="button" class="shop-close" aria-label="Close shop">✕</button>

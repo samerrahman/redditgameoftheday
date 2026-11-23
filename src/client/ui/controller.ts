@@ -630,10 +630,10 @@ export class GameUIController {
     this.startDate.textContent = this.utcDate;
     this.startDungeon.textContent = theme.name;
     this.startModifier.textContent = modifier.banner;
-    this.startStreak.textContent = `${this.profile.streak}🔥`;
+    this.startStreak.textContent = `${this.profile.streak}`;
     this.startTitle.textContent = `🏅 ${title}`;
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
-    this.startGems.textContent = `${this.profile.gems}💎`;
+    this.startGems.textContent = `${this.profile.gems}`;
     this.startShopCoins.textContent = `${this.profile.coins} ${GAME_META.coinShort}`;
     this.startWeaponPill.textContent = `${weapon.emoji} ${weapon.name}`;
     this.startBest.textContent = best ? `F${best.bestFloor ?? 1}` : '—';
@@ -663,7 +663,7 @@ export class GameUIController {
     const prevBest = this.prevBestFloor;
     const isNewBest = prevBest !== null && floor > prevBest;
 
-    this.endStreak.textContent = `${this.profile.streak}🔥`;
+    this.endStreak.textContent = `${this.profile.streak}`;
     this.endBadge.hidden = !isNewBest;
     this.endBadge.textContent = 'NEW BEST FLOOR!';
     this.endTitle.textContent = `Fell on Floor ${floor}`;
