@@ -61,6 +61,7 @@ export type SceneBridge = {
   theme: DungeonTheme;
   getInput: () => InputController | null;
   onHudSync: () => void;
+  onAudioSync: (state: GameState) => void;
 };
 
 type ManagedPedestal = {
@@ -338,6 +339,7 @@ export class DungeonScene extends Phaser.Scene {
     this.lastShakeLevel = sim.state.shakeIntensity;
     this.readyFlashTimer = Math.max(0, this.readyFlashTimer - dt);
 
+    this.bridge.onAudioSync(sim.state);
     this.renderFrame(sim.state);
   }
 
