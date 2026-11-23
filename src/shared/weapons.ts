@@ -144,7 +144,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     cost: 600,
     sprite: 'tile_130',
     style: 'ranged',
-    damage: 50,
+    damage: 36,
     cooldown: 1.4,
     animDuration: 0.16,
     endlag: 0.38,
