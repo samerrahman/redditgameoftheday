@@ -1,6 +1,6 @@
-export const ARENA_W = 768;
-export const ARENA_H = 480;
-export const WALL_THICKNESS = 44;
+export const ARENA_W = 672;
+export const ARENA_H = 448;
+export const WALL_THICKNESS = 52;
 export const PLAY_MIN_X = WALL_THICKNESS;
 export const PLAY_MAX_X = ARENA_W - WALL_THICKNESS;
 export const PLAY_MIN_Y = WALL_THICKNESS;
@@ -8,10 +8,10 @@ export const PLAY_MAX_Y = ARENA_H - WALL_THICKNESS;
 
 export const DOOR_X = ARENA_W / 2;
 export const DOOR_Y = WALL_THICKNESS;
-export const DOOR_WIDTH = 96;
+export const DOOR_WIDTH = 112;
 
 export const PLAYER_SPAWN_X = ARENA_W / 2;
-export const PLAYER_SPAWN_Y = ARENA_H - WALL_THICKNESS - 52;
+export const PLAYER_SPAWN_Y = ARENA_H - WALL_THICKNESS - 44;
 
 export const FIXED_DT = 1 / 60;
 export const MAX_FRAME_DT = 0.05;

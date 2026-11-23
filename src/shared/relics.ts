@@ -10,7 +10,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Ember',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Swings leave 2.2s fire patch (${14 + 7 * (lv - 1)} DPS)`,
+    summary: (lv) => `Attacks leave 2.2s fire patch (${14 + 7 * (lv - 1)} DPS)`,
   },
   arc_conduit: {
     id: 'arc_conduit',
@@ -20,7 +20,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Arc',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Blade hits chain lightning to ${2 + (lv - 1)} foes (${18 + 8 * (lv - 1)} dmg)`,
+    summary: (lv) => `Hits chain lightning to ${2 + (lv - 1)} foes (${18 + 8 * (lv - 1)} dmg)`,
   },
   blood_reset: {
     id: 'blood_reset',
@@ -30,7 +30,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Reset',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Melee kill resets swing cooldown (+${15 * lv}% swing dmg)`,
+    summary: (lv) => `Kills reset attack cooldown (+${15 * lv}% attack dmg)`,
   },
   decoy_mine: {
     id: 'decoy_mine',
@@ -50,7 +50,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Rift',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Swings fire piercing wave (${24 + 10 * (lv - 1)} dmg)`,
+    summary: (lv) => `Attacks fire piercing wave (${24 + 10 * (lv - 1)} dmg)`,
   },
   vortex_slam: {
     id: 'vortex_slam',
@@ -60,7 +60,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Vortex',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Swings pull nearby foes inward (${150 + 25 * (lv - 1)}px)`,
+    summary: (lv) => `Attacks pull nearby foes inward (${150 + 25 * (lv - 1)}px)`,
   },
   mirror_guard: {
     id: 'mirror_guard',
@@ -70,7 +70,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Mirror',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Swings reflect projectiles at ${2.5 + 0.25 * (lv - 1)}x dmg`,
+    summary: (lv) => `Attacks reflect nearby projectiles at ${2.5 + 0.25 * (lv - 1)}x dmg`,
   },
   reaper_siphon: {
     id: 'reaper_siphon',
@@ -80,7 +80,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Siphon',
     starter: true,
     synergyImpact: false,
-    summary: (lv) => `Multi-hit or kill swing restores +${5 + 3 * (lv - 1)} HP`,
+    summary: (lv) => `Multi-hit or kill attack restores +${5 + 3 * (lv - 1)} HP`,
   },
   volt_nova: {
     id: 'volt_nova',
@@ -100,7 +100,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Quake',
     starter: false,
     synergyImpact: true,
-    summary: (lv) => `Blade hits trigger 0.45s aftershock (${65 + 10 * (lv - 1)}% dmg)`,
+    summary: (lv) => `Hits trigger 0.45s aftershock (${65 + 10 * (lv - 1)}% dmg)`,
   },
   phantom_echo: {
     id: 'phantom_echo',
@@ -110,7 +110,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Echo',
     starter: false,
     synergyImpact: true,
-    summary: (lv) => `Every 2nd hit leaves shadow slash (${22 + 9 * (lv - 1)} dmg)`,
+    summary: (lv) => `Every 2nd hit leaves shadow echo (${22 + 9 * (lv - 1)} dmg)`,
   },
   golden_cleave: {
     id: 'golden_cleave',
@@ -120,7 +120,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Gild',
     starter: false,
     synergyImpact: false,
-    summary: (lv) => `Melee hits burst +${2 * lv} magnetized coins`,
+    summary: (lv) => `Hits burst +${2 * lv} magnetized coins`,
   },
   concussion: {
     id: 'concussion',

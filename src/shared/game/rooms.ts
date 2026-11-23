@@ -1,5 +1,5 @@
 import { createDailyStream, type SeededRng } from '../rng.ts';
-import type { DoorDirection, EnemyArchetype, HazardType, RoomType } from '../types.ts';
+import type { BiomeId, DoorDirection, EnemyArchetype, HazardType, RoomType } from '../types.ts';
 import {
   ARENA_H,
   ARENA_W,
@@ -38,7 +38,7 @@ export type BreakableBlueprint = {
   kind: 'crate' | 'pillar';
 };
 
-/** Solid, indestructible block (one 48px floor cell). Blocks movement and projectiles. */
+/** Solid, indestructible block (one 56px floor cell). Blocks movement and projectiles. */
 export type ObstacleBlueprint = {
   id: number;
   x: number;
@@ -111,13 +111,13 @@ export function oppositeDirection(dir: DoorDirection): DoorDirection {
 }
 
 // ---------------------------------------------------------------------------
-// Room layouts: patterns of solid blocks on the interior 14x8 grid of 48px cells.
-// Cell (i, j) covers x = (i + 1) * 48 .. +48, y = (j + 1) * 48 .. +48.
+// Room layouts: patterns of solid blocks on the interior 10x6 grid of 56px cells.
+// Cell (i, j) covers x = (i + 1) * 56 .. +56, y = (j + 1) * 56 .. +56.
 // ---------------------------------------------------------------------------
 
-export const CELL_SIZE = 48;
-export const LAYOUT_COLS = 14;
-export const LAYOUT_ROWS = 8;
+export const CELL_SIZE = 56;
+export const LAYOUT_COLS = 10;
+export const LAYOUT_ROWS = 6;
 
 export type RoomLayoutId =
   | 'open'
@@ -131,54 +131,44 @@ export type RoomLayoutId =
 const LAYOUT_MAPS: Record<Exclude<RoomLayoutId, 'scatter'>, readonly string[]> = {
   open: [],
   pillars: [
-    '..............',
-    '.#..........#.',
-    '..............',
-    '..............',
-    '..............',
-    '..............',
-    '.#..........#.',
-    '..............',
+    '..........',
+    '.#......#.',
+    '..........',
+    '..........',
+    '.#......#.',
+    '..........',
   ],
   side_walls: [
-    '..............',
-    '..#........#..',
-    '..#........#..',
-    '..............',
-    '..............',
-    '..#........#..',
-    '..#........#..',
-    '..............',
+    '..#....#..',
+    '..#....#..',
+    '..........',
+    '..........',
+    '..#....#..',
+    '..#....#..',
   ],
   ledges: [
-    '..............',
-    '.####....####.',
-    '..............',
-    '..............',
-    '..............',
-    '..............',
-    '.####....####.',
-    '..............',
+    '..........',
+    '.###..###.',
+    '..........',
+    '..........',
+    '.##....##.',
+    '..........',
   ],
   corners: [
-    '..............',
-    '.##........##.',
-    '.#..........#.',
-    '..............',
-    '..............',
-    '.#..........#.',
-    '.##........##.',
-    '..............',
+    '.#......#.',
+    '.##....##.',
+    '..........',
+    '..........',
+    '.##....##.',
+    '.#......#.',
   ],
   columns: [
-    '..............',
-    '..#..#..#..#..',
-    '..............',
-    '..............',
-    '..............',
-    '..............',
-    '..#........#..',
-    '..............',
+    '..........',
+    '.#.#..#.#.',
+    '..........',
+    '..........',
+    '..#....#..',
+    '..........',
   ],
 };
 
@@ -187,10 +177,10 @@ const LAYOUT_MAPS: Record<Exclude<RoomLayoutId, 'scatter'>, readonly string[]> =
  * fountain, boss spawn) and the player's spawn at the bottom middle.
  */
 export function isReservedCell(i: number, j: number): boolean {
-  const nsLane = (i === 6 || i === 7) && (j <= 1 || j >= 6);
-  const ewLane = (j === 3 || j === 4) && (i <= 1 || i >= 12);
-  const centre = i >= 3 && i <= 10 && j >= 2 && j <= 5;
-  const spawn = i >= 5 && i <= 8 && j >= 6;
+  const nsLane = (i === 4 || i === 5) && (j <= 1 || j >= 4);
+  const ewLane = (j === 2 || j === 3) && (i <= 1 || i >= 8);
+  const centre = i >= 2 && i <= 7 && j >= 2 && j <= 3;
+  const spawn = i >= 3 && i <= 6 && j >= 4;
   return nsLane || ewLane || centre || spawn;
 }
 
@@ -210,7 +200,7 @@ export function buildObstacles(rng: SeededRng, layout: RoomLayoutId, roomIndex: 
         }
       }
     }
-    cells.push(...rng.shuffle(free).slice(0, rng.int(5, 8)));
+    cells.push(...rng.shuffle(free).slice(0, rng.int(4, 6)));
   } else {
     LAYOUT_MAPS[layout].forEach((row, j) => {
       for (let i = 0; i < row.length; i += 1) {
@@ -257,19 +247,30 @@ function getSafeSpawnPoint(
   ];
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
-    const x = rng.range(PLAY_MIN_X + 64, PLAY_MAX_X - 64);
-    const y = rng.range(PLAY_MIN_Y + 56, PLAY_MAX_Y - 56);
+    const x = rng.range(PLAY_MIN_X + 52, PLAY_MAX_X - 52);
+    const y = rng.range(PLAY_MIN_Y + 46, PLAY_MAX_Y - 46);
     const distFromSpawn = Math.hypot(x - PLAYER_SPAWN_X, y - PLAYER_SPAWN_Y);
     const distFromCenter = Math.hypot(x - ARENA_W / 2, y - ARENA_H / 2);
-    const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 96);
-    const clearOfBlocks = !circleHitsObstacle(x, y, 30, obstacles);
+    const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 84);
+    const clearOfBlocks = !circleHitsObstacle(x, y, 28, obstacles);
     if (
-      distFromSpawn >= 115 &&
+      distFromSpawn >= 100 &&
       clearOfDoors &&
       clearOfBlocks &&
-      (!avoidCenter || distFromCenter >= 75)
+      (!avoidCenter || distFromCenter >= 70)
     ) {
       return { x, y };
+    }
+  }
+  for (let j = 0; j < LAYOUT_ROWS; j += 1) {
+    for (let i = 0; i < LAYOUT_COLS; i += 1) {
+      const x = (i + 1.5) * CELL_SIZE;
+      const y = (j + 1.5) * CELL_SIZE;
+      const distFromSpawn = Math.hypot(x - PLAYER_SPAWN_X, y - PLAYER_SPAWN_Y);
+      const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 84);
+      if (distFromSpawn >= 100 && clearOfDoors && !circleHitsObstacle(x, y, 28, obstacles)) {
+        return { x, y };
+      }
     }
   }
   return { x: Math.round(ARENA_W * 0.25), y: Math.round(ARENA_H * 0.28) };
@@ -288,15 +289,15 @@ function buildHazards(
       { x: Math.round(ARENA_W * 0.27), y: Math.round(ARENA_H * 0.66) },
       { x: Math.round(ARENA_W * 0.73), y: Math.round(ARENA_H * 0.66) },
     ];
-    const jitter = rng.range(-14, 14);
+    const jitter = rng.range(-12, 12);
     spots.forEach((spot, idx) => {
       hazards.push({
         id: roomIndex * 100 + idx,
         type: 'spikes',
         x: spot.x + jitter * (idx % 2 === 0 ? 1 : -1),
         y: spot.y,
-        w: 56,
-        h: 56,
+        w: CELL_SIZE,
+        h: CELL_SIZE,
         dirX: 0,
         dirY: 0,
         phaseOffset: (idx % 2) * 1.6,
@@ -313,8 +314,8 @@ function buildHazards(
       hazards.push({
         id: roomIndex * 100 + idx,
         type: 'barrels',
-        x: spot.x + rng.range(-16, 16),
-        y: spot.y + rng.range(-14, 14),
+        x: spot.x + rng.range(-14, 14),
+        y: spot.y + rng.range(-12, 12),
         w: 36,
         h: 36,
         dirX: 0,
@@ -330,8 +331,8 @@ function buildHazards(
         type: 'currents',
         x: ARENA_W / 2,
         y: Math.round(ARENA_H * 0.36),
-        w: 340,
-        h: 54,
+        w: Math.round(ARENA_W * 0.48),
+        h: 52,
         dirX: dir,
         dirY: 0,
         phaseOffset: 0,
@@ -341,8 +342,8 @@ function buildHazards(
         type: 'currents',
         x: ARENA_W / 2,
         y: Math.round(ARENA_H * 0.64),
-        w: 340,
-        h: 54,
+        w: Math.round(ARENA_W * 0.48),
+        h: 52,
         dirX: -dir,
         dirY: 0,
         phaseOffset: 0,
@@ -412,6 +413,21 @@ export type FloorScaling = {
   extraEnemies: number;
 };
 
+export const BIOME_ORDER: readonly BiomeId[] = ['dungeon', 'snow', 'town', 'battle', 'farm'];
+
+export function getBiomeIdForFloor(floor: number): BiomeId {
+  const f = Math.max(1, Math.floor(floor));
+  return BIOME_ORDER[(f - 1) % BIOME_ORDER.length]!;
+}
+
+export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = {
+  dungeon: 'shade',
+  snow: 'yeti',
+  town: 'bomber',
+  battle: 'mortar_tank',
+  farm: 'stampede',
+};
+
 export function getFloorScaling(floor: number): FloorScaling {
   const f = Math.max(1, Math.floor(floor));
   const depth = f - 1;
@@ -421,15 +437,16 @@ export function getFloorScaling(floor: number): FloorScaling {
     bossHpScale: 1 + 0.45 * depth,
     damageMult: 1 + 0.12 * depth,
     speedMult: Math.min(1.3, 1 + 0.03 * depth),
-    coinMult: 1 + 0.25 * depth,
+    coinMult: 1 + 0.12 * depth,
     extraEnemies: Math.min(3, Math.floor(depth / 2)),
   };
 }
 
 function enemyPoolForFloor(floor: number): EnemyArchetype[] {
-  if (floor <= 1) return ['chaser', 'chaser', 'shooter'];
-  if (floor <= 3) return ['chaser', 'shooter', 'charger'];
-  return ['chaser', 'shooter', 'charger', 'charger', 'elite_charger'];
+  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor)];
+  if (floor <= 1) return ['chaser', 'shooter', sig, sig];
+  if (floor <= 3) return [sig, sig, 'chaser', 'shooter', 'charger'];
+  return [sig, sig, 'chaser', 'shooter', 'charger', 'elite_charger'];
 }
 
 function withExtras(
@@ -576,6 +593,8 @@ export function buildDailyDungeonMap(
   const gauntletNode = nodes.length >= 6 ? ranked[2] : undefined;
   const bossRoomId = bossNode.id;
   const extra = scaling.extraEnemies;
+  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(f)];
+  const centerSpawnY = Math.round(ARENA_H * 0.3);
 
   for (const node of nodes) {
     const roomRng = createDailyStream(utcDate, `floor-${f}-room-${node.roomIndex}`);
@@ -590,8 +609,8 @@ export function buildDailyDungeonMap(
         roomType: 'warmup',
         waves:
           f === 1
-            ? [wave(['chaser', 'chaser']), wave(['chaser', 'shooter'])]
-            : [wave(withExtras(roomRng, ['chaser', 'shooter', 'chaser'], f, extra))],
+            ? [wave(['chaser', 'chaser']), wave(['chaser', 'shade'])]
+            : [wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra))],
         hazards: [],
         breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 4),
         obstacles,
@@ -606,7 +625,7 @@ export function buildDailyDungeonMap(
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'boss',
-        waves: [[{ archetype: 'boss', x: ARENA_W / 2, y: 145 }, ...wave(escorts)]],
+        waves: [[{ archetype: 'boss', x: ARENA_W / 2, y: centerSpawnY }, ...wave(escorts)]],
         hazards: [],
         breakables: buildBreakables(roomRng, node.roomIndex, 'pillar', 2),
         obstacles,
@@ -620,8 +639,8 @@ export function buildDailyDungeonMap(
         roomIndex: node.roomIndex,
         roomType: 'gauntlet',
         waves: [
-          wave(withExtras(roomRng, ['chaser', 'chaser', 'shooter'], f, extra)),
-          wave(withExtras(roomRng, ['charger', 'shooter', 'chaser', 'shooter'], f, extra)),
+          wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra)),
+          wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'chaser'], f, extra)),
         ],
         hazards: buildHazards(roomRng, dailyHazard, node.roomIndex),
         breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 3),
@@ -637,8 +656,8 @@ export function buildDailyDungeonMap(
         roomType: 'elite',
         waves: [
           [
-            { archetype: 'elite_charger', x: ARENA_W / 2, y: 145 },
-            ...wave(withExtras(roomRng, ['chaser', 'shooter'], f, extra)),
+            { archetype: 'elite_charger', x: ARENA_W / 2, y: centerSpawnY },
+            ...wave(withExtras(roomRng, [sig, 'shooter'], f, extra)),
           ],
         ],
         hazards: [],
@@ -652,8 +671,8 @@ export function buildDailyDungeonMap(
     } else {
       const rewardType: RoomRewardType = roomRng.next() < 0.55 ? 'relics' : 'coin_cache';
       const pool = enemyPoolForFloor(f);
-      const waveA = withExtras(roomRng, [roomRng.pick(pool), 'shooter', 'chaser'], f, extra);
-      const waveB = withExtras(roomRng, ['chaser', roomRng.pick(pool), 'shooter'], f, extra);
+      const waveA = withExtras(roomRng, [sig, roomRng.pick(pool), 'chaser'], f, extra);
+      const waveB = withExtras(roomRng, ['shooter', roomRng.pick(pool), sig], f, extra);
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'escalation',

@@ -178,7 +178,14 @@ export type FirePatchEffect = {
 };
 
 export type DelayedBlastEffect = {
-  kind: 'decoy_mine' | 'phantom_echo' | 'shatter_quake' | 'volatile_blast' | 'barrel_blast';
+  kind:
+    | 'decoy_mine'
+    | 'phantom_echo'
+    | 'shatter_quake'
+    | 'volatile_blast'
+    | 'barrel_blast'
+    | 'ice_mortar'
+    | 'sapper_bomb';
   x: number;
   y: number;
   radius: number;
@@ -187,6 +194,7 @@ export type DelayedBlastEffect = {
   damage: number;
   friendly: boolean;
   hurtPlayerToo?: boolean | undefined;
+  alreadyScaled?: boolean | undefined;
 };
 
 export type SlashEffect = {
@@ -782,7 +790,7 @@ export class GameSimulation {
       if (s.rewardType === 'fountain_and_relics' && !mem.fountainUsed) {
         s.fountain = {
           x: ARENA_W / 2,
-          y: 325,
+          y: Math.round(ARENA_H * 0.67),
           used: false,
           healAmount: Math.round(s.player.maxHp * 0.35),
         };
@@ -825,7 +833,7 @@ export class GameSimulation {
     return {
       kind: 'stairs',
       x: ARENA_W / 2,
-      y: 300,
+      y: Math.round(ARENA_H * 0.62),
       label: `DESCEND TO FLOOR ${this.state.floor + 1}`,
       progress: 0,
     };
@@ -1569,7 +1577,11 @@ export class GameSimulation {
         continue;
       }
 
-      const color = blast.friendly ? '#fb923c' : '#ef4444';
+      const color = blast.friendly
+        ? '#fb923c'
+        : blast.kind === 'ice_mortar'
+          ? '#67e8f9'
+          : '#ef4444';
       s.rings.push({
         x: blast.x,
         y: blast.y,
@@ -1600,7 +1612,33 @@ export class GameSimulation {
       if (!blast.friendly || blast.hurtPlayerToo) {
         const dist = Math.hypot(s.player.x - blast.x, s.player.y - blast.y);
         if (dist <= blast.radius + s.player.radius * 0.7) {
-          this.damagePlayer(blast.friendly ? 14 : blast.damage * s.modifier.enemyDamageMult);
+          const hitDmg = blast.friendly
+            ? 14
+            : blast.alreadyScaled
+              ? blast.damage
+              : blast.damage * s.modifier.enemyDamageMult;
+          this.damagePlayer(hitDmg);
+        }
+        if (blast.kind === 'ice_mortar') {
+          const shardDmg = Math.max(1, Math.round(blast.damage * 0.75));
+          const spawnDist = Math.max(26, blast.radius * 0.45);
+          for (const ang of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+            s.projectiles.push({
+              id: this.nextEntityId++,
+              friendly: false,
+              x: blast.x + Math.cos(ang) * spawnDist,
+              y: blast.y + Math.sin(ang) * spawnDist,
+              vx: Math.cos(ang) * 260,
+              vy: Math.sin(ang) * 260,
+              radius: 7,
+              damage: shardDmg,
+              ttl: 1.3,
+              pierce: false,
+              hitEnemyIds: [],
+              kind: 'orb',
+              angle: ang,
+            });
+          }
         }
       }
     }
@@ -1701,6 +1739,16 @@ export class GameSimulation {
         this.stepShooterAI(enemy, dist, dirX, dirY, dt);
       } else if (enemy.archetype === 'charger' || enemy.archetype === 'elite_charger') {
         this.stepChargerAI(enemy, dist, dirX, dirY, dt);
+      } else if (enemy.archetype === 'shade') {
+        this.stepShadeAI(enemy, dist, dirX, dirY, dt);
+      } else if (enemy.archetype === 'yeti') {
+        this.stepYetiAI(enemy, dist, dirX, dirY, dt);
+      } else if (enemy.archetype === 'bomber') {
+        this.stepBomberAI(enemy, dist, dirX, dirY, dt);
+      } else if (enemy.archetype === 'mortar_tank') {
+        this.stepMortarTankAI(enemy, dx, dy, dist, dirX, dirY, dt);
+      } else if (enemy.archetype === 'stampede') {
+        this.stepStampedeAI(enemy, dist, dirX, dirY, dt);
       } else {
         this.stepBossAI(enemy, dirX, dirY, dt);
       }
@@ -1953,6 +2001,352 @@ export class GameSimulation {
       } else if (enemy.stateTimer <= 0) {
         enemy.state = 'recover';
         enemy.stateTimer = 0.65;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.65;
+      }
+    }
+  }
+
+  private stepShadeAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      if (dist > 220) {
+        enemy.x += dirX * enemy.speed * dt;
+        enemy.y += dirY * enemy.speed * dt;
+      } else if (dist < 130) {
+        enemy.x -= dirX * enemy.speed * 0.9 * dt;
+        enemy.y -= dirY * enemy.speed * 0.9 * dt;
+      } else {
+        enemy.x += -dirY * enemy.speed * 0.65 * dt;
+        enemy.y += dirX * enemy.speed * 0.65 * dt;
+      }
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 420) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'blink_fan';
+        enemy.telegraphDuration = 0.52;
+        enemy.stateTimer = 0.52;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        const base = Math.atan2(enemy.y - s.player.y, enemy.x - s.player.x);
+        const candidates = [base + Math.PI / 2, base - Math.PI / 2, base + Math.PI, base];
+        for (const ang of candidates) {
+          const cx = s.player.x + Math.cos(ang) * 95;
+          const cy = s.player.y + Math.sin(ang) * 95;
+          const inBounds =
+            cx >= PLAY_MIN_X + enemy.radius &&
+            cx <= PLAY_MAX_X - enemy.radius &&
+            cy >= PLAY_MIN_Y + enemy.radius &&
+            cy <= PLAY_MAX_Y - enemy.radius;
+          if (inBounds && !this.pointInObstacle(cx, cy, enemy.radius + 2)) {
+            this.spawnParticles(enemy.x, enemy.y, '#c084fc', 7, 130);
+            enemy.x = cx;
+            enemy.y = cy;
+            this.spawnParticles(cx, cy, '#c084fc', 7, 130);
+            break;
+          }
+        }
+        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+        enemy.state = 'attack';
+        enemy.stateTimer = 0.32;
+      }
+    } else if (enemy.state === 'attack') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        for (const offset of [-0.28, 0, 0.28]) {
+          const ang = enemy.aimAngle + offset;
+          s.projectiles.push({
+            id: this.nextEntityId++,
+            friendly: false,
+            x: enemy.x + Math.cos(ang) * (enemy.radius + 6),
+            y: enemy.y + Math.sin(ang) * (enemy.radius + 6),
+            vx: Math.cos(ang) * 280,
+            vy: Math.sin(ang) * 280,
+            radius: 7,
+            damage: enemy.damage,
+            ttl: 1.4,
+            pierce: false,
+            hitEnemyIds: [],
+            kind: 'orb',
+            angle: ang,
+          });
+        }
+        enemy.state = 'recover';
+        enemy.stateTimer = 0.85;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.85;
+      }
+    }
+  }
+
+  private stepYetiAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      enemy.x += dirX * enemy.speed * dt;
+      enemy.y += dirY * enemy.speed * dt;
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 420) {
+        enemy.targetX = Math.max(PLAY_MIN_X + 36, Math.min(PLAY_MAX_X - 36, s.player.x));
+        enemy.targetY = Math.max(PLAY_MIN_Y + 36, Math.min(PLAY_MAX_Y - 36, s.player.y));
+        enemy.aimAngle = Math.atan2(enemy.targetY - enemy.y, enemy.targetX - enemy.x);
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'ice_mortar';
+        enemy.telegraphDuration = 0.65;
+        enemy.stateTimer = 0.65;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        s.delayedBlasts.push({
+          kind: 'ice_mortar',
+          x: enemy.targetX,
+          y: enemy.targetY,
+          radius: 62,
+          timer: 0.6,
+          maxTimer: 0.6,
+          damage: enemy.damage,
+          friendly: false,
+          alreadyScaled: true,
+        });
+        enemy.state = 'recover';
+        enemy.stateTimer = 1.0;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.9;
+      }
+    }
+  }
+
+  private stepBomberAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      if (dist > 165) {
+        enemy.x += dirX * enemy.speed * dt;
+        enemy.y += dirY * enemy.speed * dt;
+      } else if (dist < 95) {
+        enemy.x -= dirX * enemy.speed * 0.85 * dt;
+        enemy.y -= dirY * enemy.speed * 0.85 * dt;
+      } else {
+        enemy.x += -dirY * enemy.speed * 0.7 * dt;
+        enemy.y += dirX * enemy.speed * 0.7 * dt;
+      }
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 185) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'drop_bomb';
+        enemy.telegraphDuration = 0.42;
+        enemy.stateTimer = 0.42;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        s.delayedBlasts.push({
+          kind: 'sapper_bomb',
+          x: enemy.x,
+          y: enemy.y,
+          radius: 72,
+          timer: 0.9,
+          maxTimer: 0.9,
+          damage: enemy.damage,
+          friendly: false,
+          alreadyScaled: true,
+        });
+        enemy.state = 'recover';
+        enemy.stateTimer = 0.95;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.x -= dirX * enemy.speed * 1.15 * dt;
+      enemy.y -= dirY * enemy.speed * 1.15 * dt;
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.7;
+      }
+    }
+  }
+
+  private stepMortarTankAI(
+    enemy: EnemyEntity,
+    dx: number,
+    dy: number,
+    dist: number,
+    _dirX: number,
+    _dirY: number,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        enemy.x += Math.sign(dx) * enemy.speed * dt;
+      } else {
+        enemy.y += Math.sign(dy) * enemy.speed * dt;
+      }
+      enemy.aimAngle = Math.atan2(dy, dx);
+      if (enemy.stateTimer <= 0 && dist <= 440) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'tank_burst';
+        enemy.telegraphDuration = 0.65;
+        enemy.stateTimer = 0.65;
+        enemy.burstLeft = 3;
+        enemy.burstCooldown = 0;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'attack';
+        enemy.burstCooldown = 0;
+      }
+    } else if (enemy.state === 'attack') {
+      enemy.burstCooldown -= dt;
+      while (enemy.burstLeft > 0 && enemy.burstCooldown <= 0) {
+        const targetAng = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+        const delta = Math.max(-0.12, Math.min(0.12, normalizeAngle(targetAng - enemy.aimAngle)));
+        enemy.aimAngle = normalizeAngle(enemy.aimAngle + delta);
+        s.projectiles.push({
+          id: this.nextEntityId++,
+          friendly: false,
+          x: enemy.x + Math.cos(enemy.aimAngle) * (enemy.radius + 6),
+          y: enemy.y + Math.sin(enemy.aimAngle) * (enemy.radius + 6),
+          vx: Math.cos(enemy.aimAngle) * 380,
+          vy: Math.sin(enemy.aimAngle) * 380,
+          radius: 7,
+          damage: enemy.damage,
+          ttl: 2.2,
+          pierce: false,
+          hitEnemyIds: [],
+          kind: 'orb',
+          angle: enemy.aimAngle,
+        });
+        enemy.burstLeft -= 1;
+        enemy.burstCooldown += 0.15;
+      }
+      if (enemy.burstLeft <= 0) {
+        enemy.state = 'recover';
+        enemy.stateTimer = 1.05;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.95;
+      }
+    }
+  }
+
+  private stepStampedeAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      enemy.x += dirX * enemy.speed * dt;
+      enemy.y += dirY * enemy.speed * dt;
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 340) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'ricochet_charge';
+        enemy.telegraphDuration = 0.55;
+        enemy.stateTimer = 0.55;
+        enemy.bouncesLeft = 2;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer > 0.12) {
+        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+      }
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'attack';
+        enemy.stateTimer = 1.25;
+        enemy.attackFired = false;
+      }
+    } else if (enemy.state === 'attack') {
+      const chargeSpeed = 480 * s.modifier.enemySpeedMult;
+      const prevX = enemy.x;
+      enemy.x += Math.cos(enemy.aimAngle) * chargeSpeed * dt;
+      const hitX =
+        enemy.x - enemy.radius <= PLAY_MIN_X + 2 ||
+        enemy.x + enemy.radius >= PLAY_MAX_X - 2 ||
+        this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1);
+      if (hitX) enemy.x = prevX;
+
+      const prevY = enemy.y;
+      enemy.y += Math.sin(enemy.aimAngle) * chargeSpeed * dt;
+      const hitY =
+        enemy.y - enemy.radius <= PLAY_MIN_Y + 2 ||
+        enemy.y + enemy.radius >= PLAY_MAX_Y - 2 ||
+        this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1);
+      if (hitY) enemy.y = prevY;
+
+      if (
+        !enemy.attackFired &&
+        Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <=
+          s.player.radius + enemy.radius + 8
+      ) {
+        enemy.attackFired = true;
+        this.damagePlayer(enemy.damage);
+      }
+
+      enemy.stateTimer -= dt;
+      if (hitX || hitY) {
+        if (hitX) enemy.aimAngle = Math.PI - enemy.aimAngle;
+        if (hitY) enemy.aimAngle = -enemy.aimAngle;
+        enemy.aimAngle = normalizeAngle(enemy.aimAngle);
+        enemy.bouncesLeft -= 1;
+        enemy.attackFired = false;
+        s.shakeIntensity = Math.max(s.shakeIntensity, 3.5);
+        this.spawnParticles(enemy.x, enemy.y, '#fbbf24', 6, 120);
+        if (enemy.bouncesLeft < 0) {
+          enemy.state = 'recover';
+          enemy.stateTimer = 0.78;
+          enemy.attackKind = 'none';
+        }
+      } else if (enemy.stateTimer <= 0) {
+        enemy.state = 'recover';
+        enemy.stateTimer = 0.78;
         enemy.attackKind = 'none';
       }
     } else if (enemy.state === 'recover') {
@@ -2265,10 +2659,9 @@ export class GameSimulation {
     return false;
   }
 
-  /** Gems are the rare gacha currency. Drop odds grow with enemy toughness. */
+  /** Gems come only from defeating end-of-floor bosses. */
   private maybeDropGem(enemy: EnemyEntity): void {
-    const chance = GEM_DROP_CHANCE[enemy.archetype] ?? 0;
-    if (this.lootRng.next() >= chance) return;
+    if (enemy.archetype !== 'boss') return;
     const ang = this.fxRng.range(0, Math.PI * 2);
     this.state.gems.push({
       id: this.nextEntityId++,
@@ -2342,7 +2735,7 @@ export class GameSimulation {
     if (br.hp <= 0) {
       const idx = s.breakables.indexOf(br);
       if (idx !== -1) s.breakables.splice(idx, 1);
-      this.spawnCoins(br.x, br.y, 2, false);
+      this.spawnCoins(br.x, br.y, 1, false);
       if (br.kind === 'crate' && this.lootRng.next() < HEART_CRATE_CHANCE) {
         s.hearts.push({ id: this.nextEntityId++, x: br.x, y: br.y, age: 0 });
       }
@@ -2456,7 +2849,7 @@ export class GameSimulation {
     const coinMult = this.floorScaling.coinMult;
 
     if (s.rewardType === 'coin_cache') {
-      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(10 * coinMult), true);
+      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(5 * coinMult), true);
       s.roomState = 'door_open';
       this.announce('Coin Cache! Doors Open');
       return;
@@ -2465,7 +2858,7 @@ export class GameSimulation {
     if (s.rewardType === 'boss_chest_and_portals') {
       s.stats.bossDefeated = true;
       s.floorsCleared += 1;
-      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(20 * coinMult), true);
+      this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(10 * coinMult), true);
       const p = s.player;
       const heal = Math.round(p.maxHp * 0.4);
       const before = p.hp;
@@ -2473,7 +2866,7 @@ export class GameSimulation {
       const healed = Math.round(p.hp - before);
       if (healed > 0) this.addFloatingText(p.x, p.y - 26, `+${healed} HP`, '#4ade80', 1.2);
 
-      this.spawnRelicPedestals(undefined, 235);
+      this.spawnRelicPedestals(undefined, Math.round(ARENA_H * 0.49));
       if (s.pedestals.length > 0) {
         s.roomState = 'reward';
         this.announce(`Floor ${s.floor} cleared! Pick a relic`);
@@ -2489,7 +2882,7 @@ export class GameSimulation {
     if (s.rewardType === 'fountain_and_relics') {
       s.fountain = {
         x: ARENA_W / 2,
-        y: 325,
+        y: Math.round(ARENA_H * 0.67),
         used: false,
         healAmount: Math.round(s.player.maxHp * 0.35),
       };
@@ -2498,7 +2891,7 @@ export class GameSimulation {
       return;
     }
 
-    const cache = s.rewardType === 'synergy_relics' ? 18 : 8;
+    const cache = s.rewardType === 'synergy_relics' ? 8 : 4;
     this.spawnCoins(ARENA_W / 2, ARENA_H / 2 - 16, Math.round(cache * coinMult), true);
     s.roomState = 'door_open';
     this.announce('Room cleared');
@@ -2507,7 +2900,7 @@ export class GameSimulation {
   private spawnRelicPedestals(filter: 'synergy' | undefined, py: number): void {
     const s = this.state;
     const drafted = draftRelics(this.relicRng, this.profile.unlockedRelics, 3, filter);
-    const xs = [ARENA_W / 2 - 148, ARENA_W / 2, ARENA_W / 2 + 148];
+    const xs = [ARENA_W / 2 - 126, ARENA_W / 2, ARENA_W / 2 + 126];
     s.pedestals = drafted.map((relic, idx) => ({
       id: this.nextEntityId++,
       x: xs[idx] ?? ARENA_W / 2,
@@ -2575,12 +2968,12 @@ export class GameSimulation {
       for (const door of s.doors) {
         const hitDoor =
           door.dir === 'north'
-            ? Math.abs(p.x - ARENA_W / 2) <= 44 && p.y - p.radius <= PLAY_MIN_Y + 10
+            ? Math.abs(p.x - ARENA_W / 2) <= 50 && p.y - p.radius <= PLAY_MIN_Y + 10
             : door.dir === 'south'
-              ? Math.abs(p.x - ARENA_W / 2) <= 44 && p.y + p.radius >= PLAY_MAX_Y - 10
+              ? Math.abs(p.x - ARENA_W / 2) <= 50 && p.y + p.radius >= PLAY_MAX_Y - 10
               : door.dir === 'west'
-                ? Math.abs(p.y - ARENA_H / 2) <= 44 && p.x - p.radius <= PLAY_MIN_X + 10
-                : Math.abs(p.y - ARENA_H / 2) <= 44 && p.x + p.radius >= PLAY_MAX_X - 10;
+                ? Math.abs(p.y - ARENA_H / 2) <= 50 && p.x - p.radius <= PLAY_MIN_X + 10
+                : Math.abs(p.y - ARENA_H / 2) <= 50 && p.x + p.radius >= PLAY_MAX_X - 10;
         if (hitDoor) {
           this.enterMapRoom(door.targetRoomId, 'door', door.dir);
           return;
@@ -2807,14 +3200,6 @@ export class GameSimulation {
 
 const HEART_CRATE_CHANCE = 0.35;
 const HEART_HEAL = 15;
-
-const GEM_DROP_CHANCE: Partial<Record<EnemyEntity['archetype'], number>> = {
-  chaser: 0.02,
-  shooter: 0.02,
-  charger: 0.035,
-  elite_charger: 0.12,
-  boss: 0.3,
-};
 
 function normalizeAngle(angle: number): number {
   let a = angle;

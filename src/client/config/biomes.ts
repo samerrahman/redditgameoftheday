@@ -7,6 +7,9 @@
  * ski/town/farm are 12 columns wide, battle is 18).
  */
 
+import { getBiomeIdForFloor } from '../../shared/game/rooms.ts';
+import type { BiomeId } from '../../shared/types.ts';
+
 export type BiomeSheet = 'ski' | 'town' | 'battle' | 'farm';
 
 export type BiomeDecor = {
@@ -17,7 +20,7 @@ export type BiomeDecor = {
 };
 
 export type FloorBiome = {
-  id: 'dungeon' | 'snow' | 'town' | 'battle' | 'farm';
+  id: BiomeId;
   name: string;
   /** null = use the dungeon atlas floor (the original look). */
   floor: { sheet: BiomeSheet; frames: number[]; accents?: number[] | undefined } | null;
@@ -142,8 +145,8 @@ export const BIOMES: readonly FloorBiome[] = [
 
 /** Floor 1 = dungeon, then snow, town, battlefield, farm, repeating. */
 export function getFloorBiome(floor: number): FloorBiome {
-  const f = Math.max(1, Math.floor(floor));
-  return BIOMES[(f - 1) % BIOMES.length]!;
+  const biomeId = getBiomeIdForFloor(floor);
+  return BIOMES.find((b) => b.id === biomeId) ?? BIOMES[0]!;
 }
 
 export const BIOME_SHEETS: ReadonlyArray<{ key: BiomeSheet; url: string }> = [

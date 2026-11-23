@@ -11,7 +11,7 @@ import {
   WALL_THICKNESS,
 } from '../../shared/game/constants.ts';
 import type { EnemyEntity } from '../../shared/game/enemies.ts';
-import { oppositeDirection } from '../../shared/game/rooms.ts';
+import { CELL_SIZE, oppositeDirection } from '../../shared/game/rooms.ts';
 import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
 import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
 import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
@@ -346,10 +346,10 @@ export class DungeonScene extends Phaser.Scene {
   private registerAnimations(): void {
     const define = (
       key: string,
-      frames: string[],
+      frames: Array<string | number>,
       frameRate: number,
       repeat = -1,
-      atlasKey: 'dungeon' | 'cosmetics' = 'dungeon',
+      atlasKey: 'dungeon' | 'cosmetics' | 'ski' | 'town' | 'battle' | 'farm' = 'dungeon',
     ) => {
       if (this.anims.exists(key)) return;
       this.anims.create({
@@ -403,6 +403,11 @@ export class DungeonScene extends Phaser.Scene {
     define('boss_run', ['boss_run_0', 'boss_run_1', 'boss_run_2', 'boss_run_3'], 9);
     define('boss_attack', ['boss_attack_0', 'boss_attack_1'], 10);
 
+    define('yeti_walk', [78, 79], 6, -1, 'ski');
+    define('yeti_cast', [80], 6, -1, 'ski');
+    define('tank_roll', [152], 6, -1, 'battle');
+    define('tank_fire', [153], 6, -1, 'battle');
+
     define('coin_spin', ['coin_0', 'coin_1', 'coin_2', 'coin_3'], 10);
     define('torch_burn', ['torch_0', 'torch_1', 'torch_2', 'torch_3'], 8);
     define('fire_burn', ['fire_0', 'fire_1', 'fire_2', 'fire_3'], 10);
@@ -449,7 +454,8 @@ export class DungeonScene extends Phaser.Scene {
     );
     const wallTint = biome.floor ? biome.wallTint : theme.wallTint;
     this.cameras.main.setBackgroundColor(biome.floor ? biome.ambientBg : theme.ambientBg);
-    const tileSize = 48;
+    const tileSize = CELL_SIZE;
+    const half = tileSize / 2;
     const cols = Math.round(ARENA_W / tileSize);
     const rows = Math.round(ARENA_H / tileSize);
 
@@ -467,8 +473,8 @@ export class DungeonScene extends Phaser.Scene {
     } else {
       for (let r = 1; r < rows - 1; r += 1) {
         for (let c = 1; c < cols - 1; c += 1) {
-          const cx = c * tileSize + tileSize / 2;
-          const cy = r * tileSize + tileSize / 2;
+          const cx = c * tileSize + half;
+          const cy = r * tileSize + half;
           const pickAlt = rng.next() < 0.08 ? 'tile_042' : rng.pick(floorFrames);
           const img = this.add
             .image(cx, cy, 'dungeon', pickAlt)
@@ -481,8 +487,8 @@ export class DungeonScene extends Phaser.Scene {
 
     for (let r = 0; r < rows - 1; r += 1) {
       for (let c = 0; c < cols; c += 1) {
-        const cx = c * tileSize + tileSize / 2;
-        const cy = r * tileSize + tileSize / 2;
+        const cx = c * tileSize + half;
+        const cy = r * tileSize + half;
 
         if (r === 0) {
           const wallFrame =
@@ -490,9 +496,9 @@ export class DungeonScene extends Phaser.Scene {
               ? 'tile_001'
               : c === cols - 1
                 ? 'tile_003'
-                : c === 4 || c === 11
+                : c === 3 || c === 8
                   ? 'tile_029'
-                  : c % 4 === 2
+                  : c === 2 || c === 9
                     ? 'tile_028'
                     : 'tile_014';
           const img = this.add
@@ -511,9 +517,9 @@ export class DungeonScene extends Phaser.Scene {
       }
     }
 
-    const botY = ARENA_H - 24;
+    const botY = ARENA_H - half;
     for (let c = 0; c < cols; c += 1) {
-      const cx = c * tileSize + tileSize / 2;
+      const cx = c * tileSize + half;
       const botFrame = c === 0 ? 'tile_025' : c === cols - 1 ? 'tile_027' : 'tile_026';
       const img = this.add
         .image(cx, botY, 'dungeon', botFrame)
@@ -551,34 +557,34 @@ export class DungeonScene extends Phaser.Scene {
       let left: Phaser.GameObjects.Image;
       let right: Phaser.GameObjects.Image;
       if (dir === 'north') {
-        left = this.add.image(ARENA_W / 2 - 24, 24, 'dungeon', fLeft).setDisplaySize(48, 48);
-        right = this.add.image(ARENA_W / 2 + 24, 24, 'dungeon', fRight).setDisplaySize(48, 48);
+        left = this.add.image(ARENA_W / 2 - half, half, 'dungeon', fLeft).setDisplaySize(tileSize, tileSize);
+        right = this.add.image(ARENA_W / 2 + half, half, 'dungeon', fRight).setDisplaySize(tileSize, tileSize);
       } else if (dir === 'south') {
         left = this.add
-          .image(ARENA_W / 2 - 24, botY, 'dungeon', fLeft)
-          .setDisplaySize(48, 48)
+          .image(ARENA_W / 2 - half, botY, 'dungeon', fLeft)
+          .setDisplaySize(tileSize, tileSize)
           .setFlipY(true);
         right = this.add
-          .image(ARENA_W / 2 + 24, botY, 'dungeon', fRight)
-          .setDisplaySize(48, 48)
+          .image(ARENA_W / 2 + half, botY, 'dungeon', fRight)
+          .setDisplaySize(tileSize, tileSize)
           .setFlipY(true);
       } else if (dir === 'east') {
         left = this.add
-          .image(ARENA_W - 24, ARENA_H / 2 - 24, 'dungeon', fLeft)
-          .setDisplaySize(48, 48)
+          .image(ARENA_W - half, ARENA_H / 2 - half, 'dungeon', fLeft)
+          .setDisplaySize(tileSize, tileSize)
           .setRotation(Math.PI / 2);
         right = this.add
-          .image(ARENA_W - 24, ARENA_H / 2 + 24, 'dungeon', fRight)
-          .setDisplaySize(48, 48)
+          .image(ARENA_W - half, ARENA_H / 2 + half, 'dungeon', fRight)
+          .setDisplaySize(tileSize, tileSize)
           .setRotation(Math.PI / 2);
       } else {
         left = this.add
-          .image(24, ARENA_H / 2 + 24, 'dungeon', fLeft)
-          .setDisplaySize(48, 48)
+          .image(half, ARENA_H / 2 + half, 'dungeon', fLeft)
+          .setDisplaySize(tileSize, tileSize)
           .setRotation(-Math.PI / 2);
         right = this.add
-          .image(24, ARENA_H / 2 - 24, 'dungeon', fRight)
-          .setDisplaySize(48, 48)
+          .image(half, ARENA_H / 2 - half, 'dungeon', fRight)
+          .setDisplaySize(tileSize, tileSize)
           .setRotation(-Math.PI / 2);
       }
 
@@ -593,8 +599,11 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     // 4 animated flickering wall torches (indoor biomes only)
-    for (const tx of biome.torches ? [120, 264, 504, 648] : []) {
-      const torch = this.add.sprite(tx, 24, 'dungeon', 'torch_0').setScale(2.75);
+    const torchXs = biome.torches
+      ? [tileSize * 1.5, tileSize * 4.5, ARENA_W - tileSize * 4.5, ARENA_W - tileSize * 1.5]
+      : [];
+    for (const tx of torchXs) {
+      const torch = this.add.sprite(tx, half, 'dungeon', 'torch_0').setScale(2.75);
       torch.play('torch_burn');
       container.add(torch);
       this.wallTorches.push(torch);
@@ -736,13 +745,13 @@ export class DungeonScene extends Phaser.Scene {
       g.fillStyle(0x5f5868, 1);
       g.fillRect(o.x + 2, o.y + 2, o.w - 4, o.h - 4);
       g.fillStyle(0x8c8498, 1);
-      g.fillRect(o.x + 2, o.y + 2, o.w - 4, 12);
+      g.fillRect(o.x + 2, o.y + 2, o.w - 4, Math.round(o.h * 0.25));
       g.fillStyle(0x47404f, 1);
-      g.fillRect(o.x + 2, o.y + 26, o.w - 4, 2);
-      g.fillRect(o.x + 2, o.y + 38, o.w - 4, 2);
-      g.fillRect(o.x + 16, o.y + 14, 2, 12);
-      g.fillRect(o.x + 32, o.y + 28, 2, 10);
-      g.fillRect(o.x + 12, o.y + 40, 2, 6);
+      g.fillRect(o.x + 2, o.y + Math.round(o.h * 0.54), o.w - 4, 2);
+      g.fillRect(o.x + 2, o.y + Math.round(o.h * 0.79), o.w - 4, 2);
+      g.fillRect(o.x + Math.round(o.w * 0.33), o.y + Math.round(o.h * 0.29), 2, Math.round(o.h * 0.25));
+      g.fillRect(o.x + Math.round(o.w * 0.67), o.y + Math.round(o.h * 0.58), 2, Math.round(o.h * 0.21));
+      g.fillRect(o.x + Math.round(o.w * 0.25), o.y + Math.round(o.h * 0.83), 2, Math.round(o.h * 0.13));
       g.fillStyle(0x3a3441, 1);
       g.fillRect(o.x + 2, o.y + o.h - 6, o.w - 4, 4);
     });
@@ -1143,11 +1152,19 @@ export class DungeonScene extends Phaser.Scene {
     const color =
       archetype === 'chaser'
         ? 0x25956a
-        : archetype === 'shooter'
+        : archetype === 'shooter' || archetype === 'shade'
           ? 0x7e22ce
-          : archetype === 'boss'
-            ? 0x991b1b
-            : 0x7c2d12;
+          : archetype === 'yeti'
+            ? 0x38bdf8
+            : archetype === 'bomber'
+              ? 0xf59e0b
+              : archetype === 'mortar_tank'
+                ? 0x64748b
+                : archetype === 'stampede'
+                  ? 0x92400e
+                  : archetype === 'boss'
+                    ? 0x991b1b
+                    : 0x7c2d12;
     d.fillStyle(color, 0.34);
     d.fillCircle(x, y + 6, archetype === 'boss' ? 28 : 13);
     d.fillCircle(x + 9, y + 2, 5);
@@ -1622,16 +1639,22 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const progress = 1 - blast.timer / blast.maxTimer;
-      const stroke = blast.friendly ? 0xfb923c : 0xef4444;
+      const stroke = blast.friendly
+        ? 0xfb923c
+        : blast.kind === 'ice_mortar'
+          ? 0x67e8f9
+          : 0xef4444;
       teleG.fillStyle(stroke, blast.friendly ? 0.15 : 0.22);
       teleG.fillCircle(blast.x, blast.y, blast.radius);
       teleG.lineStyle(2, stroke, 1);
       teleG.strokeCircle(blast.x, blast.y, Math.max(4, blast.radius * progress));
 
       if (blast.kind === 'decoy_mine') {
-        spr.setPosition(blast.x, blast.y).setFrame('barrel_tnt').setAlpha(1).setVisible(true);
+        spr.setTexture('dungeon', 'barrel_tnt').setScale(2.5).setPosition(blast.x, blast.y).setAlpha(1).setVisible(true);
+      } else if (blast.kind === 'sapper_bomb') {
+        spr.setTexture('town', 105).setScale(2.3).setPosition(blast.x, blast.y).setAlpha(1).setVisible(true);
       } else if (blast.kind === 'phantom_echo') {
-        spr.setPosition(blast.x, blast.y).setFrame('hero_dash_0').setAlpha(0.65).setVisible(true);
+        spr.setTexture('dungeon', 'hero_dash_0').setScale(2.5).setPosition(blast.x, blast.y).setAlpha(0.65).setVisible(true);
       } else {
         spr.setVisible(false);
       }
@@ -1644,6 +1667,25 @@ export class DungeonScene extends Phaser.Scene {
         const t = 1 - enemy.stateTimer / 0.65;
         teleG.lineStyle(2, 0xf87171, 0.85);
         teleG.strokeCircle(enemy.x, enemy.y, enemy.radius + (1 - Math.max(0, t)) * 22);
+      } else if (enemy.state === 'telegraph') {
+        if (enemy.attackKind === 'ice_mortar') {
+          teleG.lineStyle(2, 0x67e8f9, 0.85);
+          teleG.strokeCircle(enemy.targetX, enemy.targetY, 62);
+          teleG.fillStyle(0x67e8f9, 0.14);
+          teleG.fillCircle(enemy.targetX, enemy.targetY, 62);
+        } else if (enemy.attackKind === 'ricochet_charge' || enemy.attackKind === 'tank_burst') {
+          const len = enemy.attackKind === 'tank_burst' ? 180 : 140;
+          teleG.lineStyle(3, 0xf87171, 0.65);
+          teleG.lineBetween(
+            enemy.x,
+            enemy.y,
+            enemy.x + Math.cos(enemy.aimAngle) * len,
+            enemy.y + Math.sin(enemy.aimAngle) * len,
+          );
+        } else if (enemy.attackKind === 'blink_fan') {
+          teleG.lineStyle(2, 0xc084fc, 0.85);
+          teleG.strokeCircle(enemy.x, enemy.y, enemy.radius + 8);
+        }
       }
     }
   }
@@ -1687,8 +1729,8 @@ export class DungeonScene extends Phaser.Scene {
       activeIds.add(enemy.id);
       let spr = this.enemySprites.get(enemy.id);
       if (!spr) {
-        const startFrame = this.getEnemyBaseFrame(enemy.archetype);
-        spr = this.add.sprite(enemy.x, enemy.y, 'dungeon', startFrame).setDepth(10);
+        const startAsset = this.getEnemyAsset(enemy.archetype);
+        spr = this.add.sprite(enemy.x, enemy.y, startAsset.texture, startAsset.frame).setDepth(10);
         this.enemySprites.set(enemy.id, spr);
       }
 
@@ -1723,23 +1765,39 @@ export class DungeonScene extends Phaser.Scene {
         enemy.radius * 0.78 * popMult,
       );
 
+      const bobY =
+        enemy.archetype === 'shade' ? Math.sin(state.elapsedTime * 6 + enemy.id) * 3 : 0;
       spr
-        .setPosition(enemy.x + jitterX, enemy.y)
+        .setPosition(enemy.x + jitterX, enemy.y + bobY)
         .setScale(scale)
         .setAlpha(alpha)
         .setFlipX(state.player.x < enemy.x);
 
+      const animKey = this.pickEnemyAnim(enemy);
+      if (animKey) {
+        spr.play(animKey, true);
+      } else {
+        const asset = this.getEnemyAsset(enemy.archetype);
+        spr.stop();
+        spr.setTexture(asset.texture, asset.frame);
+      }
+
       if (enemy.hitFlashTimer > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      } else if (enemy.archetype === 'shade') {
+        spr
+          .setTint(enemy.state === 'telegraph' ? 0xc084fc : 0xe9d5ff)
+          .setTintMode(Phaser.TintModes.MULTIPLY);
+      } else if (enemy.archetype === 'stampede' && (enemy.state === 'telegraph' || enemy.state === 'attack')) {
+        spr.setTint(0xfca5a5).setTintMode(Phaser.TintModes.MULTIPLY);
+      } else if (enemy.archetype === 'bomber' && enemy.state === 'telegraph') {
+        spr.setTint(0xfdba74).setTintMode(Phaser.TintModes.MULTIPLY);
       } else {
         spr.clearTint();
       }
 
-      const animKey = this.pickEnemyAnim(enemy);
-      spr.play(animKey, true);
-
-      // Floating shield icon on Armored Warden while armor > 0
-      if (enemy.archetype === 'elite_charger' && enemy.armor > 0) {
+      // Floating shield icon on armored foes while armor > 0
+      if (enemy.armor > 0) {
         let shield = this.wardenShields.get(enemy.id);
         if (!shield) {
           shield = this.add.image(enemy.x, enemy.y, 'dungeon', 'tile_102').setScale(2.0).setDepth(11);
@@ -1780,18 +1838,31 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private getEnemyBaseFrame(archetype: EnemyArchetype): string {
+  private getEnemyAsset(archetype: EnemyArchetype): {
+    texture: 'dungeon' | 'ski' | 'battle' | 'farm';
+    frame: string | number;
+  } {
     switch (archetype) {
       case 'chaser':
-        return 'slime_idle_0';
+        return { texture: 'dungeon', frame: 'slime_idle_0' };
       case 'shooter':
-        return 'wizard_idle_0';
+        return { texture: 'dungeon', frame: 'wizard_idle_0' };
       case 'charger':
-        return 'cyclops_idle_0';
+        return { texture: 'dungeon', frame: 'cyclops_idle_0' };
       case 'elite_charger':
-        return 'warden_idle_0';
+        return { texture: 'dungeon', frame: 'warden_idle_0' };
       case 'boss':
-        return 'boss_idle_0';
+        return { texture: 'dungeon', frame: 'boss_idle_0' };
+      case 'shade':
+        return { texture: 'dungeon', frame: 'tile_121' };
+      case 'yeti':
+        return { texture: 'ski', frame: 78 };
+      case 'bomber':
+        return { texture: 'dungeon', frame: 'tile_111' };
+      case 'mortar_tank':
+        return { texture: 'battle', frame: 152 };
+      case 'stampede':
+        return { texture: 'farm', frame: 121 };
     }
   }
 
@@ -1800,9 +1871,15 @@ export class DungeonScene extends Phaser.Scene {
       case 'chaser':
         return 2.6;
       case 'shooter':
+      case 'shade':
+      case 'bomber':
         return 2.7;
       case 'charger':
+      case 'yeti':
+      case 'mortar_tank':
         return 3.0;
+      case 'stampede':
+        return 2.9;
       case 'elite_charger':
         return 3.35;
       case 'boss':
@@ -1810,7 +1887,7 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private pickEnemyAnim(enemy: EnemyEntity): string {
+  private pickEnemyAnim(enemy: EnemyEntity): string | null {
     if (enemy.archetype === 'chaser') {
       if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'slime_telegraph';
       return enemy.state === 'chase' ? 'slime_run' : 'slime_idle';
@@ -1826,6 +1903,15 @@ export class DungeonScene extends Phaser.Scene {
     if (enemy.archetype === 'elite_charger') {
       if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'warden_charge';
       return enemy.state === 'chase' ? 'warden_run' : 'warden_idle';
+    }
+    if (enemy.archetype === 'yeti') {
+      return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'yeti_cast' : 'yeti_walk';
+    }
+    if (enemy.archetype === 'mortar_tank') {
+      return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'tank_fire' : 'tank_roll';
+    }
+    if (enemy.archetype === 'shade' || enemy.archetype === 'bomber' || enemy.archetype === 'stampede') {
+      return null;
     }
     if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'boss_attack';
     return enemy.state === 'chase' ? 'boss_run' : 'boss_idle';
