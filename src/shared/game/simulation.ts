@@ -36,6 +36,9 @@ import {
 } from './constants.ts';
 import { chooseBossPattern, createEnemy, type EnemyEntity } from './enemies.ts';
 import {
+  CELL_SIZE,
+  LAYOUT_COLS,
+  LAYOUT_ROWS,
   buildDailyDungeonMap,
   getFloorScaling,
   oppositeDirection,
@@ -1674,6 +1677,7 @@ export class GameSimulation {
   private updateEnemies(dt: number): void {
     const s = this.state;
     const p = s.player;
+    const flowField = this.computePlayerFlowField();
 
     for (const enemy of [...s.enemies]) {
       enemy.hitFlashTimer = Math.max(0, enemy.hitFlashTimer - dt);
@@ -1687,6 +1691,7 @@ export class GameSimulation {
         const damp = Math.exp(-9 * s.modifier.frictionMult * dt);
         enemy.vx *= damp;
         enemy.vy *= damp;
+        this.pushOutOfObstacles(enemy, enemy.radius);
 
         const hitWall =
           enemy.x - enemy.radius < PLAY_MIN_X ||
@@ -1714,6 +1719,7 @@ export class GameSimulation {
           enemy.state = 'chase';
           enemy.stateTimer = enemy.archetype === 'boss' ? 0.85 : 0.65;
         }
+        this.pushOutOfObstacles(enemy, enemy.radius);
         this.clampToArena(enemy);
         continue;
       }
@@ -1724,6 +1730,7 @@ export class GameSimulation {
           enemy.state = 'chase';
           enemy.stateTimer = 0.45;
         }
+        this.pushOutOfObstacles(enemy, enemy.radius);
         this.clampToArena(enemy);
         continue;
       }
@@ -1733,27 +1740,29 @@ export class GameSimulation {
       const dist = Math.hypot(dx, dy);
       const dirX = dist > 0 ? dx / dist : 0;
       const dirY = dist > 0 ? dy / dist : 1;
+      const nav = this.getNavDirection(enemy, flowField, dirX, dirY);
 
       if (enemy.archetype === 'chaser') {
-        this.stepChaserAI(enemy, dist, dirX, dirY, dt);
+        this.stepChaserAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
       } else if (enemy.archetype === 'shooter') {
-        this.stepShooterAI(enemy, dist, dirX, dirY, dt);
+        this.stepShooterAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
       } else if (enemy.archetype === 'charger' || enemy.archetype === 'elite_charger') {
-        this.stepChargerAI(enemy, dist, dirX, dirY, dt);
+        this.stepChargerAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
       } else if (enemy.archetype === 'shade') {
-        this.stepShadeAI(enemy, dist, dirX, dirY, dt);
+        this.stepShadeAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
       } else if (enemy.archetype === 'yeti') {
-        this.stepYetiAI(enemy, dist, dirX, dirY, dt);
+        this.stepYetiAI(enemy, dist, nav.dirX, nav.dirY, dt);
       } else if (enemy.archetype === 'bomber') {
-        this.stepBomberAI(enemy, dist, dirX, dirY, dt);
+        this.stepBomberAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
       } else if (enemy.archetype === 'mortar_tank') {
-        this.stepMortarTankAI(enemy, dx, dy, dist, dirX, dirY, dt);
+        this.stepMortarTankAI(enemy, dist, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
       } else if (enemy.archetype === 'stampede') {
-        this.stepStampedeAI(enemy, dist, dirX, dirY, dt);
+        this.stepStampedeAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
       } else {
-        this.stepBossAI(enemy, dirX, dirY, dt);
+        this.stepBossAI(enemy, nav.dirX, nav.dirY, dt);
       }
 
+      this.pushOutOfObstacles(enemy, enemy.radius);
       this.clampToArena(enemy);
     }
 
@@ -1797,16 +1806,16 @@ export class GameSimulation {
   private stepChaserAI(
     enemy: EnemyEntity,
     dist: number,
-    dirX: number,
-    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasMoveLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
-      enemy.x += dirX * enemy.speed * dt;
-      enemy.y += dirY * enemy.speed * dt;
-      enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (dist <= 68) {
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      enemy.aimAngle = Math.atan2(navDirY, navDirX);
+      if (dist <= 68 && hasMoveLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'lunge';
         enemy.telegraphDuration = 0.48;
@@ -1853,23 +1862,23 @@ export class GameSimulation {
     dist: number,
     dirX: number,
     dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (dist > 315) {
-        enemy.x += dirX * enemy.speed * dt;
-        enemy.y += dirY * enemy.speed * dt;
+      if (!hasShotLOS || dist > 315) {
+        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       } else if (dist < 185) {
-        enemy.x -= dirX * enemy.speed * 0.9 * dt;
-        enemy.y -= dirY * enemy.speed * 0.9 * dt;
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.9 * dt, -dirY * enemy.speed * 0.9 * dt);
       } else {
-        enemy.x += -dirY * enemy.speed * 0.55 * dt;
-        enemy.y += dirX * enemy.speed * 0.55 * dt;
+        this.moveWithSlide(enemy, -dirY * enemy.speed * 0.55 * dt, dirX * enemy.speed * 0.55 * dt);
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 460) {
+      if (enemy.stateTimer <= 0 && dist <= 460 && hasShotLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'shoot';
         enemy.telegraphDuration = 0.6;
@@ -1919,8 +1928,9 @@ export class GameSimulation {
   private stepChargerAI(
     enemy: EnemyEntity,
     dist: number,
-    dirX: number,
-    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasMoveLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
@@ -1952,10 +1962,9 @@ export class GameSimulation {
 
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      enemy.x += dirX * enemy.speed * dt;
-      enemy.y += dirY * enemy.speed * dt;
-      enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 320) {
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      enemy.aimAngle = Math.atan2(navDirY, navDirX);
+      if (enemy.stateTimer <= 0 && dist <= 320 && hasMoveLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'charge';
         enemy.telegraphDuration = 0.62;
@@ -2018,24 +2027,24 @@ export class GameSimulation {
     dist: number,
     dirX: number,
     dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
     const orbitDir = enemy.id % 2 === 0 ? 1 : -1;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (dist > 210) {
-        enemy.x += dirX * enemy.speed * dt;
-        enemy.y += dirY * enemy.speed * dt;
+      if (!hasShotLOS || dist > 210) {
+        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       } else if (dist < 130) {
-        enemy.x -= dirX * enemy.speed * 0.85 * dt;
-        enemy.y -= dirY * enemy.speed * 0.85 * dt;
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.85 * dt, -dirY * enemy.speed * 0.85 * dt);
       } else {
-        enemy.x += -dirY * orbitDir * enemy.speed * 0.75 * dt;
-        enemy.y += dirX * orbitDir * enemy.speed * 0.75 * dt;
+        this.moveWithSlide(enemy, -dirY * orbitDir * enemy.speed * 0.75 * dt, dirX * orbitDir * enemy.speed * 0.75 * dt);
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 380) {
+      if (enemy.stateTimer <= 0 && dist <= 380 && hasShotLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'shade_fan';
         enemy.telegraphDuration = 0.55;
@@ -2068,8 +2077,7 @@ export class GameSimulation {
         enemy.attackKind = 'none';
       }
     } else if (enemy.state === 'recover') {
-      enemy.x += -dirY * orbitDir * enemy.speed * 0.4 * dt;
-      enemy.y += dirX * orbitDir * enemy.speed * 0.4 * dt;
+      this.moveWithSlide(enemy, -dirY * orbitDir * enemy.speed * 0.4 * dt, dirX * orbitDir * enemy.speed * 0.4 * dt);
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
         enemy.state = 'chase';
@@ -2081,16 +2089,15 @@ export class GameSimulation {
   private stepYetiAI(
     enemy: EnemyEntity,
     dist: number,
-    dirX: number,
-    dirY: number,
+    navDirX: number,
+    navDirY: number,
     dt: number,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      enemy.x += dirX * enemy.speed * dt;
-      enemy.y += dirY * enemy.speed * dt;
-      enemy.aimAngle = Math.atan2(dirY, dirX);
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      enemy.aimAngle = Math.atan2(navDirY, navDirX);
       if (enemy.stateTimer <= 0 && dist <= 420) {
         enemy.targetX = Math.max(PLAY_MIN_X + 36, Math.min(PLAY_MAX_X - 36, s.player.x));
         enemy.targetY = Math.max(PLAY_MIN_Y + 36, Math.min(PLAY_MAX_Y - 36, s.player.y));
@@ -2132,23 +2139,23 @@ export class GameSimulation {
     dist: number,
     dirX: number,
     dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasMoveLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (dist > 165) {
-        enemy.x += dirX * enemy.speed * dt;
-        enemy.y += dirY * enemy.speed * dt;
+      if (!hasMoveLOS || dist > 165) {
+        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       } else if (dist < 95) {
-        enemy.x -= dirX * enemy.speed * 0.85 * dt;
-        enemy.y -= dirY * enemy.speed * 0.85 * dt;
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.85 * dt, -dirY * enemy.speed * 0.85 * dt);
       } else {
-        enemy.x += -dirY * enemy.speed * 0.7 * dt;
-        enemy.y += dirX * enemy.speed * 0.7 * dt;
+        this.moveWithSlide(enemy, -dirY * enemy.speed * 0.7 * dt, dirX * enemy.speed * 0.7 * dt);
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 185) {
+      if (enemy.stateTimer <= 0 && dist <= 185 && hasMoveLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'drop_bomb';
         enemy.telegraphDuration = 0.42;
@@ -2173,8 +2180,7 @@ export class GameSimulation {
         enemy.attackKind = 'none';
       }
     } else if (enemy.state === 'recover') {
-      enemy.x -= dirX * enemy.speed * 1.15 * dt;
-      enemy.y -= dirY * enemy.speed * 1.15 * dt;
+      this.moveWithSlide(enemy, -dirX * enemy.speed * 1.15 * dt, -dirY * enemy.speed * 1.15 * dt);
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
         enemy.state = 'chase';
@@ -2185,23 +2191,28 @@ export class GameSimulation {
 
   private stepMortarTankAI(
     enemy: EnemyEntity,
-    dx: number,
-    dy: number,
     dist: number,
-    _dirX: number,
-    _dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        enemy.x += Math.sign(dx) * enemy.speed * dt;
-      } else {
-        enemy.y += Math.sign(dy) * enemy.speed * dt;
+      const moveX = Math.sign(navDirX) * enemy.speed * dt;
+      const moveY = Math.sign(navDirY) * enemy.speed * dt;
+      if (Math.abs(navDirX) >= Math.abs(navDirY) && moveX !== 0) {
+        if (!this.tryMoveCardinal(enemy, moveX, 0) && moveY !== 0) {
+          this.tryMoveCardinal(enemy, 0, moveY);
+        }
+      } else if (moveY !== 0) {
+        if (!this.tryMoveCardinal(enemy, 0, moveY) && moveX !== 0) {
+          this.tryMoveCardinal(enemy, moveX, 0);
+        }
       }
-      enemy.aimAngle = Math.atan2(dy, dx);
-      if (enemy.stateTimer <= 0 && dist <= 440) {
+      enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+      if (enemy.stateTimer <= 0 && dist <= 440 && hasShotLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'tank_burst';
         enemy.telegraphDuration = 0.65;
@@ -2256,17 +2267,17 @@ export class GameSimulation {
   private stepStampedeAI(
     enemy: EnemyEntity,
     dist: number,
-    dirX: number,
-    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasMoveLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      enemy.x += dirX * enemy.speed * dt;
-      enemy.y += dirY * enemy.speed * dt;
-      enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 340) {
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      enemy.aimAngle = Math.atan2(navDirY, navDirX);
+      if (enemy.stateTimer <= 0 && dist <= 340 && hasMoveLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'ricochet_charge';
         enemy.telegraphDuration = 0.55;
@@ -2340,8 +2351,8 @@ export class GameSimulation {
 
   private stepBossAI(
     boss: EnemyEntity,
-    dirX: number,
-    dirY: number,
+    navDirX: number,
+    navDirY: number,
     dt: number,
   ): void {
     const s = this.state;
@@ -2384,8 +2395,7 @@ export class GameSimulation {
     const cadenceMult = boss.phase === 2 ? 0.8 : 1;
 
     if (boss.state === 'chase') {
-      boss.x += dirX * boss.speed * dt;
-      boss.y += dirY * boss.speed * dt;
+      this.moveWithSlide(boss, navDirX * boss.speed * dt, navDirY * boss.speed * dt);
       boss.stateTimer -= dt;
       if (boss.stateTimer <= 0) {
         const pattern = chooseBossPattern(boss, this.bossRng);
@@ -2393,7 +2403,7 @@ export class GameSimulation {
         boss.attackKind = pattern;
         boss.telegraphDuration = pattern === 'boss_radial' ? 0.6 : 0.72;
         boss.stateTimer = boss.telegraphDuration;
-        boss.aimAngle = Math.atan2(dirY, dirX);
+        boss.aimAngle = Math.atan2(s.player.y - boss.y, s.player.x - boss.x);
         boss.targetX = Math.max(PLAY_MIN_X + 64, Math.min(PLAY_MAX_X - 64, s.player.x));
         boss.targetY = Math.max(PLAY_MIN_Y + 64, Math.min(PLAY_MAX_Y - 64, s.player.y));
       }
@@ -3098,6 +3108,241 @@ export class GameSimulation {
   private announce(text: string): void {
     this.state.announcementText = text;
     this.state.announcementTimer = 2.6;
+  }
+
+  private worldToCell(x: number, y: number): { col: number; row: number } {
+    return {
+      col: Math.max(0, Math.min(LAYOUT_COLS - 1, Math.floor(x / CELL_SIZE) - 1)),
+      row: Math.max(0, Math.min(LAYOUT_ROWS - 1, Math.floor(y / CELL_SIZE) - 1)),
+    };
+  }
+
+  private cellCenterWorld(col: number, row: number): { x: number; y: number } {
+    return {
+      x: (col + 1.5) * CELL_SIZE,
+      y: (row + 1.5) * CELL_SIZE,
+    };
+  }
+
+  private hasClearLine(x1: number, y1: number, x2: number, y2: number, pad: number): boolean {
+    if (this.state.obstacles.length === 0) return true;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 1) return !this.pointInObstacle(x2, y2, pad);
+    const steps = Math.max(2, Math.ceil(dist / 12));
+    for (let i = 1; i < steps; i += 1) {
+      const t = i / steps;
+      if (this.pointInObstacle(x1 + dx * t, y1 + dy * t, pad)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private computePlayerFlowField(): Int16Array | null {
+    if (this.state.obstacles.length === 0) return null;
+    const blocked = new Uint8Array(LAYOUT_COLS * LAYOUT_ROWS);
+    for (let r = 0; r < LAYOUT_ROWS; r += 1) {
+      const y0 = (r + 1) * CELL_SIZE;
+      const y1 = y0 + CELL_SIZE;
+      for (let c = 0; c < LAYOUT_COLS; c += 1) {
+        const x0 = (c + 1) * CELL_SIZE;
+        const x1 = x0 + CELL_SIZE;
+        for (const o of this.state.obstacles) {
+          if (o.x < x1 && o.x + o.w > x0 && o.y < y1 && o.y + o.h > y0) {
+            blocked[r * LAYOUT_COLS + c] = 1;
+            break;
+          }
+        }
+      }
+    }
+
+    const dist = new Int16Array(LAYOUT_COLS * LAYOUT_ROWS).fill(-1);
+    const { col: pCol, row: pRow } = this.worldToCell(this.state.player.x, this.state.player.y);
+    const queue: number[] = [];
+    const startIdx = pRow * LAYOUT_COLS + pCol;
+    if (blocked[startIdx] === 0) {
+      dist[startIdx] = 0;
+      queue.push(startIdx);
+    } else {
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (dc === 0 && dr === 0) continue;
+          const nc = pCol + dc;
+          const nr = pRow + dr;
+          if (nc < 0 || nc >= LAYOUT_COLS || nr < 0 || nr >= LAYOUT_ROWS) continue;
+          const idx = nr * LAYOUT_COLS + nc;
+          if (blocked[idx] === 0 && dist[idx] === -1) {
+            dist[idx] = 0;
+            queue.push(idx);
+          }
+        }
+      }
+    }
+
+    const dirs: readonly (readonly [number, number])[] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    let head = 0;
+    while (head < queue.length) {
+      const idx = queue[head]!;
+      head += 1;
+      const c = idx % LAYOUT_COLS;
+      const r = Math.floor(idx / LAYOUT_COLS);
+      const nextD = dist[idx]! + 1;
+      for (const [dc, dr] of dirs) {
+        const nc = c + dc;
+        const nr = r + dr;
+        if (nc < 0 || nc >= LAYOUT_COLS || nr < 0 || nr >= LAYOUT_ROWS) continue;
+        const nIdx = nr * LAYOUT_COLS + nc;
+        if (blocked[nIdx] === 0 && dist[nIdx] === -1) {
+          dist[nIdx] = nextD;
+          queue.push(nIdx);
+        }
+      }
+    }
+    return dist;
+  }
+
+  private pickBestNeighborCell(
+    distGrid: Int16Array,
+    col: number,
+    row: number,
+    refX: number,
+    refY: number,
+  ): { col: number; row: number } | null {
+    const p = this.state.player;
+    let best: { col: number; row: number } | null = null;
+    let bestDist = Infinity;
+    let bestRefDist = Infinity;
+    let bestPlayerDist = Infinity;
+
+    const consider = (nc: number, nr: number): void => {
+      if (nc < 0 || nc >= LAYOUT_COLS || nr < 0 || nr >= LAYOUT_ROWS) return;
+      const d = distGrid[nr * LAYOUT_COLS + nc]!;
+      if (d < 0) return;
+      const center = this.cellCenterWorld(nc, nr);
+      const refDist = Math.hypot(center.x - refX, center.y - refY);
+      const playerDist = Math.hypot(center.x - p.x, center.y - p.y);
+      if (
+        d < bestDist ||
+        (d === bestDist && refDist + 0.01 < bestRefDist) ||
+        (d === bestDist && Math.abs(refDist - bestRefDist) <= 0.01 && playerDist < bestPlayerDist)
+      ) {
+        best = { col: nc, row: nr };
+        bestDist = d;
+        bestRefDist = refDist;
+        bestPlayerDist = playerDist;
+      }
+    };
+
+    for (let dr = -1; dr <= 1; dr += 1) {
+      for (let dc = -1; dc <= 1; dc += 1) {
+        if (dc === 0 && dr === 0) continue;
+        const nc = col + dc;
+        const nr = row + dr;
+        if (nc < 0 || nc >= LAYOUT_COLS || nr < 0 || nr >= LAYOUT_ROWS) continue;
+        if (dc !== 0 && dr !== 0) {
+          // Never corner-cut around solid blocks.
+          if (distGrid[row * LAYOUT_COLS + nc]! < 0 || distGrid[nr * LAYOUT_COLS + col]! < 0) continue;
+        }
+        consider(nc, nr);
+      }
+    }
+
+    if (!best) {
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          if (dc !== 0 || dr !== 0) consider(col + dc, row + dr);
+        }
+      }
+    }
+    return best;
+  }
+
+  private getNavDirection(
+    enemy: EnemyEntity,
+    distGrid: Int16Array | null,
+    rawDirX: number,
+    rawDirY: number,
+  ): { dirX: number; dirY: number; hasMoveLOS: boolean; hasShotLOS: boolean } {
+    if (!distGrid) {
+      return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: true, hasShotLOS: true };
+    }
+    const p = this.state.player;
+    const movePad = Math.min(enemy.radius - 1, 14);
+    const hasMoveLOS = this.hasClearLine(enemy.x, enemy.y, p.x, p.y, movePad);
+    const hasShotLOS = this.hasClearLine(enemy.x, enemy.y, p.x, p.y, 12);
+    if (hasMoveLOS) {
+      return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: true, hasShotLOS };
+    }
+
+    const { col, row } = this.worldToCell(enemy.x, enemy.y);
+    const next = this.pickBestNeighborCell(distGrid, col, row, enemy.x, enemy.y);
+    if (!next) {
+      return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: false, hasShotLOS };
+    }
+
+    let target = this.cellCenterWorld(next.col, next.row);
+    const lookAhead = this.pickBestNeighborCell(distGrid, next.col, next.row, enemy.x, enemy.y);
+    if (lookAhead) {
+      const nextCenter = this.cellCenterWorld(lookAhead.col, lookAhead.row);
+      if (this.hasClearLine(enemy.x, enemy.y, nextCenter.x, nextCenter.y, Math.min(enemy.radius + 1, 20))) {
+        target = nextCenter;
+      }
+    }
+
+    const tx = target.x - enemy.x;
+    const ty = target.y - enemy.y;
+    const tDist = Math.hypot(tx, ty);
+    if (tDist <= 0.001) {
+      return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: false, hasShotLOS };
+    }
+    return { dirX: tx / tDist, dirY: ty / tDist, hasMoveLOS: false, hasShotLOS };
+  }
+
+  private tryMoveCardinal(enemy: EnemyEntity, dx: number, dy: number): boolean {
+    const prevX = enemy.x;
+    const prevY = enemy.y;
+    enemy.x += dx;
+    enemy.y += dy;
+    const blocked =
+      enemy.x - enemy.radius < PLAY_MIN_X ||
+      enemy.x + enemy.radius > PLAY_MAX_X ||
+      enemy.y - enemy.radius < PLAY_MIN_Y ||
+      enemy.y + enemy.radius > PLAY_MAX_Y ||
+      this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1);
+    if (blocked) {
+      enemy.x = prevX;
+      enemy.y = prevY;
+      return false;
+    }
+    return true;
+  }
+
+  private moveWithSlide(enemy: EnemyEntity, dxStep: number, dyStep: number): void {
+    const prevX = enemy.x;
+    enemy.x += dxStep;
+    if (
+      enemy.x - enemy.radius < PLAY_MIN_X ||
+      enemy.x + enemy.radius > PLAY_MAX_X ||
+      this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1)
+    ) {
+      enemy.x = prevX;
+    }
+    const prevY = enemy.y;
+    enemy.y += dyStep;
+    if (
+      enemy.y - enemy.radius < PLAY_MIN_Y ||
+      enemy.y + enemy.radius > PLAY_MAX_Y ||
+      this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1)
+    ) {
+      enemy.y = prevY;
+    }
   }
 
   /** Push a circle out of any solid block it overlaps. Returns true if it touched one. */

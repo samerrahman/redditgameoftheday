@@ -1192,4 +1192,99 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       assert.equal(/\b(blade|swing|swings|melee|slash)\b/i.test(desc2), false, `Relic ${def.id} mentions melee terms: ${desc2}`);
     }
   });
+
+  void it('paths enemies around solid obstacle walls instead of getting stuck', () => {
+    const profile = createDefaultProfile();
+    const wallBlocks = [3, 4, 5].map((col, idx) => ({
+      id: 700 + idx,
+      x: (col + 1) * CELL_SIZE,
+      y: 3 * CELL_SIZE,
+      w: CELL_SIZE,
+      h: CELL_SIZE,
+    }));
+
+    const chaserSim = new GameSimulation('2026-11-20', profile);
+    chaserSim.startNewRun('2026-11-20', profile);
+    chaserSim.state.obstacles = wallBlocks;
+    chaserSim.state.hazards = [];
+    chaserSim.state.totalWaves = 5;
+    chaserSim.state.player.iFramesTimer = 999;
+    chaserSim.state.player.x = 5.5 * CELL_SIZE;
+    chaserSim.state.player.y = 5.5 * CELL_SIZE;
+    const chaser = createEnemy(6001, 'chaser', 5.5 * CELL_SIZE, 1.5 * CELL_SIZE, 1, 1, 1, 1);
+    chaser.spawnShieldTimer = 0;
+    chaser.state = 'chase';
+    chaser.stateTimer = 0;
+    chaserSim.state.enemies = [chaser];
+
+    stepFrames(chaserSim, 180, () => idleInput());
+    const distToPlayer = Math.hypot(
+      chaser.x - chaserSim.state.player.x,
+      chaser.y - chaserSim.state.player.y,
+    );
+    assert.ok(
+      chaser.y > 4 * CELL_SIZE || distToPlayer < 110,
+      `chaser stuck behind wall at (${chaser.x.toFixed(1)}, ${chaser.y.toFixed(1)})`,
+    );
+
+    const shadeSim = new GameSimulation('2026-11-20', profile);
+    shadeSim.startNewRun('2026-11-20', profile);
+    shadeSim.state.obstacles = wallBlocks;
+    shadeSim.state.hazards = [];
+    shadeSim.state.totalWaves = 5;
+    shadeSim.state.player.iFramesTimer = 999;
+    shadeSim.state.player.x = 5.5 * CELL_SIZE;
+    shadeSim.state.player.y = 5.5 * CELL_SIZE;
+    const shade = createEnemy(6002, 'shade', 5.5 * CELL_SIZE, 1.5 * CELL_SIZE, 1, 1, 1, 1);
+    shade.spawnShieldTimer = 0;
+    shade.state = 'chase';
+    shade.stateTimer = 0;
+    shadeSim.state.enemies = [shade];
+
+    let maxProj = 0;
+    for (let i = 0; i < 180; i += 1) {
+      shadeSim.step(idleInput());
+      maxProj = Math.max(maxProj, shadeSim.state.projectiles.length);
+    }
+    assert.ok(maxProj >= 3, `shade failed to path around wall into shot LOS (maxProj=${maxProj})`);
+  });
+
+  void it('requires two Arcane Lance shots to kill base purple enemies while leaving visible HP', () => {
+    for (const arch of ['shooter', 'shade'] as const) {
+      const profile = {
+        ...createDefaultProfile(),
+        ownedWeapons: ['longsword' as const, 'arcane_lance' as const],
+        equippedWeapon: 'arcane_lance' as const,
+      };
+      const sim = new GameSimulation('2026-11-20', profile);
+      sim.startNewRun('2026-11-20', profile);
+      sim.state.obstacles = [];
+      sim.state.hazards = [];
+      sim.state.totalWaves = 5;
+      sim.state.player.damageBonusMult = 1;
+      sim.state.modifier.playerDamageMult = 1;
+      sim.state.modifier.enemyHpMult = 1;
+      sim.state.player.iFramesTimer = 999;
+
+      const foe = createEnemy(7001, arch, sim.state.player.x, sim.state.player.y - 120, 1, 1, 1, 1);
+      foe.spawnShieldTimer = 0;
+      foe.state = 'chase';
+      foe.stateTimer = 99;
+      sim.state.enemies = [foe];
+
+      sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+      stepFrames(sim, 12, () => idleInput());
+      assert.equal(sim.state.enemies.length, 1, `${arch} should survive the first base Arcane Lance shot`);
+      assert.ok(
+        foe.hp >= 6 && foe.hp < foe.maxHp,
+        `expected reasonable remaining HP for ${arch} after 1 lance shot, got ${foe.hp}/${foe.maxHp}`,
+      );
+
+      sim.state.player.attackCooldown = 0;
+      sim.state.player.attackEndlagTimer = 0;
+      sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+      stepFrames(sim, 12, () => idleInput());
+      assert.equal(sim.state.enemies.length, 0, `${arch} should die on the second Arcane Lance shot`);
+    }
+  });
 });

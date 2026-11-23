@@ -82,7 +82,7 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     telegraphDuration: 0.48,
   },
   shooter: {
-    baseHp: 38,
+    baseHp: 44,
     radius: 15,
     armor: 0,
     speed: 108,
