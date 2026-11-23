@@ -22,6 +22,7 @@ import { getFloorBiome } from '../config/biomes.ts';
 import { ENTITY_LABELS, GAME_META, getDailyTheme } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
+import { animateHero, type HeroLook } from './heroPreview.ts';
 import { renderShopView } from './shopView.ts';
 
 function getEl(id: string): HTMLElement {
@@ -74,6 +75,7 @@ export class GameUIController {
   private prevBestFloor: number | null = null;
   private shopOpen = false;
   private tutorialOpen = false;
+  private updateStartHero: ((look: HeroLook) => void) | null = null;
   private lastFloor = -1;
   private lastGems = -1;
   private toastTimer: number | null = null;
@@ -134,6 +136,7 @@ export class GameUIController {
   private readonly startModifier = getEl('start-modifier');
   private readonly startStreak = getEl('start-streak');
   private readonly startTitle = getEl('start-title');
+  private readonly startHeroPreview = document.getElementById('start-hero-preview');
   private readonly startBestFloor = getEl('start-best-floor');
   private readonly startGems = getEl('start-gems');
   private readonly startBest = getEl('start-best');
@@ -210,6 +213,9 @@ export class GameUIController {
       : 'Same daily seed stays active until run ends.';
 
     this.bindEvents();
+    if (this.startHeroPreview instanceof HTMLCanvasElement) {
+      this.updateStartHero = animateHero(this.startHeroPreview, this.lookOfProfile());
+    }
     this.syncStartScreen();
     if (ENFORCE_SINGLE_DAILY_RUN) {
       this.updateDailyCountdown();
@@ -619,6 +625,13 @@ export class GameUIController {
     this.input.setGameActive(playing, this.shopOpen);
   }
 
+  private lookOfProfile(): HeroLook {
+    return {
+      costume: this.profile.equippedCostume,
+      accessory: this.profile.equippedCosmetic,
+    };
+  }
+
   private syncStartScreen(): void {
     const theme = getDailyTheme(this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
@@ -630,6 +643,7 @@ export class GameUIController {
     this.startModifier.textContent = modifier.banner;
     this.startStreak.textContent = `${this.profile.streak}`;
     this.startTitle.textContent = title;
+    this.updateStartHero?.(this.lookOfProfile());
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
     this.startGems.textContent = `${this.profile.gems}`;
     this.startShopCoins.textContent = `${this.profile.coins} ${GAME_META.coinShort}`;

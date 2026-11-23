@@ -384,3 +384,167 @@ body {
   letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
 }
+
+/* =========================================================
+   Obsidian Torchlight & Forged Gold Aesthetic Revamp
+   ========================================================= */
+:root {
+  --stone-abyss: #0b070f;
+  --stone-slab: #1a1222;
+  --stone-alcove: #130c19;
+  --stone-border: #3d2c4a;
+  --bevel-light: #4d3760;
+  --bevel-dark: #0e0914;
+  --parchment: #fff7ed;
+  --parchment-muted: #d6c8de;
+  --gold: #fbbf24;
+  --ember: #fb923c;
+  --crimson: #dc2626;
+  --crimson-hi: #f87171;
+  --crimson-lo: #7f1d1d;
+  color-scheme: dark;
+  accent-color: var(--gold);
+}
+
+::selection {
+  background: rgb(251 191 36 / 0.28);
+  color: #fffbeb;
+}
+
+.splash-shell {
+  background:
+    radial-gradient(circle at 50% 24%, rgb(251 146 60 / 0.11), rgb(10 7 14 / 0.95) 68%),
+    url('./assets/dungeon/stone_tile.png') repeat;
+  background-color: var(--stone-abyss);
+  background-size: auto, 64px 64px;
+  image-rendering: pixelated;
+}
+
+.splash-card {
+  padding: 24px 28px;
+  gap: 15px;
+  background: var(--stone-slab);
+  border: 2px solid var(--stone-abyss);
+  box-shadow:
+    inset 0 1px 0 rgb(251 191 36 / 0.2),
+    0 10px 0 #09060d,
+    0 0 32px rgb(251 146 60 / 0.1);
+}
+
+.splash-card .eyebrow-row {
+  gap: 4px;
+  align-items: center;
+}
+
+.splash-card .pill {
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  font-size: 0.9rem;
+  color: var(--parchment-muted);
+}
+
+.splash-card .accent-pill {
+  color: var(--gold);
+}
+
+#splash-date::after {
+  content: '·';
+  margin-inline-start: 8px;
+  color: #5b486b;
+}
+
+.hero-crest {
+  image-rendering: pixelated;
+  filter: drop-shadow(0 3px 0 #09060d) drop-shadow(0 0 10px rgb(251 191 36 / 0.35));
+}
+
+.splash-title {
+  color: #fde68a;
+  text-shadow:
+    0 3px 0 #78350f,
+    0 5px 0 #0b070f,
+    0 0 18px rgb(251 146 60 / 0.32);
+}
+
+.modifier-banner {
+  background: rgb(11 7 15 / 0.45);
+  border: 0;
+  border-block: 1px solid rgb(251 191 36 / 0.22);
+  border-radius: 0;
+  padding: 8px 12px;
+  box-shadow: none;
+}
+
+.stats-strip {
+  gap: 0;
+  background: rgb(11 7 15 / 0.45);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 4px;
+  padding: 7px 0;
+}
+
+.strip-cell {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 2px 8px;
+}
+
+.strip-cell + .strip-cell {
+  border-inline-start: 1px solid rgb(255 255 255 / 0.08);
+}
+
+.splash-shop-btn {
+  white-space: nowrap;
+}
+
+.splash-shop-btn .coin-pill {
+  background: rgb(11 7 15 / 0.55);
+  border: 1px solid rgb(251 191 36 / 0.35);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.splash-shop-btn:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: #251930;
+}
+
+.play-button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+}
+
+.play-button.is-completed:hover:not(:disabled) {
+  border-color: var(--gold);
+}
+
+@keyframes torch-flicker {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgb(251 146 60 / 0.48)) brightness(1);
+    transform: translateY(0);
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgb(251 191 36 / 0.72)) brightness(1.08);
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .torch-icon {
+    animation: torch-flicker 900ms steps(3, end) infinite;
+  }
+}
+
+@media (forced-colors: active) {
+  .splash-card,
+  .modifier-banner,
+  .strip-cell {
+    background: Canvas;
+    color: CanvasText;
+    border-color: ButtonBorder;
+    box-shadow: none;
+  }
+}

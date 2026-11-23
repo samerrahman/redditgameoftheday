@@ -31,7 +31,7 @@ let pulling = false;
 // The dungeon atlas is a 28-column grid of 16px tiles with 2px gutters.
 const ATLAS_URL = './assets/dungeon/dungeon_atlas.png';
 const ATLAS_W = 512;
-const ATLAS_H = 184;
+const ATLAS_H = 236;
 const ATLAS_COLS = 28;
 
 function el<K extends keyof HTMLElementTagNameMap>(

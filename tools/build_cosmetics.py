@@ -26,14 +26,14 @@ SCRATCH_PREVIEW = Path(
     "/Users/Samer/.gemini/antigravity/brain/681e0dd1-392e-45a9-b08c-5ca9e857fe94/scratch/cosmetics_preview.png"
 )
 
-# Exact Kenney Tiny Dungeon outline & core colors
-OUTLINE = (63, 38, 49, 255)      # #3f2631
-EYE_DARK = (38, 43, 68, 255)     # #262b44
-SKIN_LIGHT = (247, 194, 130, 255)
-SKIN_MID = (234, 165, 108, 255)
-SKIN_SHADE = (225, 154, 101, 255)
-HAIR_DARK = (118, 59, 54, 255)
-HAIR_MID = (189, 108, 74, 255)
+# Unified Obsidian Torchlight outline & core colors
+OUTLINE = (28, 18, 33, 255)      # #1c1221
+EYE_DARK = (26, 20, 44, 255)     # #1a142c
+SKIN_LIGHT = (248, 198, 140, 255)
+SKIN_MID = (222, 156, 102, 255)
+SKIN_SHADE = (178, 112, 74, 255)
+HAIR_DARK = (98, 50, 32, 255)
+HAIR_MID = (150, 86, 48, 255)
 WHITE = (255, 255, 255, 255)
 
 PALETTE: dict[str, tuple[int, int, int, int]] = {
@@ -264,13 +264,8 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
     for i in range(4):
         frames[f"default_idle_{i}"] = crop_frame(atlas, meta, f"hero_idle_{i}")
 
-    # 1. Crimson Berserker (based on tile_088 — scarlet bandana + war paint + scarlet sash & gold buckle)
-    t88 = crop_frame(atlas, meta, "tile_088")
-    crimson_base = recolor(t88, {(118, 59, 54): PALETTE["X"]})
-    px88 = crimson_base.load()
-    for x in range(16):
-        px88[x, 0] = (0, 0, 0, 0)
-    crimson_over = paint_grid(
+    # 1. Crimson Berserker (self-contained 16x16 scarlet war bandana, war paint & battle sash)
+    crimson_base = paint_grid(
         16,
         16,
         [
@@ -280,20 +275,22 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
             "..##rrRRRRrr##..",
             ".#RrRRRRRRRRR#..",
             "#X###rRRRRrr##..",
-            "................",
-            "................",
-            "................",
-            "................",
-            "...#rrgRRrr#....",
-            "..##Rr####rr##..",
-            "..#rRsRggRsRr#..",
-            "..#RR#RrrR#RR#..",
-            "....###..###....",
-            "....#XX##XX#....",
+            "..##ssssssss##..",
+            "..##ssksssks##..",
+            "..##dmmddmmd##..",
+            "...#mmddddmm#...",
+            "..##RrgRRrrR##..",
+            ".#XXRr####rrXX#.",
+            "#XXrRsRggRsRrXX#",
+            "#XX#RR#rR#RR#XX#",
+            "#####XX##XX#####",
+            ".####XX##XX####.",
         ],
     )
-    crimson_base = overlay_onto(crimson_base, crimson_over)
-    crimson_base = set_pixels(crimson_base, [(6, 7, "k"), (10, 7, "k"), (6, 8, "r"), (10, 8, "r")])
+    crimson_base = set_pixels(
+        crimson_base,
+        [(6, 7, "k"), (10, 7, "k"), (6, 8, "r"), (10, 8, "r"), (6, 6, "s"), (10, 6, "s")],
+    )
     crimson_glint = set_pixels(crimson_base, [(7, 2, "p"), (1, 5, "r"), (7, 12, "y")])
     crimson_blink = make_blink_16(crimson_base, SKIN_MID, [(6, 7), (10, 7)])
     register(
@@ -303,19 +300,8 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
         ),
     )
 
-    # 2. Forest Ranger (Kenney tile_112 — clean brown hair/beard, vivid emerald headband & cloak, gold clasp)
-    t112 = crop_frame(atlas, meta, "tile_112")
-    forest_base = recolor(
-        t112,
-        {
-            (37, 149, 106): PALETTE["f"],
-            (67, 225, 179): PALETTE["L"],
-        },
-    )
-    px112 = forest_base.load()
-    for x in range(16):
-        px112[x, 0] = (0, 0, 0, 0)
-    forest_over = paint_grid(
+    # 2. Forest Ranger (self-contained 16x16 emerald headband, beard & woodland cloak)
+    forest_base = paint_grid(
         16,
         16,
         [
@@ -325,19 +311,18 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
             "..##bBBBBBBb##..",
             "..##LLLLgLLL##..",
             "..#b##ffff##b#..",
-            "................",
-            "................",
-            "................",
-            "................",
+            "..##ssssssss##..",
+            "..##ssksssks##..",
+            "..##BmmddmmB##..",
+            "...#BBBBBBBB#...",
             "..##LLfffLL##...",
             ".#ffLf####fLf#..",
             "#FLFFfbggbfLFF#.",
             "#FF.#ffffff#.FF.",
-            "....###..###....",
-            "....#BB##BB#....",
+            "#####BB##BB#####",
+            ".####BB##BB####.",
         ],
     )
-    forest_base = overlay_onto(forest_base, forest_over)
     forest_base = set_pixels(forest_base, [(6, 7, "k"), (10, 7, "k"), (8, 4, "y")])
     forest_glint = set_pixels(forest_base, [(8, 4, "W"), (7, 12, "y"), (4, 12, "l")])
     forest_blink = make_blink_16(forest_base, SKIN_MID, [(6, 7), (10, 7)])
@@ -348,31 +333,21 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
         ),
     )
 
-    # 3. Frost Viking (Kenney tile_087 horned helmet — steel helm, crisp ivory horns, sky-blue fur cloak, ginger beard)
-    t87 = crop_frame(atlas, meta, "tile_087")
-    viking_base = recolor(
-        t87,
-        {
-            (234, 165, 108): PALETTE["w"],   # bright ivory horns
-            (189, 108, 74): PALETTE["b"],    # rich ginger beard & belt leather
-            (82, 96, 124): PALETTE["n"],     # icy-blue tunic trim
-        },
-    )
-    # Upgrade chest to white wolf-fur shoulder mantle & icy blue Nordic tunic with gold belt
-    viking_over = paint_grid(
+    # 3. Frost Viking (self-contained 16x16 horned steel helm, ginger beard, white wolf-fur mantle & Nordic tunic)
+    viking_base = paint_grid(
         16,
         16,
         [
             "................",
             "....########....",
             ".##############.",
-            "................",
-            "................",
-            "................",
-            "................",
-            "......k..k......",
-            "................",
-            "................",
+            "#ww###cccc###ww#",
+            "#wc##ccCCcc##cw#",
+            ".###wCCCCCCw###.",
+            "..##ccCSSCcc##..",
+            "..##ssksssks##..",
+            "...#smssssms#...",
+            "...#bbbbbbbb#...",
             "..##wwbbbbww##..",
             ".#wwwA####Awww#.",
             "#wwnnnggggnnnww#",
@@ -381,10 +356,11 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
             ".####SS##SS####.",
         ],
     )
-    viking_base = overlay_onto(viking_base, viking_over)
-    # Brighten face skin & eyes slightly so helm doesn't hide expression
-    viking_base = set_pixels(viking_base, [(6, 7, "k"), (10, 7, "k"), (6, 8, "s"), (8, 8, "s"), (10, 8, "s")])
-    viking_glint = set_pixels(viking_base, [(2, 4, "W"), (13, 4, "W"), (8, 12, "y")])
+    viking_base = set_pixels(
+        viking_base,
+        [(6, 7, "k"), (10, 7, "k")],
+    )
+    viking_glint = set_pixels(viking_base, [(2, 3, "W"), (13, 3, "W"), (8, 12, "y")])
     viking_blink = make_blink_16(viking_base, SKIN_SHADE, [(6, 7), (10, 7)])
     register(
         "costume_viking",
@@ -393,19 +369,8 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
         ),
     )
 
-    # 4. Royal Archmage (Kenney tile_099 silhouette — gleaming golden hair, royal purple robes, gold filigree & chest jewel)
-    t99 = crop_frame(atlas, meta, "tile_099")
-    royal_base = recolor(
-        t99,
-        {
-            (189, 108, 74): PALETTE["g"],   # golden wavy hair
-            (118, 59, 54): PALETTE["G"],    # amber hair depth
-            (234, 165, 108): PALETTE["o"],
-            (155, 76, 163): PALETTE["V"],   # royal violet cloak
-            (209, 118, 208): PALETTE["g"],  # gilded gold hem/trim
-        },
-    )
-    royal_over = paint_grid(
+    # 4. Royal Archmage (self-contained 16x16 golden hair, royal purple robes, gold filigree & chest jewel)
+    royal_base = paint_grid(
         16,
         16,
         [
@@ -413,12 +378,12 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
             "....########....",
             "...#gGGGGGGg#...",
             "..##GggggggG##..",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
+            ".#gGssssssssGg#.",
+            ".#ggssssssssgg#.",
+            ".#g#ssssssss#g#.",
+            ".#g#ssksssks#g#.",
+            ".#G#dmmddmmd#G#.",
+            ".#o##ddmmdd##o#.",
             "..##VgGGGGgV##..",
             ".#VVgV####VgVV#.",
             ".#VVVVgZZgVVVV#.",
@@ -427,8 +392,7 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
             "...#ggG##Ggg#...",
         ],
     )
-    royal_base = overlay_onto(royal_base, royal_over)
-    royal_base = set_pixels(royal_base, [(6, 7, "k"), (10, 7, "k"), (7, 9, "d"), (8, 9, "d")])
+    royal_base = set_pixels(royal_base, [(6, 7, "k"), (10, 7, "k")])
     royal_glint = set_pixels(royal_base, [(7, 12, "q"), (8, 12, "q"), (8, 2, "y")])
     royal_blink = make_blink_16(royal_base, SKIN_LIGHT, [(6, 7), (10, 7)])
     register(
@@ -472,7 +436,7 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
         ),
     )
 
-    # 6. Snow Yeti (from Kenney Tiny Ski Yeti col 6..7, row 6, head top aligned to cell y=3, bright snowy highlights)
+    # 6. Snow Yeti (glacier yeti recolored to match unified #1c1221 outline)
     yeti0_raw = ski.crop((6 * 16, 6 * 16, 7 * 16, 7 * 16)).convert("RGBA")
     yeti1_raw = ski.crop((7 * 16, 6 * 16, 8 * 16, 7 * 16)).convert("RGBA")
 
@@ -480,6 +444,7 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
         bright = recolor(
             src16,
             {
+                (63, 38, 49): OUTLINE,
                 (192, 203, 220): PALETTE["w"],   # brighter snowy white fur
                 (139, 155, 180): PALETTE["c"],   # cool ice shading
             },
@@ -519,19 +484,8 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
         ),
     )
 
-    # 7. Gilded Paladin (true Kenney tile_096 knight helm recolored into gleaming 24k gold + crimson cape + cyan eye glint!)
-    t96 = crop_frame(atlas, meta, "tile_096")
-    gold_base = recolor(
-        t96,
-        {
-            (192, 203, 220): PALETTE["y"],   # bright gold helm crest & pauldrons
-            (139, 155, 180): PALETTE["g"],   # main 24k gold armor plate
-            (82, 96, 124): PALETTE["G"],     # deep gold armor shading
-            (189, 108, 74): PALETTE["r"],    # crimson tabard & trims
-        },
-    )
-    # Add flowing crimson cape behind shoulders + crisp cyan visor glow in eye slits (tile_096 has # at (6,7), (8,7), (10,7))
-    gold_cape_over = paint_grid(
+    # 7. Gilded Paladin (self-contained 16x16 gleaming 24k gold full plate + cyan visor glow + royal crimson cape)
+    gold_base = paint_grid(
         16,
         16,
         [
@@ -539,32 +493,22 @@ def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str
             ".....######.....",
             "....#yyyyyy#....",
             "...##yggggG##...",
-            "..#y#gggggg#G#..",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "#RR.............",
-            "#XX#............",
-            "................",
+            "..#y#yyyyyy#G#..",
+            "..#g#gggggg#G#..",
+            "..##g#g#g#g#G#..",
+            "...#gzg#g#zgG#..",
+            "...#ggggggggG#..",
+            "..#gG######Gg#..",
+            ".#Rrgg####ggRr#.",
+            "#RRRygGGGGgyRRR#",
+            "#XX#gGrrrrGg#XX#",
+            "....#GGGGGG#....",
             "....###..###....",
             "....#oo##oo#....",
         ],
     )
-    gold_base = overlay_onto(gold_base, gold_cape_over)
-    # Add symmetric right-side crimson cape + glowing cyan visor pupils at (6,7) & (10,7) + gold chest gleam
-    gold_base = set_pixels(
-        gold_base,
-        [
-            (13, 10, "r"), (14, 10, "R"), (14, 11, "R"), (15, 11, "R"), (14, 12, "X"), (15, 12, "X"),
-            (1, 10, "R"), (2, 10, "r"), (0, 11, "R"),
-            (6, 7, "z"), (10, 7, "z"), (8, 7, "G"), (8, 8, "G"),
-        ],
-    )
-    gold_glint = set_pixels(gold_base, [(6, 2, "W"), (7, 2, "W"), (6, 7, "q"), (10, 7, "q"), (4, 5, "W")])
-    gold_blink = set_pixels(gold_base, [(6, 7, "a"), (10, 7, "a"), (6, 8, "a"), (10, 8, "a")])
+    gold_glint = set_pixels(gold_base, [(6, 2, "W"), (7, 2, "W"), (5, 7, "q"), (10, 7, "q"), (4, 5, "W")])
+    gold_blink = set_pixels(gold_base, [(5, 7, "a"), (10, 7, "a"), (5, 8, "a"), (10, 8, "a")])
     register(
         "costume_gold",
         build_standard_costume_frames(

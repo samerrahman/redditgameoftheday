@@ -893,4 +893,91 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
       }
     }
   });
+
+  void it('ships complete non-mixel sprites and weapon/relic grid slots in dungeon_atlas.json', () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(new URL('../../public/assets/dungeon/dungeon_atlas.json', import.meta.url), 'utf8'),
+    );
+    assert.ok(typeof raw === 'object' && raw !== null && 'meta' in raw && 'frames' in raw);
+    const meta: unknown = raw.meta;
+    assert.ok(typeof meta === 'object' && meta !== null && 'size' in meta);
+    const size: unknown = meta.size;
+    assert.ok(
+      typeof size === 'object' && size !== null && 'w' in size && 'h' in size && size.w === 512 && size.h === 236,
+      'Expected 512x236 dungeon_atlas.json sheet',
+    );
+
+    const framesObj = raw.frames;
+    assert.ok(typeof framesObj === 'object' && framesObj !== null);
+    const frameMap = new Map(Object.entries(framesObj));
+
+    const expectRect = (
+      key: string,
+      w: number,
+      h: number,
+      exactX?: number,
+      exactY?: number,
+    ): void => {
+      const entry: unknown = frameMap.get(key);
+      assert.ok(typeof entry === 'object' && entry !== null && 'frame' in entry, `Missing atlas frame ${key}`);
+      const f: unknown = entry.frame;
+      assert.ok(
+        typeof f === 'object'
+          && f !== null
+          && 'x' in f
+          && 'y' in f
+          && 'w' in f
+          && 'h' in f
+          && f.w === w
+          && f.h === h,
+        `Unexpected dimensions for ${key}`,
+      );
+      if (exactX !== undefined && exactY !== undefined) {
+        assert.equal(f.x, exactX, `Unexpected x for ${key}`);
+        assert.equal(f.y, exactY, `Unexpected y for ${key}`);
+      }
+    };
+
+    // Weapons (tile_106, 103, 117, 129, 130), obsidian monolith (tile_064), and 8 relics
+    // must align to the 28-col x 18px-stride 16x16 grid expected by shopView.ts.
+    const gridTileIds = [64, 102, 103, 105, 106, 107, 114, 115, 116, 117, 118, 119, 129, 130];
+    for (const idx of gridTileIds) {
+      const key = `tile_${String(idx).padStart(3, '0')}`;
+      const col = idx % 28;
+      const row = Math.floor(idx / 28);
+      expectRect(key, 16, 16, 2 + col * 18, 2 + row * 18);
+    }
+
+    for (let i = 0; i < 4; i += 1) {
+      expectRect(`gem_${i}`, 16, 16);
+      expectRect(`coin_${i}`, 16, 16);
+      expectRect(`boom_${i}`, 24, 24);
+    }
+    for (let i = 0; i < 2; i += 1) {
+      expectRect(`heart_${i}`, 16, 16);
+    }
+
+    const creatureSpecs: Array<[string, number, number, string]> = [
+      ['hero', 20, 20, 'dash'],
+      ['slime', 20, 20, 'telegraph'],
+      ['wizard', 20, 20, 'cast'],
+      ['cyclops', 24, 24, 'charge'],
+      ['warden', 26, 26, 'charge'],
+      ['boss', 32, 32, 'attack'],
+    ];
+    for (const [prefix, w, h, action] of creatureSpecs) {
+      for (let i = 0; i < 4; i += 1) {
+        expectRect(`${prefix}_idle_${i}`, w, h);
+        expectRect(`${prefix}_run_${i}`, w, h);
+      }
+      for (let i = 0; i < 2; i += 1) {
+        const suffix = action === 'dash' ? 'dash' : action;
+        expectRect(`${prefix}_${suffix}_${i}`, w, h);
+      }
+      if (prefix === 'hero') {
+        expectRect('hero_charge_0', w, h);
+        expectRect('hero_charge_1', w, h);
+      }
+    }
+  });
 });
