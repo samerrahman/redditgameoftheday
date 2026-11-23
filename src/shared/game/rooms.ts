@@ -188,6 +188,26 @@ function cellToObstacle(i: number, j: number, id: number): ObstacleBlueprint {
   return { id, x: (i + 1) * CELL_SIZE, y: (j + 1) * CELL_SIZE, w: CELL_SIZE, h: CELL_SIZE };
 }
 
+function cellCenter(i: number, j: number): { x: number; y: number } {
+  return { x: (i + 1.5) * CELL_SIZE, y: (j + 1.5) * CELL_SIZE };
+}
+
+function pickFreeCells(
+  candidates: readonly (readonly [number, number])[],
+  blocked: Set<string>,
+  count: number,
+): Array<[number, number]> {
+  const chosen: Array<[number, number]> = [];
+  for (const [i, j] of candidates) {
+    if (chosen.length >= count) break;
+    const key = `${i},${j}`;
+    if (blocked.has(key)) continue;
+    blocked.add(key);
+    chosen.push([i, j]);
+  }
+  return chosen;
+}
+
 export function buildObstacles(rng: SeededRng, layout: RoomLayoutId, roomIndex: number): ObstacleBlueprint[] {
   const cells: Array<[number, number]> = [];
   if (layout === 'scatter') {
@@ -276,26 +296,30 @@ function getSafeSpawnPoint(
   return { x: Math.round(ARENA_W * 0.25), y: Math.round(ARENA_H * 0.28) };
 }
 
+const HAZARD_CELLS: readonly (readonly [number, number])[] = [
+  [2, 1], [7, 1], [2, 4], [7, 4],
+  [3, 1], [6, 1], [1, 1], [8, 1],
+  [1, 4], [8, 4], [2, 2], [7, 2],
+  [2, 3], [7, 3], [0, 1], [9, 1],
+  [0, 4], [9, 4],
+];
+
 function buildHazards(
   rng: SeededRng,
   hazardType: HazardType,
   roomIndex: number,
+  blockedCells: Set<string>,
 ): HazardBlueprint[] {
   const hazards: HazardBlueprint[] = [];
   if (hazardType === 'spikes') {
-    const spots = [
-      { x: Math.round(ARENA_W * 0.27), y: Math.round(ARENA_H * 0.34) },
-      { x: Math.round(ARENA_W * 0.73), y: Math.round(ARENA_H * 0.34) },
-      { x: Math.round(ARENA_W * 0.27), y: Math.round(ARENA_H * 0.66) },
-      { x: Math.round(ARENA_W * 0.73), y: Math.round(ARENA_H * 0.66) },
-    ];
-    const jitter = rng.range(-12, 12);
-    spots.forEach((spot, idx) => {
+    const cells = pickFreeCells(HAZARD_CELLS, blockedCells, 4);
+    cells.forEach(([i, j], idx) => {
+      const pt = cellCenter(i, j);
       hazards.push({
         id: roomIndex * 100 + idx,
         type: 'spikes',
-        x: spot.x + jitter * (idx % 2 === 0 ? 1 : -1),
-        y: spot.y,
+        x: pt.x,
+        y: pt.y,
         w: CELL_SIZE,
         h: CELL_SIZE,
         dirX: 0,
@@ -304,20 +328,16 @@ function buildHazards(
       });
     });
   } else if (hazardType === 'barrels') {
-    const spots = [
-      { x: Math.round(ARENA_W * 0.28), y: Math.round(ARENA_H * 0.33) },
-      { x: Math.round(ARENA_W * 0.72), y: Math.round(ARENA_H * 0.33) },
-      { x: Math.round(ARENA_W * 0.28), y: Math.round(ARENA_H * 0.67) },
-      { x: Math.round(ARENA_W * 0.72), y: Math.round(ARENA_H * 0.67) },
-    ];
-    spots.forEach((spot, idx) => {
+    const cells = pickFreeCells(HAZARD_CELLS, blockedCells, 4);
+    cells.forEach(([i, j], idx) => {
+      const pt = cellCenter(i, j);
       hazards.push({
         id: roomIndex * 100 + idx,
         type: 'barrels',
-        x: spot.x + rng.range(-14, 14),
-        y: spot.y + rng.range(-12, 12),
-        w: 36,
-        h: 36,
+        x: pt.x,
+        y: pt.y,
+        w: CELL_SIZE,
+        h: CELL_SIZE,
         dirX: 0,
         dirY: 0,
         phaseOffset: 0,
@@ -330,9 +350,9 @@ function buildHazards(
         id: roomIndex * 100 + 1,
         type: 'currents',
         x: ARENA_W / 2,
-        y: Math.round(ARENA_H * 0.36),
-        w: Math.round(ARENA_W * 0.48),
-        h: 52,
+        y: cellCenter(0, 1).y,
+        w: CELL_SIZE * 4,
+        h: CELL_SIZE,
         dirX: dir,
         dirY: 0,
         phaseOffset: 0,
@@ -341,9 +361,9 @@ function buildHazards(
         id: roomIndex * 100 + 2,
         type: 'currents',
         x: ARENA_W / 2,
-        y: Math.round(ARENA_H * 0.64),
-        w: Math.round(ARENA_W * 0.48),
-        h: 52,
+        y: cellCenter(0, 4).y,
+        w: CELL_SIZE * 4,
+        h: CELL_SIZE,
         dirX: -dir,
         dirY: 0,
         phaseOffset: 0,
@@ -354,31 +374,33 @@ function buildHazards(
 }
 
 function buildBreakables(
-  rng: SeededRng,
   roomIndex: number,
   kind: 'crate' | 'pillar',
   count: number,
+  blockedCells: Set<string>,
 ): BreakableBlueprint[] {
-  const presets =
+  const candidates: readonly (readonly [number, number])[] =
     kind === 'pillar'
       ? [
-          { x: Math.round(ARENA_W * 0.28), y: ARENA_H / 2 },
-          { x: Math.round(ARENA_W * 0.72), y: ARENA_H / 2 },
+          [2, 2], [7, 2], [2, 3], [7, 3], [1, 2], [8, 2],
         ]
       : [
-          { x: Math.round(ARENA_W * 0.19), y: Math.round(ARENA_H * 0.25) },
-          { x: Math.round(ARENA_W * 0.81), y: Math.round(ARENA_H * 0.25) },
-          { x: Math.round(ARENA_W * 0.19), y: Math.round(ARENA_H * 0.75) },
-          { x: Math.round(ARENA_W * 0.81), y: Math.round(ARENA_H * 0.75) },
+          [1, 1], [8, 1], [1, 4], [8, 4],
+          [0, 0], [9, 0], [0, 5], [9, 5],
+          [0, 1], [9, 1], [0, 4], [9, 4],
+          [2, 0], [7, 0], [2, 5], [7, 5],
         ];
-  return presets.slice(0, count).map((p, idx) => ({
-    id: roomIndex * 1000 + idx,
-    x: p.x + rng.range(-10, 10),
-    y: p.y + rng.range(-10, 10),
-    hp: kind === 'pillar' ? 50 : 22,
-    radius: kind === 'pillar' ? 22 : 16,
-    kind,
-  }));
+  return pickFreeCells(candidates, blockedCells, count).map(([i, j], idx) => {
+    const pt = cellCenter(i, j);
+    return {
+      id: roomIndex * 1000 + idx,
+      x: pt.x,
+      y: pt.y,
+      hp: kind === 'pillar' ? 50 : 22,
+      radius: kind === 'pillar' ? 24 : 22,
+      kind,
+    };
+  });
 }
 
 function makeWave(
@@ -602,6 +624,9 @@ export function buildDailyDungeonMap(
     const role = node.id === 0 ? 'entrance' : node.id === bossRoomId ? 'boss' : 'room';
     const layout = pickLayout(layoutRng, role, f);
     const obstacles = buildObstacles(layoutRng, layout, node.roomIndex);
+    const occupiedCells = new Set(
+      obstacles.map((o) => `${Math.round(o.x / CELL_SIZE) - 1},${Math.round(o.y / CELL_SIZE) - 1}`),
+    );
     const wave = (archetypes: EnemyArchetype[]): WaveSpawn[] => makeWave(roomRng, archetypes, obstacles);
     if (node.id === 0) {
       node.blueprint = {
@@ -612,7 +637,7 @@ export function buildDailyDungeonMap(
             ? [wave(['chaser', 'chaser']), wave(['chaser', 'shade'])]
             : [wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra))],
         hazards: [],
-        breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 4),
+        breakables: buildBreakables(node.roomIndex, 'crate', 4, occupiedCells),
         obstacles,
         layout,
         rewardType: 'coin_cache',
@@ -627,7 +652,7 @@ export function buildDailyDungeonMap(
         roomType: 'boss',
         waves: [[{ archetype: 'boss', x: ARENA_W / 2, y: centerSpawnY }, ...wave(escorts)]],
         hazards: [],
-        breakables: buildBreakables(roomRng, node.roomIndex, 'pillar', 2),
+        breakables: buildBreakables(node.roomIndex, 'pillar', 2, occupiedCells),
         obstacles,
         layout,
         rewardType: 'boss_chest_and_portals',
@@ -642,8 +667,8 @@ export function buildDailyDungeonMap(
           wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra)),
           wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'chaser'], f, extra)),
         ],
-        hazards: buildHazards(roomRng, dailyHazard, node.roomIndex),
-        breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 3),
+        hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
+        breakables: buildBreakables(node.roomIndex, 'crate', 3, occupiedCells),
         obstacles,
         layout,
         rewardType: 'fountain_and_relics',
@@ -661,7 +686,7 @@ export function buildDailyDungeonMap(
           ],
         ],
         hazards: [],
-        breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 4),
+        breakables: buildBreakables(node.roomIndex, 'crate', 4, occupiedCells),
         obstacles,
         layout,
         rewardType: 'synergy_relics',
@@ -680,8 +705,8 @@ export function buildDailyDungeonMap(
           node.bfsDist <= 1 && f === 1
             ? [wave(waveA)]
             : [wave(waveA), wave(waveB)],
-        hazards: buildHazards(roomRng, dailyHazard, node.roomIndex),
-        breakables: buildBreakables(roomRng, node.roomIndex, 'crate', 3),
+        hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
+        breakables: buildBreakables(node.roomIndex, 'crate', 3, occupiedCells),
         obstacles,
         layout,
         rewardType,
@@ -691,7 +716,7 @@ export function buildDailyDungeonMap(
     }
     // Crates/pillars never sit inside a block.
     node.blueprint.breakables = node.blueprint.breakables.filter(
-      (b) => !circleHitsObstacle(b.x, b.y, b.radius + 6, obstacles),
+      (b) => !circleHitsObstacle(b.x, b.y, b.radius, obstacles),
     );
   }
 

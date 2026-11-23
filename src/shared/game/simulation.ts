@@ -1169,7 +1169,8 @@ export class GameSimulation {
           const dx = haz.x - p.x;
           const dy = haz.y - p.y;
           const dist = Math.hypot(dx, dy);
-          if (dist <= range + 20) {
+          const hitRadius = Math.round(haz.w * 0.42);
+          if (dist <= range + hitRadius) {
             const ea = Math.atan2(dy, dx);
             if (Math.abs(normalizeAngle(ea - angle)) <= cleaveArc / 2 || dist <= 36) {
               this.triggerBarrelExplosion(haz);
@@ -2513,7 +2514,8 @@ export class GameSimulation {
         }
         if (!consumed) {
           for (const haz of s.hazards) {
-            if (haz.type === 'barrels' && !haz.destroyed && Math.hypot(haz.x - proj.x, haz.y - proj.y) <= 20 + proj.radius) {
+            const hitRadius = Math.round(haz.w * 0.42);
+            if (haz.type === 'barrels' && !haz.destroyed && Math.hypot(haz.x - proj.x, haz.y - proj.y) <= hitRadius + proj.radius) {
               this.triggerBarrelExplosion(haz);
               if (!proj.pierce) consumed = true;
               break;

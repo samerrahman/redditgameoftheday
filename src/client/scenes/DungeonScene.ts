@@ -1376,11 +1376,11 @@ export class DungeonScene extends Phaser.Scene {
           .setDepth(5)
           .setVisible(true);
       } else {
-        drawPixelShadow(shadowG, haz.x, haz.y + 15, 18, 6, 0.42);
+        drawPixelShadow(shadowG, haz.x, haz.y + 24, 24, 6, 0.42);
         spr
           .setPosition(haz.x, haz.y)
           .setFrame('barrel_tnt')
-          .setScale(PIXEL_SCALE)
+          .setDisplaySize(haz.w, haz.h)
           .setDepth(9)
           .setVisible(true);
       }
@@ -1583,13 +1583,13 @@ export class DungeonScene extends Phaser.Scene {
       const frame = br.kind === 'pillar' ? 'tile_065' : 'tile_063';
       let spr = this.breakableSprites.get(br.id);
       if (!spr) {
-        spr = this.add.image(br.x, br.y, 'dungeon', frame).setScale(PIXEL_SCALE).setDepth(9);
+        spr = this.add.image(br.x, br.y, 'dungeon', frame).setDisplaySize(CELL_SIZE, CELL_SIZE).setDepth(9);
         this.breakableSprites.set(br.id, spr);
       }
 
-      drawPixelShadow(shadowG, br.x, br.y + 18, br.radius * 0.9, 6, 0.38);
+      drawPixelShadow(shadowG, br.x, br.y + 24, 24, 6, 0.38);
 
-      spr.setPosition(br.x, br.y).setFrame(frame);
+      spr.setPosition(br.x, br.y).setFrame(frame).setDisplaySize(CELL_SIZE, CELL_SIZE);
       if (br.hitFlash > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
       } else {
@@ -1734,35 +1734,6 @@ export class DungeonScene extends Phaser.Scene {
         const t = 1 - enemy.stateTimer / 0.65;
         teleG.lineStyle(2, 0xf87171, 0.85);
         teleG.strokeCircle(enemy.x, enemy.y, enemy.radius + (1 - Math.max(0, t)) * 22);
-      } else if (enemy.state === 'telegraph') {
-        if (enemy.attackKind === 'ice_mortar') {
-          teleG.lineStyle(2, 0x67e8f9, 0.85);
-          teleG.strokeCircle(enemy.targetX, enemy.targetY, 62);
-          teleG.fillStyle(0x67e8f9, 0.14);
-          teleG.fillCircle(enemy.targetX, enemy.targetY, 62);
-        } else if (enemy.attackKind === 'ricochet_charge' || enemy.attackKind === 'tank_burst') {
-          const len = enemy.attackKind === 'tank_burst' ? 180 : 140;
-          teleG.lineStyle(3, 0xf87171, 0.65);
-          teleG.lineBetween(
-            enemy.x,
-            enemy.y,
-            enemy.x + Math.cos(enemy.aimAngle) * len,
-            enemy.y + Math.sin(enemy.aimAngle) * len,
-          );
-        } else if (enemy.attackKind === 'shade_fan') {
-          teleG.lineStyle(2, 0xc084fc, 0.85);
-          teleG.strokeCircle(enemy.x, enemy.y, enemy.radius + 8);
-          teleG.lineStyle(2, 0xc084fc, 0.5);
-          for (const offset of [-0.28, 0, 0.28]) {
-            const ang = enemy.aimAngle + offset;
-            teleG.lineBetween(
-              enemy.x,
-              enemy.y,
-              enemy.x + Math.cos(ang) * 90,
-              enemy.y + Math.sin(ang) * 90,
-            );
-          }
-        }
       }
     }
   }
