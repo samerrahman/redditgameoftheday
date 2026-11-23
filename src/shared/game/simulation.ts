@@ -2020,51 +2020,27 @@ export class GameSimulation {
     dt: number,
   ): void {
     const s = this.state;
+    const orbitDir = enemy.id % 2 === 0 ? 1 : -1;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (dist > 220) {
+      if (dist > 210) {
         enemy.x += dirX * enemy.speed * dt;
         enemy.y += dirY * enemy.speed * dt;
       } else if (dist < 130) {
-        enemy.x -= dirX * enemy.speed * 0.9 * dt;
-        enemy.y -= dirY * enemy.speed * 0.9 * dt;
+        enemy.x -= dirX * enemy.speed * 0.85 * dt;
+        enemy.y -= dirY * enemy.speed * 0.85 * dt;
       } else {
-        enemy.x += -dirY * enemy.speed * 0.65 * dt;
-        enemy.y += dirX * enemy.speed * 0.65 * dt;
+        enemy.x += -dirY * orbitDir * enemy.speed * 0.75 * dt;
+        enemy.y += dirX * orbitDir * enemy.speed * 0.75 * dt;
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 420) {
+      if (enemy.stateTimer <= 0 && dist <= 380) {
         enemy.state = 'telegraph';
-        enemy.attackKind = 'blink_fan';
-        enemy.telegraphDuration = 0.52;
-        enemy.stateTimer = 0.52;
+        enemy.attackKind = 'shade_fan';
+        enemy.telegraphDuration = 0.55;
+        enemy.stateTimer = 0.55;
       }
     } else if (enemy.state === 'telegraph') {
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        const base = Math.atan2(enemy.y - s.player.y, enemy.x - s.player.x);
-        const candidates = [base + Math.PI / 2, base - Math.PI / 2, base + Math.PI, base];
-        for (const ang of candidates) {
-          const cx = s.player.x + Math.cos(ang) * 95;
-          const cy = s.player.y + Math.sin(ang) * 95;
-          const inBounds =
-            cx >= PLAY_MIN_X + enemy.radius &&
-            cx <= PLAY_MAX_X - enemy.radius &&
-            cy >= PLAY_MIN_Y + enemy.radius &&
-            cy <= PLAY_MAX_Y - enemy.radius;
-          if (inBounds && !this.pointInObstacle(cx, cy, enemy.radius + 2)) {
-            this.spawnParticles(enemy.x, enemy.y, '#c084fc', 7, 130);
-            enemy.x = cx;
-            enemy.y = cy;
-            this.spawnParticles(cx, cy, '#c084fc', 7, 130);
-            break;
-          }
-        }
-        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
-        enemy.state = 'attack';
-        enemy.stateTimer = 0.32;
-      }
-    } else if (enemy.state === 'attack') {
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
         for (const offset of [-0.28, 0, 0.28]) {
@@ -2074,22 +2050,25 @@ export class GameSimulation {
             friendly: false,
             x: enemy.x + Math.cos(ang) * (enemy.radius + 6),
             y: enemy.y + Math.sin(ang) * (enemy.radius + 6),
-            vx: Math.cos(ang) * 280,
-            vy: Math.sin(ang) * 280,
+            vx: Math.cos(ang) * 265,
+            vy: Math.sin(ang) * 265,
             radius: 7,
             damage: enemy.damage,
-            ttl: 1.4,
+            ttl: 1.45,
             pierce: false,
             hitEnemyIds: [],
             kind: 'orb',
             angle: ang,
           });
         }
+        this.spawnParticles(enemy.x, enemy.y, '#c084fc', 6, 110);
         enemy.state = 'recover';
-        enemy.stateTimer = 0.85;
+        enemy.stateTimer = 0.9;
         enemy.attackKind = 'none';
       }
     } else if (enemy.state === 'recover') {
+      enemy.x += -dirY * orbitDir * enemy.speed * 0.4 * dt;
+      enemy.y += dirX * orbitDir * enemy.speed * 0.4 * dt;
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
         enemy.state = 'chase';

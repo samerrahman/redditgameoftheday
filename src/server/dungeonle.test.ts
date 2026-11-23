@@ -999,14 +999,22 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       return sim;
     };
 
-    // Shade: blinks and fires 3 projectiles
+    // Shade: orbits smoothly without teleporting and fires 3 projectiles
     const shadeSim = setupWith('shade', ARENA_W / 2, 170);
     let maxShadeProj = 0;
+    let maxShadeStepDist = 0;
+    let prevShadeX = shadeSim.state.enemies[0]!.x;
+    let prevShadeY = shadeSim.state.enemies[0]!.y;
     for (let i = 0; i < 75; i += 1) {
       shadeSim.step(idleInput());
+      const shadeNow = shadeSim.state.enemies[0]!;
+      maxShadeStepDist = Math.max(maxShadeStepDist, Math.hypot(shadeNow.x - prevShadeX, shadeNow.y - prevShadeY));
+      prevShadeX = shadeNow.x;
+      prevShadeY = shadeNow.y;
       maxShadeProj = Math.max(maxShadeProj, shadeSim.state.projectiles.length);
     }
-    assert.ok(maxShadeProj >= 3, 'shade should blink and fire a 3-shot fan');
+    assert.ok(maxShadeProj >= 3, 'shade should fire a 3-shot fan');
+    assert.ok(maxShadeStepDist <= 12, 'shade must move continuously without teleporting');
 
     // Yeti: launches ice_mortar that bursts into 4 cardinal frost shards
     const yetiSim = setupWith('yeti', ARENA_W / 2, 160);
