@@ -1749,9 +1749,19 @@ export class DungeonScene extends Phaser.Scene {
             enemy.x + Math.cos(enemy.aimAngle) * len,
             enemy.y + Math.sin(enemy.aimAngle) * len,
           );
-        } else if (enemy.attackKind === 'blink_fan') {
+        } else if (enemy.attackKind === 'shade_fan') {
           teleG.lineStyle(2, 0xc084fc, 0.85);
           teleG.strokeCircle(enemy.x, enemy.y, enemy.radius + 8);
+          teleG.lineStyle(2, 0xc084fc, 0.5);
+          for (const offset of [-0.28, 0, 0.28]) {
+            const ang = enemy.aimAngle + offset;
+            teleG.lineBetween(
+              enemy.x,
+              enemy.y,
+              enemy.x + Math.cos(ang) * 90,
+              enemy.y + Math.sin(ang) * 90,
+            );
+          }
         }
       }
     }

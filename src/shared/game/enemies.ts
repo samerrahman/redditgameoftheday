@@ -16,7 +16,7 @@ export type EnemyAttackKind =
   | 'charge'
   | 'boss_radial'
   | 'boss_leap'
-  | 'blink_fan'
+  | 'shade_fan'
   | 'ice_mortar'
   | 'drop_bomb'
   | 'tank_burst'
