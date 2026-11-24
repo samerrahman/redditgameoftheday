@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DUNGEON_DIR = ROOT / "public" / "assets" / "dungeon"
 ATLAS_PNG = DUNGEON_DIR / "dungeon_atlas.png"
 ATLAS_JSON = DUNGEON_DIR / "dungeon_atlas.json"
+SKI_PNG = ROOT / "public" / "assets" / "ski" / "tilemap_packed.png"
 
 OUT_PNG = DUNGEON_DIR / "cosmetics_atlas.png"
 OUT_JSON = DUNGEON_DIR / "cosmetics_atlas.json"
@@ -252,7 +253,7 @@ def build_standard_costume_frames(
     }
 
 
-def build_costumes(atlas: Image.Image, meta: dict) -> dict[str, Image.Image]:
+def build_costumes(atlas: Image.Image, meta: dict, ski: Image.Image) -> dict[str, Image.Image]:
     frames: dict[str, Image.Image] = {}
 
     def register(prefix: str, d: dict[str, Image.Image]) -> None:
@@ -435,53 +436,42 @@ def build_costumes(atlas: Image.Image, meta: dict) -> dict[str, Image.Image]:
         ),
     )
 
-    # 6. Snow Yeti (100% original 16x16 glacier beast in unified #1c1221 outline)
-    yeti0 = paint_grid(
-        16,
-        16,
-        [
-            "................",
-            "....########....",
-            "...#WWwwwwWW#...",
-            "..#ccwwWWWWww#..",
-            "..#ccwwwqqwww#..",
-            ".#ccwwwwqqwwww#.",
-            ".#cw#CCzzzzCCw#.",
-            ".#cw#Cz#zz#zCw#.",
-            "..##CCzzzzzzCC#.",
-            "..#ww########w#.",
-            "#cwwwwqqqqqqwww#",
-            "#w.#cwwccccww#.#",
-            ".#.#ccCccccCc#..",
-            "...#cCC####CC#..",
-            "...#cc#....#c#..",
-            "...###.....###..",
-        ],
-    )
-    yeti1 = paint_grid(
-        16,
-        16,
-        [
-            "................",
-            "....########....",
-            "...#WWwwwwWW#...",
-            "..#ccwwWWWWww#..",
-            "..#ccwwwqqwww#..",
-            ".#ccwwwwqqwwww#.",
-            ".#cw#CCzzzzCCw#.",
-            ".#cw#Cz#zz#zCw#.",
-            "..##CCzzzzzzCC#.",
-            "..#ww########w#.",
-            ".#cwwwqqqqqqww#.",
-            ".#.#cwwccccww#..",
-            "...#ccC####Cc#..",
-            "...#cc#....#c#..",
-            "...###.....##...",
-            "................",
-        ],
-    )
-    yeti_glint = set_pixels(yeti0, [(7, 3, "W"), (8, 3, "W"), (7, 7, "u"), (10, 7, "u")])
-    yeti_blink = make_blink_16(yeti0, PALETTE["z"], [(7, 7), (10, 7)])
+    # 6. Snow Yeti (glacier yeti recolored to match unified #1c1221 outline)
+    yeti0_raw = ski.crop((6 * 16, 6 * 16, 7 * 16, 7 * 16)).convert("RGBA")
+    yeti1_raw = ski.crop((7 * 16, 6 * 16, 8 * 16, 7 * 16)).convert("RGBA")
+
+    def prepare_yeti(src16: Image.Image) -> Image.Image:
+        bright = recolor(
+            src16,
+            {
+                (63, 38, 49): OUTLINE,
+                (192, 203, 220): PALETTE["w"],   # brighter snowy white fur
+                (139, 155, 180): PALETTE["c"],   # cool ice shading
+            },
+        )
+        out = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        sp = bright.load()
+        dp = out.load()
+        for y in range(14):
+            for x in range(16):
+                dp[x, y + 1] = sp[x, y]
+        for x in range(16):
+            if dp[x, 14][3] >= 128 and sp[x, 15][3] >= 128:
+                dp[x, 15] = OUTLINE
+            elif sp[x, 15][3] >= 128 and dp[x, 14][3] < 128:
+                dp[x, 15] = sp[x, 15]
+        for x in range(16):
+            if dp[x, 14][3] >= 128 and dp[x, 15][3] < 128:
+                dp[x, 15] = OUTLINE
+        for x in range(3, 13):
+            if dp[x, 14][:3] != OUTLINE[:3] and dp[x, 14][3] >= 128:
+                dp[x, 15] = OUTLINE
+        return out
+
+    yeti0 = prepare_yeti(yeti0_raw)
+    yeti1 = prepare_yeti(yeti1_raw)
+    yeti_glint = set_pixels(yeti0, [(7, 4, "W"), (8, 4, "W"), (6, 7, "u"), (10, 7, "u")])
+    yeti_blink = make_blink_16(yeti0, PALETTE["w"], [(6, 7), (10, 7)])
     register(
         "costume_yeti",
         build_standard_costume_frames(
@@ -1066,8 +1056,9 @@ def make_preview_sheet(costumes: dict[str, Image.Image], hats: dict[str, Image.I
 
 def main() -> None:
     atlas, meta = load_dungeon_atlas()
+    ski = Image.open(SKI_PNG).convert("RGBA")
 
-    costumes = build_costumes(atlas, meta)
+    costumes = build_costumes(atlas, meta, ski)
     hats = build_hats()
     out_img, out_json = pack_atlas(costumes, hats)
 

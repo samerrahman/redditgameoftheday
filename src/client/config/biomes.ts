@@ -1,9 +1,9 @@
 /**
  * Per-floor visual themes ("biomes"). Floor 1 is the dungeon; deeper floors cycle
- * through custom 1:1 outdoor biome tilemaps. Purely cosmetic: layouts and enemies
- * come from the simulation and are unaffected.
+ * through the outdoor Kenney packs. Purely cosmetic: layouts and enemies come from
+ * the simulation and are unaffected.
  *
- * Frame numbers index each sheet's `tilemap_packed.png` (16x16 tiles, row-major:
+ * Frame numbers index each pack's `tilemap_packed.png` (16x16 tiles, row-major:
  * ski/town/farm are 12 columns wide, battle is 18).
  */
 
@@ -69,7 +69,7 @@ export const BIOMES: readonly FloorBiome[] = [
     ],
     decorCount: [4, 6],
     torches: false,
-    blocks: { sheet: 'ski', frames: [81] }, // glacier crags
+    blocks: { sheet: 'ski', frames: [81] }, // snowy rocks
   },
   {
     id: 'town',
@@ -99,9 +99,9 @@ export const BIOMES: readonly FloorBiome[] = [
     wallTint: 0xe0cf8c,
     ambientBg: 0x22300f,
     decor: [
-      { sheet: 'battle', frames: [94], weight: 3 }, // spruce
-      { sheet: 'battle', frames: [112], weight: 2 }, // pine thicket
-      { sheet: 'battle', frames: [16], weight: 2 }, // war flag
+      { sheet: 'battle', frames: [94], weight: 3 }, // tree
+      { sheet: 'battle', frames: [112], weight: 2 }, // tree pair
+      { sheet: 'battle', frames: [16], weight: 2 }, // flag
     ],
     decorCount: [4, 6],
     torches: false,
@@ -128,7 +128,7 @@ export const BIOMES: readonly FloorBiome[] = [
     ],
     decorCount: [4, 6],
     torches: false,
-    blocks: { sheet: 'farm', frames: [96, 97, 85] }, // all hay bales and cider barrels
+    blocks: { sheet: 'farm', frames: [96, 97, 85] }, // hay bales and barrels
   },
 ];
 

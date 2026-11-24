@@ -469,7 +469,6 @@ export class DungeonScene extends Phaser.Scene {
     define('yeti_cast', [80], 6, -1, 'ski');
     define('tank_roll', [152], 6, -1, 'battle');
     define('tank_fire', [153], 6, -1, 'battle');
-    define('stampede_run', [121, 123], 8, -1, 'farm');
 
     define('coin_spin', ['coin_0', 'coin_1', 'coin_2', 'coin_3'], 10);
     define('gem_spin', ['gem_0', 'gem_1', 'gem_2', 'gem_3'], 8);
@@ -2243,10 +2242,7 @@ export class DungeonScene extends Phaser.Scene {
     if (enemy.archetype === 'mortar_tank') {
       return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'tank_fire' : 'tank_roll';
     }
-    if (enemy.archetype === 'stampede') {
-      return enemy.state === 'chase' || enemy.state === 'attack' ? 'stampede_run' : null;
-    }
-    if (enemy.archetype === 'shade' || enemy.archetype === 'bomber') {
+    if (enemy.archetype === 'shade' || enemy.archetype === 'bomber' || enemy.archetype === 'stampede') {
       return null;
     }
     if (enemy.attackKind === 'boss_leap') {
