@@ -56,6 +56,10 @@ export type EnemyEntity = {
   burstLeft: number;
   burstCooldown: number;
   bouncesLeft: number;
+  leapStartX: number;
+  leapStartY: number;
+  leapZ: number;
+  leapDuration: number;
 };
 
 type EnemyBaseSpec = {
@@ -103,7 +107,7 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
   },
   elite_charger: {
     baseHp: 215,
-    radius: 25,
+    radius: 20,
     armor: 3,
     speed: 118,
     damage: 22,
@@ -220,6 +224,10 @@ export function createEnemy(
     burstLeft: 0,
     burstCooldown: 0,
     bouncesLeft: 0,
+    leapStartX: x,
+    leapStartY: y,
+    leapZ: 0,
+    leapDuration: 0,
   };
 }
 

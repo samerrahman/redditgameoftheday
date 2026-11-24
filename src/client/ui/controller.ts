@@ -4,7 +4,7 @@ import type {
   GameSimulation,
 } from '../../shared/game/simulation.ts';
 import { ENFORCE_SINGLE_DAILY_RUN } from '../../shared/buildMeta.ts';
-import { getDailyModifier } from '../../shared/modifiers.ts';
+import { getDailyModifier, getDailyRule } from '../../shared/modifiers.ts';
 import { getDailyRunSummary, getPlayerTitle, hasCompletedDailyRun } from '../../shared/profile.ts';
 import { RELICS } from '../../shared/relics.ts';
 import { formatTimeUntilNextUtcDay } from '../../shared/rng.ts';
@@ -15,7 +15,6 @@ import type {
   DoorDirection,
   PlayerProfile,
   RelicId,
-  RoomType,
   RunSummary,
 } from '../../shared/types.ts';
 import { getFloorBiome } from '../config/biomes.ts';
@@ -74,11 +73,8 @@ export class GameUIController {
   private prevBestFloor: number | null = null;
   private shopOpen = false;
   private tutorialOpen = false;
-  private lastFloor = -1;
   private lastGems = -1;
   private toastTimer: number | null = null;
-  private bannerTimer: number | null = null;
-  private bannerHideTimer: number | null = null;
   private hpHurtTimer: number | null = null;
   private countdownTimer: number | null = null;
 
@@ -93,8 +89,6 @@ export class GameUIController {
   private lastRerollVisible = false;
   private lastRerollCount = -1;
   private lastBossKey = '';
-  private lastAnnouncement = '';
-  private lastBannerKey = '';
   private lastMinimapKey = '';
   private lastPhase: GamePhase = 'start';
 
@@ -111,11 +105,6 @@ export class GameUIController {
   private readonly hudBossBar = getEl('hud-boss-bar');
   private readonly hudBossName = getEl('hud-boss-name');
   private readonly hudBossFill = getEl('hud-boss-fill');
-  private readonly hudRoomBanner = getEl('hud-room-banner');
-  private readonly hudRoomBannerKicker = getEl('hud-room-banner-kicker');
-  private readonly hudRoomBannerTitle = getEl('hud-room-banner-title');
-  private readonly hudRoomBannerSub = getEl('hud-room-banner-sub');
-  private readonly hudAnnouncement = getEl('hud-announcement');
   private readonly hudTimer = getEl('hud-timer');
   private readonly hudCoinsVal = getEl('hud-coins-val');
   private readonly hudGems = getEl('hud-gems');
@@ -132,6 +121,7 @@ export class GameUIController {
   private readonly startDate = getEl('start-date');
   private readonly startDungeon = getEl('start-dungeon');
   private readonly startModifier = getEl('start-modifier');
+  private readonly startDailyRule = getEl('start-daily-rule');
   private readonly startStreak = getEl('start-streak');
   private readonly startTitle = getEl('start-title');
   private readonly startBestFloor = getEl('start-best-floor');
@@ -274,7 +264,7 @@ export class GameUIController {
       this.lowHpFx.style.setProperty('--low-hp-strength', strength.toFixed(2));
     }
 
-    const roomText = `Floor ${s.floor} · Room ${s.roomIndex}/${s.totalRooms}`;
+    const roomText = `Floor ${s.floor} - Room ${s.roomIndex}/${s.totalRooms}`;
     if (roomText !== this.lastRoomText) {
       this.lastRoomText = roomText;
       this.hudRoom.textContent = roomText;
@@ -313,18 +303,6 @@ export class GameUIController {
       this.hudGemsVal.textContent = String(s.stats.gemsEarned);
     }
 
-    const bannerKey = `${s.floor}:${s.currentRoomId}:${s.roomIndex}:${s.roomType}`;
-    if (bannerKey !== this.lastBannerKey) {
-      this.lastBannerKey = bannerKey;
-      const newFloor = s.floor !== this.lastFloor;
-      this.lastFloor = s.floor;
-      if (s.isFirstVisitToRoom || newFloor) {
-        const biomeName = getFloorBiome(s.floor).name;
-        const sub = !newFloor ? '' : s.floor > 1 ? `${biomeName} · Enemies grow stronger` : biomeName;
-        this.showRoomBanner(s.floor, s.roomIndex, s.roomType, s.totalRooms, sub);
-      }
-    }
-
     const rerollVisible = s.pedestals.length > 0 && p.rerollsRemaining > 0;
     if (rerollVisible !== this.lastRerollVisible || p.rerollsRemaining !== this.lastRerollCount) {
       this.lastRerollVisible = rerollVisible;
@@ -347,13 +325,6 @@ export class GameUIController {
       } else {
         this.hudBossBar.hidden = true;
       }
-    }
-
-    const ann = s.announcementTimer > 0 ? s.announcementText : '';
-    if (ann !== this.lastAnnouncement) {
-      this.lastAnnouncement = ann;
-      this.hudAnnouncement.hidden = ann.length === 0;
-      this.hudAnnouncement.textContent = ann;
     }
 
     const relicKey = (Object.keys(p.relics) as RelicId[])
@@ -475,14 +446,6 @@ export class GameUIController {
       window.clearTimeout(this.toastTimer);
       this.toastTimer = null;
     }
-    if (this.bannerTimer !== null) {
-      window.clearTimeout(this.bannerTimer);
-      this.bannerTimer = null;
-    }
-    if (this.bannerHideTimer !== null) {
-      window.clearTimeout(this.bannerHideTimer);
-      this.bannerHideTimer = null;
-    }
     if (this.hpHurtTimer !== null) {
       window.clearTimeout(this.hpHurtTimer);
       this.hpHurtTimer = null;
@@ -498,7 +461,7 @@ export class GameUIController {
   }
 
   private updateDailyCountdown(): void {
-    const label = `Daily complete · Next dungeon in ${formatTimeUntilNextUtcDay()}`;
+    const label = `Daily complete - Next dungeon in ${formatTimeUntilNextUtcDay()}`;
     this.startDailyNote.textContent = label;
     this.endNextDaily.textContent = label;
   }
@@ -566,13 +529,10 @@ export class GameUIController {
     this.lastRoomText = '';
     this.lastRelicKey = '';
     this.lastBossKey = '';
-    this.lastBannerKey = '';
     this.lastMinimapKey = '';
-    this.lastFloor = -1;
     this.lastGems = -1;
     // Hide leftovers from the previous run (e.g. a boss bar still showing when you died).
     this.hudBossBar.hidden = true;
-    this.hideRoomBanner();
     this.sim.startNewRun(this.utcDate, this.profile);
     this.syncVisibility();
     this.syncHud();
@@ -601,9 +561,6 @@ export class GameUIController {
 
     this.hud.hidden = !playing && !dying;
     this.hud.classList.toggle('is-dying', dying);
-    if (!playing) {
-      this.hideRoomBanner();
-    }
     if (!playing && !dying) {
       this.lowHpFx.classList.remove('is-low', 'is-critical', 'is-hurt');
       this.lowHpFx.style.setProperty('--low-hp-strength', '0');
@@ -622,12 +579,15 @@ export class GameUIController {
   private syncStartScreen(): void {
     const theme = getDailyTheme(this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
+    const rule = getDailyRule(this.utcDate);
+    const startBiome = getFloorBiome(1, this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
     const { title } = getPlayerTitle(this.profile.bestFloor);
 
     this.startDate.textContent = this.utcDate;
     this.startDungeon.textContent = theme.name;
     this.startModifier.textContent = modifier.banner;
+    this.startDailyRule.textContent = `${rule.label} - Starts in ${startBiome.name}`;
     this.startStreak.textContent = `${this.profile.streak}`;
     this.startTitle.textContent = title;
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
@@ -723,7 +683,7 @@ export class GameUIController {
     } else {
       for (const row of leaderboard) {
         const li = document.createElement('li');
-        li.textContent = `${row.player} — Floor ${row.floorReached ?? 1} · ${row.roomsCleared ?? 0} rooms · ${formatDuration(row.elapsedSec)}`;
+        li.textContent = `${row.player} - Floor ${row.floorReached ?? 1}, ${row.roomsCleared ?? 0} rooms (${formatDuration(row.elapsedSec)})`;
         this.endLeaderboard.appendChild(li);
       }
     }
@@ -780,6 +740,7 @@ export class GameUIController {
           this.showToast(msg);
         },
       },
+      this.utcDate,
     );
   }
 
@@ -924,55 +885,6 @@ export class GameUIController {
     }
 
     this.hudMinimap.appendChild(canvas);
-  }
-
-  private showRoomBanner(
-    floor: number,
-    roomIndex: number,
-    roomType: RoomType,
-    totalRooms: number,
-    subtitle: string,
-  ): void {
-    this.hudRoomBannerKicker.textContent = `FLOOR ${floor} · ROOM ${roomIndex}/${totalRooms}`;
-    this.hudRoomBannerTitle.textContent = ENTITY_LABELS.rooms[roomType];
-    this.hudRoomBannerSub.textContent = subtitle;
-    this.hudRoomBannerSub.hidden = subtitle.length === 0;
-
-    if (this.bannerTimer !== null) {
-      window.clearTimeout(this.bannerTimer);
-      this.bannerTimer = null;
-    }
-    if (this.bannerHideTimer !== null) {
-      window.clearTimeout(this.bannerHideTimer);
-      this.bannerHideTimer = null;
-    }
-
-    this.hudRoomBanner.hidden = false;
-    this.hudRoomBanner.classList.remove('is-visible');
-    void this.hudRoomBanner.offsetWidth;
-    this.hudRoomBanner.classList.add('is-visible');
-
-    this.bannerTimer = window.setTimeout(() => {
-      this.hudRoomBanner.classList.remove('is-visible');
-      this.bannerHideTimer = window.setTimeout(() => {
-        if (!this.hudRoomBanner.classList.contains('is-visible')) {
-          this.hudRoomBanner.hidden = true;
-        }
-      }, 240);
-    }, 1800);
-  }
-
-  private hideRoomBanner(): void {
-    if (this.bannerTimer !== null) {
-      window.clearTimeout(this.bannerTimer);
-      this.bannerTimer = null;
-    }
-    if (this.bannerHideTimer !== null) {
-      window.clearTimeout(this.bannerHideTimer);
-      this.bannerHideTimer = null;
-    }
-    this.hudRoomBanner.classList.remove('is-visible');
-    this.hudRoomBanner.hidden = true;
   }
 
   private showToast(message: string): void {

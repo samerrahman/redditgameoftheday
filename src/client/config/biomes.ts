@@ -68,7 +68,7 @@ export const BIOMES: readonly FloorBiome[] = [
       { sheet: 'ski', frames: [8, 20], weight: 1 }, // red slalom flag
       { sheet: 'ski', frames: [9, 21], weight: 1 }, // blue slalom flag
     ],
-    decorCount: [6, 9],
+    decorCount: [4, 6],
     torches: false,
     blocks: { sheet: 'ski', frames: [81] }, // snowy rocks
   },
@@ -91,7 +91,7 @@ export const BIOMES: readonly FloorBiome[] = [
       { sheet: 'town', frames: [94], weight: 1 }, // beehive
       { sheet: 'town', frames: [106], weight: 1 }, // log
     ],
-    decorCount: [5, 8],
+    decorCount: [4, 6],
     torches: true,
     blocks: { sheet: 'town', frames: [130, 107, 131] }, // barrels and pots
   },
@@ -112,7 +112,7 @@ export const BIOMES: readonly FloorBiome[] = [
       { sheet: 'battle', frames: [16], weight: 1 }, // flag
       { sheet: 'battle', frames: [24], weight: 1 }, // bunker
     ],
-    decorCount: [6, 9],
+    decorCount: [4, 6],
     torches: false,
     blocks: { sheet: 'battle', frames: [25, 23] }, // barricades and tank traps
   },
@@ -137,15 +137,15 @@ export const BIOMES: readonly FloorBiome[] = [
       { sheet: 'farm', frames: [122], weight: 1 }, // chicken
       { sheet: 'farm', frames: [120], weight: 1 }, // sheep
     ],
-    decorCount: [6, 10],
+    decorCount: [4, 6],
     torches: false,
     blocks: { sheet: 'farm', frames: [96, 97] }, // hay bales
   },
 ];
 
-/** Floor 1 = dungeon, then snow, town, battlefield, farm, repeating. */
-export function getFloorBiome(floor: number): FloorBiome {
-  const biomeId = getBiomeIdForFloor(floor);
+/** Floors cycle daily-shuffled biomes across all 5 themes, repeating from Floor 6. */
+export function getFloorBiome(floor: number, utcDate?: string): FloorBiome {
+  const biomeId = getBiomeIdForFloor(floor, utcDate);
   return BIOMES.find((b) => b.id === biomeId) ?? BIOMES[0]!;
 }
 

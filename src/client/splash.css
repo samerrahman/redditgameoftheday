@@ -167,6 +167,14 @@ body {
   color: var(--parchment);
 }
 
+.modifier-rule {
+  font-size: 0.86rem;
+  line-height: 1.25;
+  font-weight: 700;
+  color: #fde68a;
+  opacity: 0.92;
+}
+
 .stats-strip {
   inline-size: 100%;
   display: grid;

@@ -1,8 +1,9 @@
 import { requestExpandedMode } from '@devvit/web/client';
 import { ENFORCE_SINGLE_DAILY_RUN } from '../shared/buildMeta.ts';
-import { getDailyModifier } from '../shared/modifiers.ts';
+import { getDailyModifier, getDailyRule } from '../shared/modifiers.ts';
 import { hasCompletedDailyRun } from '../shared/profile.ts';
 import { formatTimeUntilNextUtcDay, getUtcDateString } from '../shared/rng.ts';
+import { getFloorBiome } from './config/biomes.ts';
 import { GAME_META, getDailyTheme } from './config/theme.ts';
 import { HybridDevvitAdapter } from './platform/adapter.ts';
 
@@ -18,10 +19,13 @@ async function initSplash(): Promise<void> {
   const utcDate = getUtcDateString(params.get('date'));
   const theme = getDailyTheme(utcDate);
   const modifier = getDailyModifier(utcDate);
+  const rule = getDailyRule(utcDate);
+  const startBiome = getFloorBiome(1, utcDate);
 
   setText('splash-date', utcDate);
   setText('splash-dungeon', theme.name);
   setText('splash-modifier', modifier.banner);
+  setText('splash-daily-rule', `${rule.label} - Starts in ${startBiome.name}`);
 
   const playButton = document.getElementById('play-button');
   if (playButton) {
@@ -61,7 +65,7 @@ async function initSplash(): Promise<void> {
     if (dailyNote) {
       dailyNote.hidden = false;
       const updateCountdown = (): void => {
-        dailyNote.textContent = `Daily complete · Next dungeon in ${formatTimeUntilNextUtcDay()}`;
+        dailyNote.textContent = `Daily complete - Next dungeon in ${formatTimeUntilNextUtcDay()}`;
       };
       updateCountdown();
       window.setInterval(updateCountdown, 1000);

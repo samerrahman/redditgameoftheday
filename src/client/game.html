@@ -16,7 +16,7 @@
       <section id="hud" class="hud" hidden aria-label="Game HUD">
         <div class="hud-top">
           <div class="hud-left">
-            <span id="hud-room" class="hud-chip">0% · Room 1</span>
+            <span id="hud-room" class="hud-chip">Floor 1 - Room 1/6</span>
             <div id="hud-minimap" class="hud-minimap" aria-label="Dungeon map"></div>
           </div>
 
@@ -27,12 +27,6 @@
                 <div id="hud-boss-fill" class="boss-fill"></div>
               </div>
             </div>
-            <div id="hud-room-banner" class="room-banner" hidden aria-live="polite">
-              <span id="hud-room-banner-kicker" class="room-banner-kicker">ROOM 1 / 5</span>
-              <strong id="hud-room-banner-title" class="room-banner-title">Warmup Arena</strong>
-              <span id="hud-room-banner-sub" class="room-banner-sub">Daily Seed Active</span>
-            </div>
-            <div id="hud-announcement" class="hud-announcement" hidden></div>
           </div>
 
           <div class="hud-right">
@@ -174,6 +168,7 @@
           <div class="modifier-banner" aria-label="Daily Modifier">
             <span class="modifier-label">TODAY'S MODIFIER</span>
             <strong id="start-modifier" class="modifier-text">Glass Cannon: 2x Damage</strong>
+            <span id="start-daily-rule" class="modifier-rule">Open Armory - Starts in The Dungeon</span>
           </div>
 
           <div class="start-stats-strip">
@@ -220,7 +215,7 @@
           </div>
 
           <p id="start-daily-note" class="next-daily-note mono" hidden>
-            Daily complete · Next dungeon in --:--:--
+            Daily complete - Next dungeon in --:--:--
           </p>
         </div>
       </section>
@@ -238,7 +233,7 @@
               <strong>Attack</strong> with Space or click toward your target.
             </li>
             <li>
-              Each <strong>floor</strong> has 4–6 rooms. Find the <strong>☠ boss</strong>, beat it,
+              Each <strong>floor</strong> has 5–8 rooms. Find the <strong>☠ boss</strong>, beat it,
               then take the <strong>stairs</strong> down. Every floor is harder than the last.
             </li>
             <li>
@@ -351,7 +346,7 @@
               </button>
             </div>
             <p id="end-next-daily" class="next-daily-note mono" hidden>
-              Daily complete · Next dungeon in --:--:--
+              Daily complete - Next dungeon in --:--:--
             </p>
           </div>
 

@@ -11,7 +11,7 @@ import {
   WALL_THICKNESS,
 } from '../../shared/game/constants.ts';
 import type { EnemyEntity } from '../../shared/game/enemies.ts';
-import { CELL_SIZE, oppositeDirection } from '../../shared/game/rooms.ts';
+import { CELL_SIZE, isNearDoorwayCell, oppositeDirection } from '../../shared/game/rooms.ts';
 import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
 import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
 import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
@@ -85,7 +85,6 @@ export class DungeonScene extends Phaser.Scene {
     { left: Phaser.GameObjects.Image; right: Phaser.GameObjects.Image }
   >();
   private wallTorches: Phaser.GameObjects.Sprite[] = [];
-  private chestSprite: Phaser.GameObjects.Image | null = null;
 
   private torchGlowGraphics: Phaser.GameObjects.Graphics | null = null;
   private decalGraphics: Phaser.GameObjects.Graphics | null = null;
@@ -204,12 +203,6 @@ export class DungeonScene extends Phaser.Scene {
       .setDepth(8)
       .setVisible(false);
 
-    this.chestSprite = this.add
-      .image(ARENA_W / 2, ARENA_H / 2 - 20, 'dungeon', 'tile_091')
-      .setScale(2.75)
-      .setDepth(8)
-      .setVisible(false);
-
     this.firePool = Array.from({ length: 40 }, () =>
       this.add.sprite(0, 0, 'dungeon', 'fire_0').setScale(2.4).setDepth(7).setVisible(false),
     );
@@ -262,7 +255,7 @@ export class DungeonScene extends Phaser.Scene {
       .setVisible(false);
 
     this.onboardingText = this.add
-      .text(0, 0, 'WASD Move · Space / Click Attack', {
+      .text(0, 0, 'Move: WASD / Arrows | Attack: Space / Click', {
         fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
@@ -447,7 +440,7 @@ export class DungeonScene extends Phaser.Scene {
   ): Phaser.GameObjects.Container {
     const container = this.add.container(0, 0).setDepth(0);
     const theme = this.bridge.theme;
-    const biome = getFloorBiome(state.floor);
+    const biome = getFloorBiome(state.floor, state.utcDate);
     const rng = createDailyStream(
       state.utcDate,
       `decor-${state.floor}-${state.currentRoomId}-${state.roomIndex}`,
@@ -788,6 +781,7 @@ export class DungeonScene extends Phaser.Scene {
       for (let c = 1; c <= cols - 2; c += 1) {
         const onEdge = r === 1 || r === rows - 2 || c === 1 || c === cols - 2;
         if (!onEdge) continue;
+        if (isNearDoorwayCell(c - 1, r - 1)) continue;
         const inNsLane = Math.abs(c + 0.5 - midC) < 2;
         const inEwLane = Math.abs(r + 0.5 - midR) < 2;
         if ((r === 1 || r === rows - 2) && inNsLane) continue;
@@ -1111,7 +1105,6 @@ export class DungeonScene extends Phaser.Scene {
     this.syncExitDoor(fxG, state);
     this.syncHazards(teleG, shadowG, state);
     this.syncFountain(shadowG, state);
-    this.syncChest(shadowG, state);
     this.syncPortals(fxG, state);
     this.syncPedestals(fxG, shadowG, state);
     this.syncBreakables(shadowG, state);
@@ -1125,6 +1118,7 @@ export class DungeonScene extends Phaser.Scene {
     this.syncEnemies(shadowG, fxG, state);
     this.syncPlayer(shadowG, fxG, state);
     this.syncProjectiles(shadowG, fxG, state);
+    this.drawDebris(shadowG, fxG, state);
     this.drawSlashesRingsLightningsParticles(fxG, state);
     this.drawFloatingTexts(state);
     this.drawOnboardingHint(fxG, state);
@@ -1364,22 +1358,6 @@ export class DungeonScene extends Phaser.Scene {
       .setVisible(true);
   }
 
-  private syncChest(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
-    if (!this.chestSprite) return;
-    const showChest =
-      (state.rewardType === 'coin_cache' && state.roomState === 'door_open') ||
-      (state.rewardType === 'boss_chest_and_portals' && state.roomState === 'boss_choice');
-    if (!showChest) {
-      this.chestSprite.setVisible(false);
-      return;
-    }
-    const cx = ARENA_W / 2;
-    const cy = ARENA_H / 2 - 20;
-    shadowG.fillStyle(0x000000, 0.4);
-    shadowG.fillEllipse(cx, cy + 16, 42, 14);
-    this.chestSprite.setPosition(cx, cy).setVisible(true);
-  }
-
   private syncPortals(fxG: Phaser.GameObjects.Graphics, state: GameState): void {
     const activeKeys = new Set<string>();
 
@@ -1517,7 +1495,13 @@ export class DungeonScene extends Phaser.Scene {
       shadowG.fillStyle(0x000000, 0.36);
       shadowG.fillEllipse(br.x, br.y + 22, CELL_SIZE - 8, 12);
 
-      spr.setPosition(br.x, br.y).setFrame(frame).setDisplaySize(CELL_SIZE, CELL_SIZE);
+      const shakeX = br.hitFlash > 0 ? Math.sin(state.elapsedTime * 85 + br.id) * 3 : 0;
+      const drawW = br.hitFlash > 0 ? Math.round(CELL_SIZE * 1.08) : CELL_SIZE;
+      const drawH = br.hitFlash > 0 ? Math.round(CELL_SIZE * 0.92) : CELL_SIZE;
+      spr
+        .setPosition(br.x + shakeX, br.y + (CELL_SIZE - drawH) * 0.35)
+        .setFrame(frame)
+        .setDisplaySize(drawW, drawH);
       if (br.hitFlash > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
       } else {
@@ -1661,13 +1645,44 @@ export class DungeonScene extends Phaser.Scene {
       teleG.strokeCircle(blast.x, blast.y, Math.max(4, blast.radius * progress));
 
       if (blast.kind === 'decoy_mine') {
-        spr.setTexture('dungeon', 'barrel_tnt').setScale(2.5).setPosition(blast.x, blast.y).setAlpha(1).setVisible(true);
+        spr
+          .setTexture('dungeon', 'barrel_tnt')
+          .setScale(2.5)
+          .setPosition(blast.x, blast.y)
+          .setAlpha(1)
+          .clearTint()
+          .setVisible(true);
+      } else if (blast.kind === 'barrel_blast') {
+        const swell = CELL_SIZE * (1 + 0.26 * progress);
+        spr
+          .setTexture('dungeon', 'barrel_tnt')
+          .setDisplaySize(swell, swell * (1 - 0.08 * progress))
+          .setPosition(blast.x, blast.y)
+          .setAlpha(1)
+          .setVisible(true);
+        if (Math.floor(progress * 10) % 2 === 0) {
+          spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+        } else {
+          spr.setTint(0xfb923c).setTintMode(Phaser.TintModes.MULTIPLY);
+        }
       } else if (blast.kind === 'sapper_bomb') {
-        spr.setTexture('town', 105).setScale(2.3).setPosition(blast.x, blast.y).setAlpha(1).setVisible(true);
+        spr
+          .setTexture('town', 105)
+          .setScale(2.3)
+          .setPosition(blast.x, blast.y)
+          .setAlpha(1)
+          .clearTint()
+          .setVisible(true);
       } else if (blast.kind === 'phantom_echo') {
-        spr.setTexture('dungeon', 'hero_dash_0').setScale(2.5).setPosition(blast.x, blast.y).setAlpha(0.65).setVisible(true);
+        spr
+          .setTexture('dungeon', 'hero_dash_0')
+          .setScale(2.5)
+          .setPosition(blast.x, blast.y)
+          .setAlpha(0.65)
+          .clearTint()
+          .setVisible(true);
       } else {
-        spr.setVisible(false);
+        spr.clearTint().setVisible(false);
       }
     }
   }
@@ -1745,30 +1760,65 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const scale = this.getEnemyScale(enemy.archetype) * popMult;
+      const isBossLeapTelegraph =
+        enemy.archetype === 'boss' &&
+        enemy.attackKind === 'boss_leap' &&
+        enemy.state === 'telegraph';
+      const isBossLeapAir =
+        enemy.archetype === 'boss' &&
+        enemy.attackKind === 'boss_leap' &&
+        enemy.state === 'attack' &&
+        enemy.leapZ > 0;
+      const heightRatio = Math.max(0, Math.min(1, enemy.leapZ / 135));
       const jitterX =
         enemy.state === 'telegraph' ? Math.sin(state.elapsedTime * 55 + enemy.id) * 1.8 : 0;
       const alpha = enemy.state === 'spawning' ? 0.45 : 1;
 
-      shadowG.fillStyle(0x000000, 0.4);
+      const shadowMult = isBossLeapAir ? 1 - 0.34 * heightRatio : 1;
+      const shadowAlpha = isBossLeapAir ? 0.4 * (1 - 0.32 * heightRatio) : 0.4;
+      shadowG.fillStyle(0x000000, shadowAlpha);
       shadowG.fillEllipse(
         enemy.x,
         enemy.y + enemy.radius * 0.72,
-        enemy.radius * 2.1 * popMult,
-        enemy.radius * 0.78 * popMult,
+        enemy.radius * 2.1 * popMult * shadowMult,
+        enemy.radius * 0.78 * popMult * shadowMult,
       );
+
+      if (isBossLeapAir) {
+        fxG.lineStyle(2, 0xf43f5e, 0.24 + 0.36 * (1 - heightRatio));
+        fxG.strokeCircle(enemy.targetX, enemy.targetY, 32 + 46 * (1 - heightRatio));
+      }
+
+      let scaleX = scale;
+      let scaleY = scale;
+      let crouchY = 0;
+      if (isBossLeapTelegraph) {
+        const chargeT =
+          1 - Math.max(0, enemy.stateTimer / Math.max(0.01, enemy.telegraphDuration));
+        scaleX = scale * (1 + 0.18 * chargeT);
+        scaleY = scale * (1 - 0.16 * chargeT);
+        crouchY = 5 * chargeT;
+      } else if (isBossLeapAir) {
+        const airBoost = 1 + 0.58 * heightRatio;
+        scaleX = scale * airBoost;
+        scaleY = scale * airBoost;
+      }
 
       const bobY =
         enemy.archetype === 'shade' ? Math.sin(state.elapsedTime * 6 + enemy.id) * 3 : 0;
       spr
-        .setPosition(enemy.x + jitterX, enemy.y + bobY)
-        .setScale(scale)
+        .setDepth(isBossLeapAir ? 18 : 10)
+        .setPosition(enemy.x + jitterX, enemy.y - enemy.leapZ + crouchY + bobY)
+        .setScale(scaleX, scaleY)
         .setAlpha(alpha)
         .setFlipX(state.player.x < enemy.x);
 
       const animKey = this.pickEnemyAnim(enemy);
       if (animKey) {
+        spr.anims.timeScale = isBossLeapTelegraph ? 1.85 : isBossLeapAir ? 1.35 : 1;
         spr.play(animKey, true);
       } else {
+        spr.anims.timeScale = 1;
         const asset = this.getEnemyAsset(enemy.archetype);
         spr.stop();
         spr.setTexture(asset.texture, asset.frame);
@@ -1873,7 +1923,7 @@ export class DungeonScene extends Phaser.Scene {
       case 'stampede':
         return 2.9;
       case 'elite_charger':
-        return 3.35;
+        return 2.85;
       case 'boss':
         return 4.35;
     }
@@ -1904,6 +1954,13 @@ export class DungeonScene extends Phaser.Scene {
     }
     if (enemy.archetype === 'shade' || enemy.archetype === 'bomber' || enemy.archetype === 'stampede') {
       return null;
+    }
+    if (enemy.attackKind === 'boss_leap') {
+      if (enemy.state === 'telegraph') return 'boss_run';
+      if (enemy.state === 'attack') {
+        const u = 1 - Math.max(0, enemy.stateTimer) / Math.max(0.01, enemy.leapDuration);
+        return u < 0.55 ? 'boss_run' : 'boss_attack';
+      }
     }
     if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'boss_attack';
     return enemy.state === 'chase' ? 'boss_run' : 'boss_idle';
@@ -2255,6 +2312,37 @@ export class DungeonScene extends Phaser.Scene {
         spr.destroy();
         this.projectileSprites.delete(id);
       }
+    }
+  }
+
+  private drawDebris(
+    shadowG: Phaser.GameObjects.Graphics,
+    g: Phaser.GameObjects.Graphics,
+    state: GameState,
+  ): void {
+    for (const d of state.debris) {
+      const lifeRatio = Math.max(0, Math.min(1, d.ttl / Math.max(0.01, d.maxTtl)));
+      const fade = lifeRatio < 0.3 ? lifeRatio / 0.3 : 1;
+      shadowG.fillStyle(0x000000, 0.3 * fade);
+      shadowG.fillEllipse(d.x, d.y + 4, Math.max(4, d.w * 0.85), Math.max(2, d.h * 0.55));
+
+      const cos = Math.cos(d.angle);
+      const sin = Math.sin(d.angle);
+      const hw = d.w / 2;
+      const hh = d.h / 2;
+      const cy = d.y - d.z;
+      const pts = [
+        { x: d.x + (-hw * cos - -hh * sin), y: cy + (-hw * sin + -hh * cos) },
+        { x: d.x + (hw * cos - -hh * sin), y: cy + (hw * sin + -hh * cos) },
+        { x: d.x + (hw * cos - hh * sin), y: cy + (hw * sin + hh * cos) },
+        { x: d.x + (-hw * cos - hh * sin), y: cy + (-hw * sin + hh * cos) },
+      ];
+      g.fillStyle(hexNum(d.color), fade);
+      this.tracePolygon(g, pts, true);
+      g.fillPath();
+      g.lineStyle(1.5, hexNum(d.borderColor), fade);
+      this.tracePolygon(g, pts, true);
+      g.strokePath();
     }
   }
 
