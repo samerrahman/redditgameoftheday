@@ -63,14 +63,13 @@ export const BIOMES: readonly FloorBiome[] = [
       { sheet: 'ski', frames: [30], weight: 3 }, // small pine
       { sheet: 'ski', frames: [7, 19], weight: 1 }, // bare tree
       { sheet: 'ski', frames: [69], weight: 2 }, // snowman
-      { sheet: 'ski', frames: [81], weight: 2 }, // rock
       { sheet: 'ski', frames: [47], weight: 1 }, // stump
       { sheet: 'ski', frames: [8, 20], weight: 1 }, // red slalom flag
       { sheet: 'ski', frames: [9, 21], weight: 1 }, // blue slalom flag
     ],
     decorCount: [4, 6],
     torches: false,
-    blocks: { sheet: 'ski', frames: [81] }, // snowy rocks
+    blocks: { sheet: 'ski', frames: [81] }, // glacier crags
   },
   {
     id: 'town',
@@ -84,16 +83,12 @@ export const BIOMES: readonly FloorBiome[] = [
       { sheet: 'town', frames: [4, 16], weight: 2 }, // green tree
       { sheet: 'town', frames: [3, 15], weight: 2 }, // autumn tree
       { sheet: 'town', frames: [5], weight: 2 }, // bush
-      { sheet: 'town', frames: [107], weight: 2 }, // pot
-      { sheet: 'town', frames: [130], weight: 2 }, // barrel
-      { sheet: 'town', frames: [131], weight: 1 }, // water barrel
       { sheet: 'town', frames: [83], weight: 1 }, // signpost
       { sheet: 'town', frames: [94], weight: 1 }, // beehive
-      { sheet: 'town', frames: [106], weight: 1 }, // log
     ],
     decorCount: [4, 6],
     torches: true,
-    blocks: { sheet: 'town', frames: [130, 107, 131] }, // barrels and pots
+    blocks: { sheet: 'town', frames: [106, 130, 107, 131] }, // logs, barrels, and pots
   },
   {
     id: 'battle',
@@ -104,17 +99,13 @@ export const BIOMES: readonly FloorBiome[] = [
     wallTint: 0xe0cf8c,
     ambientBg: 0x22300f,
     decor: [
-      { sheet: 'battle', frames: [23], weight: 3 }, // tank trap
-      { sheet: 'battle', frames: [25], weight: 2 }, // barricade
-      { sheet: 'battle', frames: [5], weight: 2 }, // boulder
-      { sheet: 'battle', frames: [94], weight: 2 }, // tree
-      { sheet: 'battle', frames: [112], weight: 1 }, // tree pair
-      { sheet: 'battle', frames: [16], weight: 1 }, // flag
-      { sheet: 'battle', frames: [24], weight: 1 }, // bunker
+      { sheet: 'battle', frames: [94], weight: 3 }, // spruce
+      { sheet: 'battle', frames: [112], weight: 2 }, // pine thicket
+      { sheet: 'battle', frames: [16], weight: 2 }, // war flag
     ],
     decorCount: [4, 6],
     torches: false,
-    blocks: { sheet: 'battle', frames: [25, 23] }, // barricades and tank traps
+    blocks: { sheet: 'battle', frames: [25, 23, 5, 24] }, // barricades, tank traps, boulders, bunkers
   },
   {
     id: 'farm',
@@ -127,8 +118,6 @@ export const BIOMES: readonly FloorBiome[] = [
     decor: [
       { sheet: 'farm', frames: [3, 15], weight: 2 }, // pine
       { sheet: 'farm', frames: [39], weight: 2 }, // bush
-      { sheet: 'farm', frames: [96], weight: 2 }, // hay bale
-      { sheet: 'farm', frames: [85], weight: 2 }, // barrel
       { sheet: 'farm', frames: [83], weight: 1 }, // sunflower
       { sheet: 'farm', frames: [8], weight: 1 }, // carrot
       { sheet: 'farm', frames: [32], weight: 1 }, // corn
@@ -139,7 +128,7 @@ export const BIOMES: readonly FloorBiome[] = [
     ],
     decorCount: [4, 6],
     torches: false,
-    blocks: { sheet: 'farm', frames: [96, 97] }, // hay bales
+    blocks: { sheet: 'farm', frames: [96, 97, 85] }, // all hay bales and cider barrels
   },
 ];
 

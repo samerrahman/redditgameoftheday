@@ -804,11 +804,7 @@ export class DungeonScene extends Phaser.Scene {
     state: GameState,
   ): void {
     if (state.obstacles.length === 0) return;
-    const g = this.add.graphics();
-    container.add(g);
     state.obstacles.forEach((o, i) => {
-      g.fillStyle(0x0b0710, 0.36);
-      g.fillRect(snapPx(o.x + 3), snapPx(o.y + o.h - 3), snapPx(o.w - 3), 6);
       if (biome.blocks) {
         const frame = biome.blocks.frames[(o.id + i) % biome.blocks.frames.length]!;
         container.add(
@@ -874,8 +870,6 @@ export class DungeonScene extends Phaser.Scene {
       }
       const x = spot.c * tileSize + tileSize / 2;
       const baseY = spot.r * tileSize + tileSize / 2;
-      const shadow = this.add.image(x, baseY + 18, 'dungeon', 'shadow_lg').setScale(PIXEL_SCALE).setAlpha(0.65);
-      container.add(shadow);
       decor.frames.forEach((frame, i) => {
         const y = baseY - (decor.frames.length - 1 - i) * tileSize;
         container.add(this.add.image(x, y, decor.sheet, frame).setDisplaySize(tileSize, tileSize));
@@ -1172,22 +1166,22 @@ export class DungeonScene extends Phaser.Scene {
     this.drawTorchGlows(glowG, state);
     this.drawAmbientMotes(glowG, state, dt);
     this.syncExitDoor(fxG, state);
-    this.syncHazards(teleG, shadowG, state);
-    this.syncFountain(shadowG, state);
+    this.syncHazards(teleG, state);
+    this.syncFountain(state);
     this.syncPortals(fxG, state);
-    this.syncPedestals(fxG, shadowG, state);
-    this.syncBreakables(shadowG, state);
-    this.syncCoins(shadowG, state);
-    this.syncGems(shadowG, state);
-    this.syncHearts(shadowG, state);
+    this.syncPedestals(fxG, state);
+    this.syncBreakables(state);
+    this.syncCoins(state);
+    this.syncGems(state);
+    this.syncHearts(state);
     this.syncFirePatches(state);
     this.syncDelayedBlasts(teleG, state);
     this.drawTelegraphs(teleG, state);
     this.syncAfterimages(state);
     this.syncEnemies(shadowG, fxG, state);
-    this.syncPlayer(shadowG, fxG, state);
-    this.syncProjectiles(shadowG, fxG, state);
-    this.drawDebris(shadowG, fxG, state);
+    this.syncPlayer(fxG, state);
+    this.syncProjectiles(fxG, state);
+    this.drawDebris(fxG, state);
     this.drawSlashesRingsLightningsParticles(fxG, state);
     this.spawnProjectileTrails(state);
     this.fxParticles.draw(fxG);
@@ -1361,7 +1355,6 @@ export class DungeonScene extends Phaser.Scene {
 
   private syncHazards(
     teleG: Phaser.GameObjects.Graphics,
-    shadowG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
     if (this.pendingPortalSwap) return;
@@ -1411,7 +1404,6 @@ export class DungeonScene extends Phaser.Scene {
           .setDepth(5)
           .setVisible(true);
       } else {
-        drawPixelShadow(shadowG, haz.x, haz.y + 24, 24, 6, 0.42);
         spr
           .setPosition(haz.x, haz.y)
           .setFrame('barrel_tnt')
@@ -1429,7 +1421,7 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private syncFountain(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
+  private syncFountain(state: GameState): void {
     const f = state.fountain;
     if (!f || !this.fountainTop || !this.fountainBottom) {
       this.fountainTop?.setVisible(false);
@@ -1438,7 +1430,6 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     const active = !f.used;
-    drawPixelShadow(shadowG, f.x, f.y + 21, 24, 9, 0.44);
 
     this.fountainTop.setPosition(f.x, f.y - 24).setVisible(true);
     this.fountainBottom.setPosition(f.x, f.y + 18).setVisible(true);
@@ -1520,7 +1511,6 @@ export class DungeonScene extends Phaser.Scene {
 
   private syncPedestals(
     fxG: Phaser.GameObjects.Graphics,
-    shadowG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
     const activeIds = new Set<number>();
@@ -1556,8 +1546,6 @@ export class DungeonScene extends Phaser.Scene {
         } else {
           entry.item.clearTint();
         }
-
-        drawPixelShadow(shadowG, ped.x, ped.y + 27, 21, 6, 0.44);
 
         const lvLabel = ped.nextLevel > 1 ? ` ${ped.nextLevel}` : '';
         this.nextLabel(ped.x, ped.y + 50, `${ped.relic.name}${lvLabel}`, ped.hovered ? '#fde047' : '#fff7e8', 17);
@@ -1595,7 +1583,7 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private syncBreakables(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
+  private syncBreakables(state: GameState): void {
     if (this.pendingPortalSwap) return;
     const activeIds = new Set<number>();
 
@@ -1607,8 +1595,6 @@ export class DungeonScene extends Phaser.Scene {
         spr = this.add.image(br.x, br.y, 'dungeon', frame).setDisplaySize(CELL_SIZE, CELL_SIZE).setDepth(9);
         this.breakableSprites.set(br.id, spr);
       }
-
-      drawPixelShadow(shadowG, br.x, br.y + 24, 24, 6, 0.38);
 
       const shakeX = br.hitFlash > 0 ? Math.sin(state.elapsedTime * 85 + br.id) * 3 : 0;
       const drawW = br.hitFlash > 0 ? Math.round(CELL_SIZE * 1.08) : CELL_SIZE;
@@ -1632,7 +1618,7 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private syncCoins(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
+  private syncCoins(state: GameState): void {
     const activeIds = new Set<number>();
 
     for (const coin of state.coins) {
@@ -1645,7 +1631,6 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const bob = Math.round(Math.sin(state.elapsedTime * 8 + coin.id)) * PIXEL_SCALE;
-      drawPixelShadow(shadowG, coin.x, coin.y + 12, 9, 3, 0.34);
       spr.setPosition(coin.x, coin.y - 3 + bob);
     }
 
@@ -1657,7 +1642,7 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private syncGems(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
+  private syncGems(state: GameState): void {
     const activeIds = new Set<number>();
 
     for (const gem of state.gems) {
@@ -1670,7 +1655,6 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const bob = Math.round(Math.sin(state.elapsedTime * 6 + gem.id)) * PIXEL_SCALE;
-      drawPixelShadow(shadowG, gem.x, gem.y + 12, 9, 3, 0.36);
       spr.setPosition(gem.x, gem.y - 3 + bob);
     }
 
@@ -1682,7 +1666,7 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private syncHearts(shadowG: Phaser.GameObjects.Graphics, state: GameState): void {
+  private syncHearts(state: GameState): void {
     const activeIds = new Set<number>();
 
     for (const heart of state.hearts) {
@@ -1695,7 +1679,6 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const bob = Math.round(Math.sin(state.elapsedTime * 5 + heart.id)) * PIXEL_SCALE;
-      drawPixelShadow(shadowG, heart.x, heart.y + 9, 6, 3, 0.34);
       spr.setPosition(heart.x, heart.y - 3 + bob);
     }
 
@@ -1886,18 +1869,17 @@ export class DungeonScene extends Phaser.Scene {
         shadowG.strokeEllipse(enemy.x, enemy.y + enemy.radius * 0.6, ringR * 2, ringR * 0.9);
       }
 
-      const shadowMult = isBossLeapAir ? 1 - 0.34 * heightRatio : 1;
-      const shadowAlpha = isBossLeapAir ? 0.44 * (1 - 0.32 * heightRatio) : 0.44;
-      drawPixelShadow(
-        shadowG,
-        enemy.x,
-        enemy.y + enemy.radius * 0.78,
-        enemy.radius * 1.05 * popMult * shadowMult * (1 + airborne / 110),
-        Math.max(6, enemy.radius * 0.36 * popMult * shadowMult * (1 + airborne / 110)),
-        shadowAlpha,
-      );
-
       if (isBossLeapAir) {
+        const shadowMult = 1 - 0.34 * heightRatio;
+        const shadowAlpha = 0.44 * (1 - 0.32 * heightRatio);
+        drawPixelShadow(
+          shadowG,
+          enemy.x,
+          enemy.y + enemy.radius * 0.78,
+          enemy.radius * 1.05 * popMult * shadowMult * (1 + airborne / 110),
+          Math.max(6, enemy.radius * 0.36 * popMult * shadowMult * (1 + airborne / 110)),
+          shadowAlpha,
+        );
         fxG.lineStyle(2, 0xf43f5e, 0.24 + 0.36 * (1 - heightRatio));
         fxG.strokeCircle(enemy.targetX, enemy.targetY, 32 + 46 * (1 - heightRatio));
       }
@@ -2279,7 +2261,6 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private syncPlayer(
-    shadowG: Phaser.GameObjects.Graphics,
     fxG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
@@ -2298,8 +2279,6 @@ export class DungeonScene extends Phaser.Scene {
     const heroAsset = getHeroAsset(p.costume);
     const px = this.heroTransitionPos ? this.heroTransitionPos.x : p.x;
     const py = this.heroTransitionPos ? this.heroTransitionPos.y : p.y;
-
-    drawPixelShadow(shadowG, px, py + 21, 18, 6, 0.45);
 
     if (state.phase === 'dying' || (state.phase === 'ended' && !state.stats.extracted)) {
       const dur = Math.max(0.01, state.deathDuration);
@@ -2568,7 +2547,6 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private syncProjectiles(
-    shadowG: Phaser.GameObjects.Graphics,
     fxG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
@@ -2629,7 +2607,6 @@ export class DungeonScene extends Phaser.Scene {
         this.projectileSprites.set(proj.id, spr);
       }
 
-      drawPixelShadow(shadowG, proj.x, proj.y + 12, 9, 3, 0.36);
       spr.setPosition(proj.x, proj.y);
     }
 
@@ -2642,21 +2619,12 @@ export class DungeonScene extends Phaser.Scene {
   }
 
   private drawDebris(
-    shadowG: Phaser.GameObjects.Graphics,
     g: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
     for (const d of state.debris) {
       const lifeRatio = Math.max(0, Math.min(1, d.ttl / Math.max(0.01, d.maxTtl)));
       const fade = lifeRatio < 0.3 ? lifeRatio / 0.3 : 1;
-      drawPixelShadow(
-        shadowG,
-        d.x,
-        d.y + 4,
-        Math.max(3, Math.round(d.w * 0.45)),
-        Math.max(2, Math.round(d.h * 0.3)),
-        0.3 * fade,
-      );
 
       const cos = Math.cos(d.angle);
       const sin = Math.sin(d.angle);

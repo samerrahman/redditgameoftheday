@@ -532,10 +532,10 @@ export function buildDailyDungeonMap(
 ): DailyDungeonMap {
   const f = Math.max(1, Math.floor(floor));
   const scaling = getFloorScaling(f);
-  const rng = createDailyStream(utcDate, `floor-${f}-map`);
-  const totalRooms = Math.min(8, 5 + Math.floor((f - 1) / 2) + rng.int(0, 1));
-  // Only Floor 1 entrance is locked to 1 exit; deeper floors can branch up to 3 ways.
-  const entranceMaxDoors = f === 1 ? 1 : 3;
+  const sizeRng = createDailyStream(utcDate, `floor-${f}-map`);
+  const totalRooms = Math.min(8, 5 + Math.floor((f - 1) / 2) + sizeRng.int(0, 1));
+  const entranceMaxDoors = f === 1 ? 2 : 3;
+  const requiredDeadEnds = totalRooms >= 6 ? 3 : 2;
 
   const emptyBlueprint = (roomIndex: number): RoomBlueprint => ({
     roomIndex,
@@ -550,75 +550,97 @@ export function buildDailyDungeonMap(
     hasHazard: false,
   });
 
-  const makeNode = (gx: number, gy: number, bfsDist: number): DungeonRoomNode => {
-    const id = nodes.length;
-    return { id, roomIndex: id + 1, gx, gy, bfsDist, doors: {}, blueprint: emptyBlueprint(id + 1) };
-  };
-
-  const nodes: DungeonRoomNode[] = [];
-  const start = makeNode(0, 0, 0);
-  nodes.push(start);
-  const grid = new Map<string, DungeonRoomNode>([['0,0', start]]);
   const degree = (n: DungeonRoomNode): number => Object.keys(n.doors).length;
-  const canTakeDoor = (n: DungeonRoomNode): boolean =>
-    n.id === 0 ? degree(n) < entranceMaxDoors : degree(n) < 4;
-  const countFilledNeighbors = (gx: number, gy: number): number => {
-    let count = 0;
-    for (const d of ALL_DIRS) {
-      if (grid.has(`${gx + DIR_DELTAS[d].dx},${gy + DIR_DELTAS[d].dy}`)) {
-        count += 1;
+
+  let nodes: DungeonRoomNode[] = [];
+  let bestDeadEndCount = -1;
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const rng = createDailyStream(
+      utcDate,
+      attempt === 0 ? `floor-${f}-map` : `floor-${f}-map-r${attempt}`,
+    );
+    if (attempt === 0) rng.int(0, 1);
+
+    const candNodes: DungeonRoomNode[] = [];
+    const makeNode = (gx: number, gy: number, bfsDist: number): DungeonRoomNode => {
+      const id = candNodes.length;
+      return { id, roomIndex: id + 1, gx, gy, bfsDist, doors: {}, blueprint: emptyBlueprint(id + 1) };
+    };
+
+    const start = makeNode(0, 0, 0);
+    candNodes.push(start);
+    const grid = new Map<string, DungeonRoomNode>([['0,0', start]]);
+    const canTakeDoor = (n: DungeonRoomNode): boolean =>
+      n.id === 0 ? degree(n) < entranceMaxDoors : degree(n) < 4;
+    const countFilledNeighbors = (gx: number, gy: number): number => {
+      let count = 0;
+      for (const d of ALL_DIRS) {
+        if (grid.has(`${gx + DIR_DELTAS[d].dx},${gy + DIR_DELTAS[d].dy}`)) {
+          count += 1;
+        }
+      }
+      return count;
+    };
+
+    // Guarantee the initial exit from the starting room.
+    const firstDir = rng.pick(['north', 'east', 'west'] as const);
+    const firstDelta = DIR_DELTAS[firstDir];
+    const first = makeNode(firstDelta.dx, firstDelta.dy, 1);
+    candNodes.push(first);
+    grid.set(`${first.gx},${first.gy}`, first);
+    connectNodes(start, firstDir, first);
+
+    // Isaac BFS random-walk expansion: allow entrance branching, skip candidates with >=2
+    // existing neighbors (zero 2x2 blobs), and retry until distinct dead-end wings exist.
+    let expandQueue: DungeonRoomNode[] = [start, first];
+    let emptyRetries = 0;
+    let deterministicPass = false;
+
+    while (candNodes.length < totalRooms) {
+      if (expandQueue.length === 0) {
+        if (deterministicPass) break;
+        emptyRetries += 1;
+        if (emptyRetries >= 4) {
+          deterministicPass = true;
+        }
+        expandQueue = rng.shuffle(candNodes);
+      }
+
+      const parent = expandQueue.shift();
+      if (!parent || !canTakeDoor(parent)) continue;
+
+      for (const dir of rng.shuffle(ALL_DIRS)) {
+        if (candNodes.length >= totalRooms || !canTakeDoor(parent)) break;
+        // Never put a south door behind the starting spawn position.
+        if (parent.id === 0 && dir === 'south') continue;
+
+        const delta = DIR_DELTAS[dir];
+        const nx = parent.gx + delta.dx;
+        const ny = parent.gy + delta.dy;
+        if (Math.abs(nx) > 3 || Math.abs(ny) > 2) continue;
+        if (parent.id === 0 && nx === 0 && ny === 1) continue;
+        if (grid.has(`${nx},${ny}`)) continue;
+        if (countFilledNeighbors(nx, ny) >= 2) continue;
+        if (!deterministicPass && candNodes.length > 2 && rng.next() < 0.5) continue;
+
+        const node = makeNode(nx, ny, parent.bfsDist + 1);
+        candNodes.push(node);
+        grid.set(`${node.gx},${node.gy}`, node);
+        connectNodes(parent, dir, node);
+        expandQueue.push(node);
+        emptyRetries = 0;
       }
     }
-    return count;
-  };
 
-  // Guarantee the initial exit from the starting room.
-  const firstDir = rng.pick(['north', 'east', 'west'] as const);
-  const firstDelta = DIR_DELTAS[firstDir];
-  const first = makeNode(firstDelta.dx, firstDelta.dy, 1);
-  nodes.push(first);
-  grid.set(`${first.gx},${first.gy}`, first);
-  connectNodes(start, firstDir, first);
-
-  // Isaac BFS random-walk expansion: skip candidates with >=2 existing neighbors so
-  // the floor stays a clean branching tree with real dead-end leaves and zero 2x2 blobs.
-  let expandQueue: DungeonRoomNode[] = f === 1 ? [first] : [start, first];
-  let emptyRetries = 0;
-  let deterministicPass = false;
-
-  while (nodes.length < totalRooms) {
-    if (expandQueue.length === 0) {
-      if (deterministicPass) break;
-      emptyRetries += 1;
-      if (emptyRetries >= 4) {
-        deterministicPass = true;
-      }
-      expandQueue = rng.shuffle(nodes);
+    const deadCount = candNodes.filter((n) => n.id !== 0 && degree(n) === 1).length;
+    if (candNodes.length > nodes.length || (candNodes.length === nodes.length && deadCount > bestDeadEndCount)) {
+      nodes = candNodes;
+      bestDeadEndCount = deadCount;
     }
-
-    const parent = expandQueue.shift();
-    if (!parent || !canTakeDoor(parent)) continue;
-
-    for (const dir of rng.shuffle(ALL_DIRS)) {
-      if (nodes.length >= totalRooms || !canTakeDoor(parent)) break;
-      // Never put a south door behind the starting spawn position.
-      if (parent.id === 0 && dir === 'south') continue;
-
-      const delta = DIR_DELTAS[dir];
-      const nx = parent.gx + delta.dx;
-      const ny = parent.gy + delta.dy;
-      if (Math.abs(nx) > 3 || Math.abs(ny) > 2) continue;
-      if (parent.id === 0 && nx === 0 && ny === 1) continue;
-      if (grid.has(`${nx},${ny}`)) continue;
-      if (countFilledNeighbors(nx, ny) >= 2) continue;
-      if (!deterministicPass && nodes.length > 2 && rng.next() < 0.5) continue;
-
-      const node = makeNode(nx, ny, parent.bfsDist + 1);
-      nodes.push(node);
-      grid.set(`${node.gx},${node.gy}`, node);
-      connectNodes(parent, dir, node);
-      expandQueue.push(node);
-      emptyRetries = 0;
+    if (candNodes.length === totalRooms && deadCount >= requiredDeadEnds) {
+      nodes = candNodes;
+      break;
     }
   }
 

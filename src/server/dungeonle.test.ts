@@ -147,7 +147,7 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
         assert.equal(map.rooms.length, map.totalRooms);
         const start = map.rooms.find((r) => r.id === map.startRoomId)!;
         const startDoors = Object.keys(start.doors).length;
-        if (floor === 1) assert.equal(startDoors, 1, 'floor 1 entrance has exactly one exit');
+        if (floor === 1) assert.ok(startDoors >= 1 && startDoors <= 2, 'floor 1 entrance has 1-2 exits');
         else assert.ok(startDoors >= 1 && startDoors <= 3);
         assert.equal(start.doors.south, undefined, 'entrance never puts a south door behind player spawn');
 
@@ -178,8 +178,14 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
         const boss = map.rooms.find((r) => r.id === map.bossRoomId)!;
         assert.equal(boss.blueprint.roomType, 'boss');
         const floorDeadEnds = map.rooms.filter((r) => r.id !== 0 && Object.keys(r.doors).length === 1);
-        assert.ok(floorDeadEnds.length >= 1, `${date} F${floor} must have dead-end rooms`);
+        const minDeadEnds = map.rooms.length >= 6 ? 3 : 2;
+        assert.ok(
+          floorDeadEnds.length >= minDeadEnds,
+          `${date} F${floor} must have at least ${minDeadEnds} dead-end rooms (got ${floorDeadEnds.length})`,
+        );
         assert.equal(Object.keys(boss.doors).length, 1, 'boss room must always be a dead-end');
+        const elite = map.rooms.find((r) => r.blueprint.roomType === 'elite');
+        assert.ok(elite && Object.keys(elite.doors).length === 1, 'elite vault must sit on a dead-end leaf');
         assert.equal(
           boss.bfsDist,
           Math.max(...floorDeadEnds.map((r) => r.bfsDist)),
@@ -543,7 +549,7 @@ void describe('Floors: rooms, relics, boss, stairs and descent', () => {
 
     assert.equal(sim.state.floor, 1);
     assert.equal(sim.state.progressPct, 0);
-    assert.equal(sim.state.doors.length, 1, 'entrance has one exit');
+    assert.ok(sim.state.doors.length >= 1 && sim.state.doors.length <= 2, 'entrance has 1-2 exits');
 
     // Entrance pays out a coin cache and opens its single door.
     clearRoom(sim);
@@ -1061,6 +1067,43 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
         false,
         `Leftover LICENSE-CC0.txt found in public/assets/${folder}`,
       );
+    }
+  });
+
+  void it('keeps biome solid obstacle sprites strictly separate from walk-through decor', () => {
+    const biomesSrc = readFileSync(new URL('../client/config/biomes.ts', import.meta.url), 'utf8');
+    const sections = biomesSrc.split(/\bid:\s*'/g).slice(1);
+    assert.equal(sections.length, 5, 'expected all 5 biome entries in biomes.ts');
+    for (const section of sections) {
+      const idMatch = /^(\w+)'/.exec(section);
+      const biomeId = idMatch?.[1] ?? 'unknown';
+      const blocksMatch = /blocks:\s*\{\s*sheet:\s*'(\w+)',\s*frames:\s*\[([^\]]+)\]/.exec(section);
+      if (!blocksMatch) continue;
+      const blockSheet = blocksMatch[1]!;
+      const blockFrames = new Set(blocksMatch[2]!.split(',').map((s) => Number(s.trim())));
+      const decorBlockMatch = /decor:\s*\[([\s\S]*?)\],\s*\n\s*decorCount:/.exec(section);
+      assert.ok(decorBlockMatch, `missing decor list for ${biomeId}`);
+      const decorEntries = decorBlockMatch[1]!.matchAll(/sheet:\s*'(\w+)',\s*frames:\s*\[([^\]]+)\]/g);
+      for (const entry of decorEntries) {
+        if (entry[1] !== blockSheet) continue;
+        for (const frameStr of entry[2]!.split(',')) {
+          const frame = Number(frameStr.trim());
+          assert.equal(
+            blockFrames.has(frame),
+            false,
+            `Biome ${biomeId} reuses solid block frame ${frame} inside walk-through decor`,
+          );
+        }
+      }
+      if (biomeId === 'town') {
+        assert.ok(blockFrames.has(106), 'Old Town felled logs (106) must be solid obstacles');
+      }
+      if (biomeId === 'farm') {
+        assert.ok(
+          blockFrames.has(96) && blockFrames.has(97),
+          'Farmlands hay bales (96, 97) must all be solid obstacles',
+        );
+      }
     }
   });
 });
