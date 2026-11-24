@@ -21,6 +21,8 @@ uniform vec2 uPixelGrid;
 uniform vec3 uAmbientColor;
 uniform vec4 uVignetteColor;
 uniform vec4 uFlashColor;
+// x = saturation, y = contrast, z = brightness, w = vibrance (extra boost for dull colours)
+uniform vec4 uGrade;
 
 uniform vec4 uLightPos0;
 uniform vec3 uLightCol0;
@@ -70,13 +72,22 @@ void main ()
     vec3 lit = base.rgb * clamp(uAmbientColor + lightAccum, uAmbientColor, vec3(1.32));
     lit += lightAccum * (0.045 + base.rgb * 0.08);
 
+    // Colour grade: vivid, saturated look. Vibrance pushes muted colours harder than
+    // already-saturated ones so skin/whites don't blow out.
+    float luma = dot(lit, vec3(0.299, 0.587, 0.114));
+    float chroma = max(lit.r, max(lit.g, lit.b)) - min(lit.r, min(lit.g, lit.b));
+    float satAmount = uGrade.x + uGrade.w * (1.0 - clamp(chroma * 2.0, 0.0, 1.0));
+    lit = mix(vec3(luma), lit, satAmount);
+    lit = (lit - 0.5) * uGrade.y + 0.5;
+    lit = clamp(lit * uGrade.z, 0.0, 1.0);
+
     // Pixel-snapped Bayer-dithered dungeon vignette around edges.
     vec2 vigDiff = (puv - vec2(0.5, 0.5)) * vec2(1.0, 0.92);
     float vigDist = length(vigDiff);
     float vigFactor = clamp((vigDist - 0.34) / 0.44, 0.0, 1.0) * uVignetteColor.a;
     float vigBayer = fract(dot(mod(cell, 2.0), vec2(0.5, 0.25)) + 0.125);
     float vigStep = floor(vigFactor * vigFactor * 6.0 + vigBayer) / 6.0;
-    lit = mix(lit, uVignetteColor.rgb, clamp(vigStep, 0.0, 0.72));
+    lit = mix(lit, uVignetteColor.rgb, clamp(vigStep, 0.0, 0.5));
 
     lit = mix(lit, uFlashColor.rgb, clamp(uFlashColor.a, 0.0, 0.55));
     gl_FragColor = vec4(lit, base.a);
@@ -92,6 +103,8 @@ export class DungeonAtmosphereController extends Phaser.Filters.Controller {
   public vignetteStrength = 0.58;
   public flashColor: [number, number, number] = [1, 0.85, 0.6];
   public flashStrength = 0;
+  /** saturation, contrast, brightness, vibrance */
+  public grade: [number, number, number, number] = [1.35, 1.08, 1.06, 0.35];
 
   public readonly lights: Array<[number, number, number, number]> = Array.from(
     { length: 6 },
@@ -150,6 +163,7 @@ export class DungeonAtmosphereNode extends Phaser.Renderer.WebGL.RenderNodes.Bas
       controller.vignetteColor[2],
       controller.vignetteStrength,
     ]);
+    pm.setUniform('uGrade', controller.grade);
     pm.setUniform('uFlashColor', [
       controller.flashColor[0],
       controller.flashColor[1],

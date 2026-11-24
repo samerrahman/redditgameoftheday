@@ -17,7 +17,6 @@ import type {
   RelicId,
   RunSummary,
 } from '../../shared/types.ts';
-import { getFloorBiome } from '../config/biomes.ts';
 import { ENTITY_LABELS, GAME_META, getDailyTheme, RELIC_SPRITE_FRAMES } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
@@ -617,14 +616,13 @@ export class GameUIController {
     const theme = getDailyTheme(this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
     const rule = getDailyRule(this.utcDate);
-    const startBiome = getFloorBiome(1, this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
     const { title } = getPlayerTitle(this.profile.bestFloor);
 
     this.startDate.textContent = this.utcDate;
     this.startDungeon.textContent = theme.name;
     this.startModifier.textContent = modifier.banner;
-    this.startDailyRule.textContent = `${rule.label} - Starts in ${startBiome.name}`;
+    this.startDailyRule.textContent = rule.label;
     this.startStreak.textContent = `${this.profile.streak}`;
     this.startTitle.textContent = title;
     this.updateStartHero?.(this.lookOfProfile());

@@ -607,7 +607,13 @@ export class GameSimulation {
     this.updateFirePatches(dt);
     this.updateEnemies(dt);
     for (const enemy of s.enemies) {
-      if (enemy.leapZ <= 24) this.pushOutOfObstacles(enemy, enemy.radius);
+      if (enemy.leapZ <= 24) {
+        this.pushOutOfObstacles(enemy, enemy.radius);
+        // Monsters lunging/charging into a barrel set it off (only on the ground).
+        if (enemy.state === 'attack' && BARREL_CONTACT_ATTACKS.has(enemy.attackKind)) {
+          this.triggerBarrelsInRadius(enemy.x, enemy.y, enemy.radius);
+        }
+      }
     }
     this.updateProjectiles(dt);
     this.updateCoins(dt);
@@ -1624,6 +1630,24 @@ export class GameSimulation {
     }
   }
 
+  /**
+   * Set off every intact explosive barrel overlapping a circle. Used for monster
+   * attacks (bullets, lunges/charges, bombs, shockwaves) and for chain reactions.
+   * Returns true if at least one barrel went off.
+   */
+  private triggerBarrelsInRadius(x: number, y: number, radius: number): boolean {
+    let hit = false;
+    for (const haz of this.state.hazards) {
+      if (haz.type !== 'barrels' || haz.destroyed) continue;
+      const barrelRadius = Math.round(haz.w * 0.42);
+      if (Math.hypot(haz.x - x, haz.y - y) <= radius + barrelRadius) {
+        this.triggerBarrelExplosion(haz);
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
   private triggerBarrelExplosion(haz: HazardEntity): void {
     if (haz.destroyed) return;
     haz.destroyed = true;
@@ -1671,6 +1695,8 @@ export class GameSimulation {
         this.spawnBreakDebris(blast.x, blast.y, 'barrel', false);
       }
       s.shakeIntensity = Math.max(s.shakeIntensity, 5);
+      // Explosions set off nearby barrels, so barrels can chain-react.
+      this.triggerBarrelsInRadius(blast.x, blast.y, blast.radius * 0.75);
 
       if (blast.friendly) {
         const armorBreak = blast.kind === 'shatter_quake';
@@ -2626,6 +2652,8 @@ export class GameSimulation {
         if (Math.hypot(s.player.x - boss.x, s.player.y - boss.y) <= 86 + s.player.radius * 0.5) {
           this.damagePlayer(boss.damage);
         }
+        // The landing slam detonates barrels in the same radius.
+        this.triggerBarrelsInRadius(boss.x, boss.y, 86);
         s.rings.push({
           x: boss.x,
           y: boss.y,
@@ -2732,6 +2760,9 @@ export class GameSimulation {
       } else {
         if (Math.hypot(p.x - proj.x, p.y - proj.y) <= p.radius + proj.radius) {
           this.damagePlayer(proj.damage);
+          consumed = true;
+        } else if (this.triggerBarrelsInRadius(proj.x, proj.y, proj.radius)) {
+          // Monster shots detonate barrels they hit.
           consumed = true;
         } else {
           for (const br of [...s.breakables]) {
@@ -3223,6 +3254,16 @@ export class GameSimulation {
       if (ring.ttl <= 0) continue;
       const progress = 1 - ring.ttl / ring.maxTtl;
       ring.radius = 24 + (ring.maxRadius - 24) * progress;
+
+      if (ring.harmfulToPlayer) {
+        // Boss shockwaves detonate barrels as the ring sweeps over them.
+        for (const haz of s.hazards) {
+          if (haz.type !== 'barrels' || haz.destroyed) continue;
+          if (Math.abs(Math.hypot(haz.x - ring.x, haz.y - ring.y) - ring.radius) <= 18) {
+            this.triggerBarrelExplosion(haz);
+          }
+        }
+      }
 
       if (ring.harmfulToPlayer && !ring.hitPlayer && s.phase === 'playing') {
         const dist = Math.hypot(s.player.x - ring.x, s.player.y - ring.y);
@@ -3728,6 +3769,12 @@ const HEART_CRATE_CHANCE = 0.35;
 const HEART_HEAL = 15;
 const BOSS_LEAP_DURATION = 0.78;
 const BOSS_LEAP_MAX_Z = 135;
+
+/**
+ * Monster attacks where the body itself rams things (and can bump barrels).
+ * The boss leap is handled at its landing slam instead.
+ */
+const BARREL_CONTACT_ATTACKS: ReadonlySet<string> = new Set(['lunge', 'charge', 'ricochet_charge']);
 
 function normalizeAngle(angle: number): number {
   let a = angle;

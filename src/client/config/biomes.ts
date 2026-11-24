@@ -56,8 +56,8 @@ export const BIOMES: readonly FloorBiome[] = [
     name: 'Frozen Slopes',
     floor: { sheet: 'ski', frames: [0, 0, 0, 13, 16, 49, 52] },
     floorTint: 0xffffff,
-    wallTint: 0xcfe6ff,
-    ambientBg: 0x1a2433,
+    wallTint: 0xa9d6ff,
+    ambientBg: 0x14305a,
     decor: [
       { sheet: 'ski', frames: [6, 18], weight: 4 }, // tall pine
       { sheet: 'ski', frames: [30], weight: 3 }, // small pine
@@ -78,8 +78,8 @@ export const BIOMES: readonly FloorBiome[] = [
     floor: { sheet: 'town', frames: [109] },
     patches: { sheet: 'town', frames: [0, 1, 2], count: 3 },
     floorTint: 0xffffff,
-    wallTint: 0xf3dcc4,
-    ambientBg: 0x221a16,
+    wallTint: 0xffc7a0,
+    ambientBg: 0x2c1436,
     decor: [
       { sheet: 'town', frames: [4, 16], weight: 2 }, // green tree
       { sheet: 'town', frames: [3, 15], weight: 2 }, // autumn tree
@@ -100,9 +100,9 @@ export const BIOMES: readonly FloorBiome[] = [
     name: 'Battlefield',
     floor: { sheet: 'battle', frames: [0, 0, 0, 1] },
     patches: { sheet: 'town', frames: [25], count: 4 }, // churned-up mud
-    floorTint: 0xb9b27c,
-    wallTint: 0xc8c2a8,
-    ambientBg: 0x1b1d15,
+    floorTint: 0xd9e68a,
+    wallTint: 0xe0cf8c,
+    ambientBg: 0x22300f,
     decor: [
       { sheet: 'battle', frames: [23], weight: 3 }, // tank trap
       { sheet: 'battle', frames: [25], weight: 2 }, // barricade
@@ -122,8 +122,8 @@ export const BIOMES: readonly FloorBiome[] = [
     floor: { sheet: 'battle', frames: [0, 0, 0, 1, 2] },
     patches: { sheet: 'farm', frames: [48, 49, 50, 60, 61, 62], count: 4 },
     floorTint: 0xffffff,
-    wallTint: 0xe8c9a0,
-    ambientBg: 0x1f1a12,
+    wallTint: 0xffcf8f,
+    ambientBg: 0x33200a,
     decor: [
       { sheet: 'farm', frames: [3, 15], weight: 2 }, // pine
       { sheet: 'farm', frames: [39], weight: 2 }, // bush

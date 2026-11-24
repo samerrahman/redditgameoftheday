@@ -1142,14 +1142,15 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(sim.state.gems.length, 1, 'floor boss kill must drop a gem');
   });
 
-  void it('shuffles the 5 biomes deterministically per date with biome-specific signature enemies and repeats from floor 6', () => {
+  void it('always starts on the Dungeon, shuffles the other biomes per date, and repeats from floor 6', () => {
     assert.deepEqual(
       [1, 2, 3, 4, 5, 6, 7].map((f) => getBiomeIdForFloor(f)),
       ['dungeon', 'snow', 'town', 'battle', 'farm', 'dungeon', 'snow'],
     );
     const dates = ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'];
-    const startingBiomes = new Set(dates.map((d) => getBiomeIdForFloor(1, d)));
-    assert.ok(startingBiomes.size >= 2, `expected different dates to start in different biomes, got ${[...startingBiomes].join(', ')}`);
+    for (const d of dates) assert.equal(getBiomeIdForFloor(1, d), 'dungeon', `floor 1 on ${d} should be the Dungeon`);
+    const secondFloors = new Set(dates.map((d) => getBiomeIdForFloor(2, d)));
+    assert.ok(secondFloors.size >= 2, `expected the outdoor worlds to shuffle per date, got ${[...secondFloors].join(', ')}`);
 
     const date = '2026-11-20';
     const order = getDailyBiomeOrder(date);
@@ -1157,7 +1158,14 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(getBiomeIdForFloor(6, date), getBiomeIdForFloor(1, date));
 
     const hazard = getDailyHazard(date);
-    for (let floor = 1; floor <= 6; floor += 1) {
+    // Floor 1 uses only classic monsters (plus the boss); themed specials start on floor 2.
+    const floor1 = buildDailyDungeonMap(date, 1, hazard);
+    const floor1Types = new Set(floor1.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
+    for (const t of floor1Types) {
+      assert.ok(['chaser', 'shooter', 'charger', 'elite_charger', 'boss'].includes(t), `floor 1 spawned special monster ${t}`);
+    }
+    for (let floor = 2; floor <= 6; floor += 1) {
+      if (getBiomeIdForFloor(floor, date) === 'dungeon') continue; // floor 6 = dungeon again
       const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, date)];
       const map = buildDailyDungeonMap(date, floor, hazard);
       const spawnedTypes = new Set(map.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
@@ -1684,5 +1692,72 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     };
     scanDir(srcRoot);
     assert.deepEqual(hits, [], `Found middle-dot characters in: ${hits.join(', ')}`);
+  });
+});
+
+void describe('Explosive barrels react to monster attacks', () => {
+  const barrel = (id: number, x: number, y: number) => ({
+    id,
+    type: 'barrels' as const,
+    x,
+    y,
+    w: 36,
+    h: 36,
+    dirX: 0,
+    dirY: 0,
+    timer: 0,
+    hp: 20,
+    destroyed: false,
+  });
+
+  const freshSim = (): GameSimulation => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile);
+    sim.state.enemies = [];
+    sim.state.totalWaves = 5;
+    sim.state.obstacles = [];
+    sim.state.breakables = [];
+    sim.state.player.x = 100;
+    sim.state.player.y = 400;
+    sim.state.player.iFramesTimer = 99;
+    return sim;
+  };
+
+  void it('monster bullets detonate barrels they hit', () => {
+    const sim = freshSim();
+    sim.state.hazards = [barrel(1, 400, 200)];
+    sim.state.projectiles = [
+      { id: 900, friendly: false, x: 330, y: 200, vx: 400, vy: 0, radius: 7, damage: 10, ttl: 2, pierce: false, hitEnemyIds: [], kind: 'orb', angle: 0 },
+    ];
+    stepFrames(sim, 20, () => idleInput());
+    assert.equal(sim.state.hazards[0]!.destroyed, true);
+    assert.equal(sim.state.projectiles.some((p) => p.id === 900), false, 'bullet is used up');
+  });
+
+  void it('charging monsters set off barrels they ram', () => {
+    const sim = freshSim();
+    sim.state.hazards = [barrel(2, 400, 200)];
+    const charger = createEnemy(3001, 'charger', 330, 200, 1, 1, 1, 1);
+    charger.spawnShieldTimer = 0;
+    charger.state = 'attack';
+    charger.attackKind = 'charge';
+    charger.aimAngle = 0;
+    charger.stateTimer = 1;
+    sim.state.enemies = [charger];
+    stepFrames(sim, 20, () => idleInput());
+    assert.equal(sim.state.hazards[0]!.destroyed, true);
+  });
+
+  void it('barrel explosions chain into nearby barrels, but not far ones', () => {
+    const sim = freshSim();
+    sim.state.hazards = [barrel(4, 400, 200), barrel(5, 460, 200), barrel(6, 700, 420)];
+    sim.state.projectiles = [
+      { id: 901, friendly: false, x: 360, y: 200, vx: 400, vy: 0, radius: 7, damage: 10, ttl: 2, pierce: false, hitEnemyIds: [], kind: 'orb', angle: 0 },
+    ];
+    stepFrames(sim, 40, () => idleInput());
+    assert.equal(sim.state.hazards[0]!.destroyed, true, 'first barrel hit by the bullet');
+    assert.equal(sim.state.hazards[1]!.destroyed, true, 'neighbour chain-reacts');
+    assert.equal(sim.state.hazards[2]!.destroyed, false, 'distant barrel untouched');
   });
 });

@@ -17,6 +17,18 @@ import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
 import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
 import { COSMETIC_IDS, COSMETICS, isCosmeticId } from '../../shared/shop.ts';
 import { getWeapon } from '../../shared/weapons.ts';
+import {
+  computeEnemyPose,
+  drawStar,
+  ENEMY_COLORS,
+  type EnemyFxState,
+  FxParticles,
+  GOLD_PALETTE,
+  HIT_REACT_TIME,
+  rgb01,
+  WEAPON_PALETTES,
+  type WeaponPalette,
+} from './juice.ts';
 import type { AccessoryId, CosmeticId, DoorDirection, EnemyArchetype } from '../../shared/types.ts';
 import { hexNum, RELIC_SPRITE_FRAMES, type DungeonTheme } from '../config/theme.ts';
 import {
@@ -169,6 +181,10 @@ export class DungeonScene extends Phaser.Scene {
 
   private prevEnemies = new Map<number, { x: number; y: number; archetype: EnemyArchetype }>();
   private prevSwingCount = 0;
+  private readonly fxParticles = new FxParticles();
+  private readonly enemyFx = new Map<number, EnemyFxState>();
+  private fxClock = 0;
+  private frameDt = 0;
   private prevAttackCooldown = 0;
   private readyFlashTimer = 0;
 
@@ -531,6 +547,12 @@ export class DungeonScene extends Phaser.Scene {
           container.add(img);
         }
       }
+      // Additive colour wash: tinting dark tiles can only darken them, so add a
+      // soft layer of the theme colour on top to make the floor glow with colour.
+      const wash = this.add
+        .rectangle(ARENA_W / 2, ARENA_H / 2, ARENA_W, ARENA_H, theme.floorTint, 0.2)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      container.add(wash);
     }
 
     for (let r = 0; r < rows - 1; r += 1) {
@@ -1140,6 +1162,11 @@ export class DungeonScene extends Phaser.Scene {
     glowG.clear();
     this.resetLabels();
 
+    const live = state.phase === 'playing' || state.phase === 'dying';
+    this.frameDt = live ? dt : 0;
+    this.fxClock += this.frameDt;
+    this.fxParticles.update(this.frameDt);
+
     this.processCombatEvents(state);
     this.drawTorchGlows(glowG, state);
     this.drawAmbientMotes(glowG, state, dt);
@@ -1161,6 +1188,8 @@ export class DungeonScene extends Phaser.Scene {
     this.syncProjectiles(shadowG, fxG, state);
     this.drawDebris(shadowG, fxG, state);
     this.drawSlashesRingsLightningsParticles(fxG, state);
+    this.spawnProjectileTrails(state);
+    this.fxParticles.draw(fxG);
     this.drawFloatingTexts(state);
     this.drawOnboardingHint(fxG, state);
     this.drawTouchJoystick(fxG);
@@ -1191,6 +1220,7 @@ export class DungeonScene extends Phaser.Scene {
 
     if (state.player.swingCount > this.prevSwingCount && !this.prefersReducedMotion()) {
       this.cameras.main.shake(45, 0.0022);
+      this.spawnSwingBurst(state);
     }
     this.prevSwingCount = state.player.swingCount;
 
@@ -1838,9 +1868,22 @@ export class DungeonScene extends Phaser.Scene {
         enemy.state === 'attack' &&
         enemy.leapZ > 0;
       const heightRatio = Math.max(0, Math.min(1, enemy.leapZ / 135));
-      const jitterX =
-        enemy.state === 'telegraph' ? Math.sin(state.elapsedTime * 55 + enemy.id) * 1.8 : 0;
       const alpha = enemy.state === 'spawning' ? 0.45 : 1;
+      const fx = this.updateEnemyFx(enemy, state);
+      const pose = computeEnemyPose(enemy, fx, this.fxClock - fx.stateStartedAt, state.elapsedTime);
+      const colors = ENEMY_COLORS[enemy.archetype];
+      const airborne = Math.min(0, pose.oy);
+
+      // Signature-colour glow under every monster (pulses while winding up).
+      const glowPulse = 0.22 + 0.06 * Math.sin(state.elapsedTime * 5 + enemy.id) + pose.charge * 0.3;
+      shadowG.fillStyle(colors.main, glowPulse);
+      shadowG.fillEllipse(enemy.x, enemy.y + enemy.radius * 0.7, enemy.radius * 2.8, enemy.radius * 1.2);
+      if (pose.charge > 0) {
+        // Wind-up: a bright ring tightening around the monster.
+        const ringR = enemy.radius * (2.4 - 1.1 * pose.charge);
+        shadowG.lineStyle(3, colors.hot, 0.35 + 0.55 * pose.charge);
+        shadowG.strokeEllipse(enemy.x, enemy.y + enemy.radius * 0.6, ringR * 2, ringR * 0.9);
+      }
 
       const shadowMult = isBossLeapAir ? 1 - 0.34 * heightRatio : 1;
       const shadowAlpha = isBossLeapAir ? 0.44 * (1 - 0.32 * heightRatio) : 0.44;
@@ -1848,8 +1891,8 @@ export class DungeonScene extends Phaser.Scene {
         shadowG,
         enemy.x,
         enemy.y + enemy.radius * 0.78,
-        enemy.radius * 1.05 * popMult * shadowMult,
-        Math.max(6, enemy.radius * 0.36 * popMult * shadowMult),
+        enemy.radius * 1.05 * popMult * shadowMult * (1 + airborne / 110),
+        Math.max(6, enemy.radius * 0.36 * popMult * shadowMult * (1 + airborne / 110)),
         shadowAlpha,
       );
 
@@ -1877,8 +1920,9 @@ export class DungeonScene extends Phaser.Scene {
         enemy.archetype === 'shade' ? Math.sin(state.elapsedTime * 6 + enemy.id) * 3 : 0;
       spr
         .setDepth(isBossLeapAir ? 18 : 10)
-        .setPosition(enemy.x + jitterX, enemy.y - enemy.leapZ + crouchY + bobY)
-        .setScale(scaleX, scaleY)
+        .setPosition(enemy.x + pose.ox, enemy.y - enemy.leapZ + crouchY + bobY + pose.oy)
+        .setScale(scaleX * pose.sx, scaleY * pose.sy)
+        .setRotation(pose.rot)
         .setAlpha(alpha)
         .setFlipX(state.player.x < enemy.x);
 
@@ -1895,17 +1939,21 @@ export class DungeonScene extends Phaser.Scene {
 
       if (enemy.hitFlashTimer > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      } else if (fx.hitT > HIT_REACT_TIME * 0.35) {
+        // After the white pop, a hot pink-red glow that fades out.
+        spr.setTint(0xb8325a).setTintMode(Phaser.TintModes.ADD);
+      } else if (pose.charge > 0.55 && Math.sin(state.elapsedTime * 40) > 0) {
+        // Flicker in the monster's colour right before it strikes.
+        spr.setTint(colors.main).setTintMode(Phaser.TintModes.ADD);
       } else if (enemy.archetype === 'shade') {
         spr
           .setTint(enemy.state === 'telegraph' ? 0xc084fc : 0xe9d5ff)
           .setTintMode(Phaser.TintModes.MULTIPLY);
-      } else if (enemy.archetype === 'stampede' && (enemy.state === 'telegraph' || enemy.state === 'attack')) {
-        spr.setTint(0xfca5a5).setTintMode(Phaser.TintModes.MULTIPLY);
-      } else if (enemy.archetype === 'bomber' && enemy.state === 'telegraph') {
-        spr.setTint(0xfdba74).setTintMode(Phaser.TintModes.MULTIPLY);
       } else {
         spr.clearTint();
       }
+
+      this.spawnEnemyStateFx(enemy, fx, colors);
 
       // Floating shield icon on armored foes while armor > 0
       if (enemy.armor > 0) {
@@ -1925,7 +1973,18 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       if (enemy.state === 'staggered') {
-        this.nextLabel(enemy.x, enemy.y - enemy.radius - 18, '✦ STUNNED ✦', '#fde047', 16);
+        // Dizzy stars circling the head.
+        for (let i = 0; i < 3; i += 1) {
+          const a = state.elapsedTime * 5 + (i * Math.PI * 2) / 3;
+          drawStar(
+            fxG,
+            enemy.x + Math.cos(a) * enemy.radius * 0.9,
+            enemy.y - enemy.radius - 10 + Math.sin(a) * 4,
+            4,
+            i === 1 ? 0x7dd3fc : 0xfde047,
+            0.95,
+          );
+        }
       } else if (enemy.archetype !== 'boss' && enemy.hp < enemy.maxHp) {
         const bw = enemy.radius * 2.1;
         const ratio = Math.max(0, enemy.hp / enemy.maxHp);
@@ -1934,6 +1993,10 @@ export class DungeonScene extends Phaser.Scene {
         fxG.fillStyle(enemy.armor > 0 ? 0xf5b82e : 0xe23c3c, 1);
         fxG.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 14, bw * ratio, 5);
       }
+    }
+
+    for (const id of this.enemyFx.keys()) {
+      if (!activeIds.has(id)) this.enemyFx.delete(id);
     }
 
     for (const [id, spr] of this.enemySprites.entries()) {
@@ -1946,6 +2009,199 @@ export class DungeonScene extends Phaser.Scene {
           this.wardenShields.delete(id);
         }
       }
+    }
+  }
+
+  private playerPalette(state: GameState): WeaponPalette {
+    return WEAPON_PALETTES[state.player.weaponId] ?? WEAPON_PALETTES.longsword;
+  }
+
+  /** Track per-monster state changes and hits (client-side) for poses and effects. */
+  private updateEnemyFx(enemy: EnemyEntity, state: GameState): EnemyFxState {
+    let fx = this.enemyFx.get(enemy.id);
+    if (!fx) {
+      fx = {
+        lastState: enemy.state,
+        lastAttackKind: enemy.attackKind,
+        stateStartedAt: this.fxClock,
+        prevHp: enemy.hp,
+        hitT: 0,
+        hitDirX: 0,
+        hitDirY: 0,
+        trailCd: 0,
+      };
+      this.enemyFx.set(enemy.id, fx);
+    }
+    const colors = ENEMY_COLORS[enemy.archetype];
+    if (enemy.state !== fx.lastState) {
+      const wasLeap = fx.lastState === 'attack' && fx.lastAttackKind === 'boss_leap';
+      if (wasLeap) {
+        // Landing shockwave.
+        this.fxParticles.add({ x: enemy.x, y: enemy.y + enemy.radius * 0.6, color: colors.hot, shape: 'ring', size: 16, ttl: 0.45 });
+        this.fxParticles.burst(enemy.x, enemy.y + enemy.radius * 0.6, [colors.main, colors.hot, 0xffffff], 18, 300, { shape: 'spark', ttl: 0.4 });
+      }
+      fx.lastState = enemy.state;
+      fx.stateStartedAt = this.fxClock;
+      if (enemy.state === 'attack') this.spawnAttackStartFx(enemy, colors);
+    }
+    if (enemy.attackKind !== 'none') fx.lastAttackKind = enemy.attackKind;
+
+    if (enemy.hp < fx.prevHp - 0.5) {
+      const dx = enemy.x - state.player.x;
+      const dy = enemy.y - state.player.y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      fx.hitT = HIT_REACT_TIME;
+      fx.hitDirX = dx / d;
+      fx.hitDirY = dy / d;
+      this.spawnHitFx(enemy, fx.hitDirX, fx.hitDirY, this.playerPalette(state));
+    }
+    fx.prevHp = enemy.hp;
+    fx.hitT = Math.max(0, fx.hitT - this.frameDt);
+    return fx;
+  }
+
+  private spawnHitFx(enemy: EnemyEntity, dirX: number, dirY: number, pal: WeaponPalette): void {
+    if (this.prefersReducedMotion()) return;
+    const colors = ENEMY_COLORS[enemy.archetype];
+    const angle = Math.atan2(dirY, dirX);
+    // Weapon-coloured sparks spraying away from the hit, plus a burst ring.
+    this.fxParticles.burst(enemy.x, enemy.y, pal.sparks, 10, 340, { shape: 'spark', angle, spread: 1.8, ttl: 0.3, size: 3 });
+    this.fxParticles.add({ x: enemy.x, y: enemy.y, color: pal.main, shape: 'ring', size: enemy.radius * 0.6, ttl: 0.22 });
+    // Bits of the monster's own colour.
+    this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot], 6, 180, { size: 4, ttl: 0.45, gravity: 420, angle, spread: 2.4 });
+  }
+
+  private spawnAttackStartFx(enemy: EnemyEntity, colors: { main: number; hot: number }): void {
+    if (this.prefersReducedMotion()) return;
+    const kind = enemy.attackKind;
+    const aimX = Math.cos(enemy.aimAngle);
+    const aimY = Math.sin(enemy.aimAngle);
+    const behindAngle = enemy.aimAngle + Math.PI;
+    if (kind === 'lunge' || kind === 'charge' || kind === 'ricochet_charge') {
+      this.fxParticles.burst(enemy.x - aimX * enemy.radius, enemy.y - aimY * enemy.radius + enemy.radius * 0.5, [colors.main, 0xe7d8c5], 8, 200, { angle: behindAngle, spread: 1.4, ttl: 0.4, size: 4 });
+      this.fxParticles.add({ x: enemy.x, y: enemy.y, color: colors.hot, shape: 'ring', size: enemy.radius * 0.7, ttl: 0.25 });
+    } else if (kind === 'boss_radial') {
+      this.fxParticles.add({ x: enemy.x, y: enemy.y, color: colors.main, shape: 'ring', size: 22, ttl: 0.5 });
+      this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot, 0xffffff], 20, 360, { shape: 'spark', ttl: 0.45 });
+    } else if (kind === 'boss_leap' || kind === 'drop_bomb') {
+      this.fxParticles.burst(enemy.x, enemy.y + enemy.radius * 0.7, [0xe7d8c5, colors.main], 10, 160, { ttl: 0.4, size: 4 });
+    } else {
+      // Casting / firing: a muzzle flash toward the target.
+      const mx = enemy.x + aimX * enemy.radius;
+      const my = enemy.y + aimY * enemy.radius;
+      this.fxParticles.burst(mx, my, [colors.hot, colors.main, 0xffffff], 10, 300, { shape: 'spark', angle: enemy.aimAngle, spread: 0.9, ttl: 0.25 });
+      this.fxParticles.add({ x: mx, y: my, color: colors.hot, shape: 'ring', size: 8, ttl: 0.2 });
+    }
+  }
+
+  /** Continuous effects while a monster winds up or dashes. */
+  private spawnEnemyStateFx(enemy: EnemyEntity, fx: EnemyFxState, colors: { main: number; hot: number }): void {
+    if (this.prefersReducedMotion() || this.frameDt <= 0) return;
+    fx.trailCd -= this.frameDt;
+    if (fx.trailCd > 0) return;
+    if (enemy.state === 'telegraph') {
+      // Energy gathering inward.
+      fx.trailCd = 0.06;
+      const a = Math.random() * Math.PI * 2;
+      const r = enemy.radius * 2.2;
+      this.fxParticles.add({
+        x: enemy.x + Math.cos(a) * r,
+        y: enemy.y + Math.sin(a) * r,
+        vx: -Math.cos(a) * r * 4,
+        vy: -Math.sin(a) * r * 4,
+        color: Math.random() < 0.5 ? colors.hot : colors.main,
+        size: 3,
+        ttl: 0.22,
+        drag: 0,
+      });
+    } else if (enemy.state === 'attack') {
+      const kind = fx.lastAttackKind;
+      if (kind === 'lunge' || kind === 'charge' || kind === 'ricochet_charge') {
+        // Speed trail behind the dash.
+        fx.trailCd = 0.025;
+        const aimX = Math.cos(enemy.aimAngle);
+        const aimY = Math.sin(enemy.aimAngle);
+        const side = (Math.random() - 0.5) * enemy.radius * 1.4;
+        this.fxParticles.add({
+          x: enemy.x - aimX * enemy.radius + -aimY * side,
+          y: enemy.y - aimY * enemy.radius + aimX * side,
+          vx: -aimX * 220,
+          vy: -aimY * 220,
+          color: Math.random() < 0.6 ? colors.main : colors.hot,
+          shape: 'spark',
+          size: 3,
+          ttl: 0.22,
+        });
+      } else if (kind === 'shade_fan') {
+        fx.trailCd = 0.05;
+        this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot], 2, 120, { ttl: 0.3, size: 3 });
+      }
+    }
+  }
+
+  /** Weapon-coloured sparks along the swing arc (melee) or a muzzle flash (ranged). */
+  private spawnSwingBurst(state: GameState): void {
+    const p = state.player;
+    const w = getWeapon(p.weaponId);
+    const pal = (p.relics.blood_reset ?? 0) > 0 || (p.relics.rift_cleave ?? 0) > 0 ? GOLD_PALETTE : this.playerPalette(state);
+    const angle = p.attackAngle;
+    if (w.style === 'melee') {
+      const arc = (Math.max(1, w.arcDeg) * Math.PI) / 180;
+      const sign = p.swingCount % 2 === 1 ? 1 : -1;
+      const n = w.id === 'hammer' ? 16 : 11;
+      for (let i = 0; i < n; i += 1) {
+        const u = i / (n - 1) - 0.5;
+        const a = angle + sign * u * arc;
+        const r = w.range * (0.65 + Math.random() * 0.3);
+        const tang = a + sign * Math.PI * 0.5;
+        const spd = 120 + Math.random() * 160;
+        this.fxParticles.add({
+          x: p.x + Math.cos(a) * r,
+          y: p.y + Math.sin(a) * r,
+          vx: Math.cos(tang) * spd + Math.cos(a) * 40,
+          vy: Math.sin(tang) * spd + Math.sin(a) * 40,
+          color: pal.sparks[i % pal.sparks.length] ?? pal.main,
+          shape: i % 3 === 0 ? 'spark' : 'dot',
+          size: w.id === 'hammer' ? 4 : 3,
+          ttl: 0.28,
+        });
+      }
+      if (w.id === 'hammer') {
+        const ix = p.x + Math.cos(angle) * w.range * 0.7;
+        const iy = p.y + Math.sin(angle) * w.range * 0.7;
+        this.fxParticles.add({ x: ix, y: iy, color: pal.main, shape: 'ring', size: 18, ttl: 0.35 });
+      }
+    } else {
+      const mx = p.x + Math.cos(angle) * 24;
+      const my = p.y + Math.sin(angle) * 24;
+      this.fxParticles.burst(mx, my, pal.sparks, 10, 300, { shape: 'spark', angle, spread: 1.0, ttl: 0.22 });
+      this.fxParticles.add({ x: mx, y: my, color: pal.main, shape: 'ring', size: 7, ttl: 0.18 });
+    }
+    // Subtle full-screen colour pulse in the weapon's colour.
+    this.shaderFlashColor = rgb01(pal.main);
+    this.shaderFlash = Math.max(this.shaderFlash, 0.06);
+  }
+
+  /** Glowing trails behind projectiles: weapon colours for yours, hot orange for enemies'. */
+  private spawnProjectileTrails(state: GameState): void {
+    if (this.prefersReducedMotion() || this.frameDt <= 0) return;
+    for (const proj of state.projectiles) {
+      if (Math.random() > 0.75) continue;
+      let colors: number[];
+      if (!proj.friendly) colors = [0xfb923c, 0xfde047, 0xf87171];
+      else if (proj.kind === 'lance') colors = WEAPON_PALETTES.arcane_lance.sparks;
+      else if (proj.kind === 'bolt') colors = WEAPON_PALETTES.scatter_staff.sparks;
+      else if (proj.kind === 'rift_wave') colors = [0x38bdf8, 0x7dd3fc, 0xffffff];
+      else colors = [0x7dd3fc, 0xffffff];
+      this.fxParticles.add({
+        x: proj.x + (Math.random() - 0.5) * 4,
+        y: proj.y + (Math.random() - 0.5) * 4,
+        vx: -proj.vx * 0.08,
+        vy: -proj.vy * 0.08,
+        color: colors[Math.floor(Math.random() * colors.length)] ?? 0xffffff,
+        size: proj.kind === 'lance' ? 4 : 3,
+        ttl: 0.25,
+      });
     }
   }
 
@@ -2456,9 +2712,17 @@ export class DungeonScene extends Phaser.Scene {
         });
       }
 
-      const isGold = slash.color === '#fbbf24';
-      const outerCol = isGold ? 0xf59e0b : slash.hitCount > 0 ? 0xfdba74 : 0x93c5fd;
+      const pal = slash.color === '#fbbf24' ? GOLD_PALETTE : this.playerPalette(state);
+      const outerCol = pal.main;
       const outerPoly = [...outerPts, ...[...innerPts].reverse()];
+      // Soft outer glow in the weapon's secondary colour.
+      const glowPts = outerPts.map((pt) => ({
+        x: slash.x + (pt.x - slash.x) * 1.12,
+        y: slash.y + (pt.y - slash.y) * 1.12,
+      }));
+      g.fillStyle(pal.glow, fade * (slash.hitCount > 0 ? 0.5 : 0.32));
+      this.tracePolygon(g, [...glowPts, ...[...innerPts].reverse()], true);
+      g.fillPath();
       g.fillStyle(outerCol, fade * 0.92);
       this.tracePolygon(g, outerPoly, true);
       g.fillPath();
@@ -2490,7 +2754,7 @@ export class DungeonScene extends Phaser.Scene {
         g.lineStyle(4, 0x120d14, fade);
         g.lineBetween(ix - crossLen, iy - crossLen, ix + crossLen, iy + crossLen);
         g.lineBetween(ix + crossLen, iy - crossLen, ix - crossLen, iy + crossLen);
-        g.lineStyle(2, 0xfff7e8, fade);
+        g.lineStyle(2, pal.sparks[0] ?? 0xfff7e8, fade);
         g.lineBetween(ix - crossLen, iy - crossLen, ix + crossLen, iy + crossLen);
         g.lineBetween(ix + crossLen, iy - crossLen, ix - crossLen, iy + crossLen);
       }
@@ -2605,26 +2869,33 @@ export class DungeonScene extends Phaser.Scene {
     const theme = this.bridge.theme;
     const boss = state.enemies.find((e) => e.archetype === 'boss');
 
+    // Bright, saturated looks per biome; vignettes are tinted, never near-black.
     if (biome.id === 'dungeon') {
       atmo.ambientColor = [...theme.shaderAmbient];
-      atmo.vignetteColor = boss ? [0.16, 0.02, 0.05] : [...theme.shaderVignette];
-      atmo.vignetteStrength = boss ? 0.64 : 0.54;
+      atmo.vignetteColor = boss ? [0.42, 0.04, 0.14] : [...theme.shaderVignette];
+      atmo.vignetteStrength = boss ? 0.46 : 0.32;
+      // The dungeon tiles are dark, so lift brightness more than outdoors.
+      atmo.grade = [1.45, 1.1, 1.16, 0.45];
     } else if (biome.id === 'snow') {
-      atmo.ambientColor = [0.88, 0.92, 1.0];
-      atmo.vignetteColor = [0.08, 0.14, 0.24];
-      atmo.vignetteStrength = 0.34;
+      atmo.ambientColor = [0.98, 1.02, 1.1];
+      atmo.vignetteColor = [0.18, 0.36, 0.7];
+      atmo.vignetteStrength = 0.28;
+      atmo.grade = [1.3, 1.06, 1.02, 0.45];
     } else if (biome.id === 'town') {
-      atmo.ambientColor = [0.82, 0.78, 0.88];
-      atmo.vignetteColor = [0.06, 0.04, 0.1];
-      atmo.vignetteStrength = 0.42;
+      atmo.ambientColor = [1.04, 0.98, 0.94];
+      atmo.vignetteColor = [0.34, 0.12, 0.3];
+      atmo.vignetteStrength = 0.3;
+      atmo.grade = [1.38, 1.08, 1.04, 0.4];
     } else if (biome.id === 'battle') {
-      atmo.ambientColor = [0.8, 0.78, 0.74];
-      atmo.vignetteColor = [0.08, 0.07, 0.04];
-      atmo.vignetteStrength = 0.44;
+      atmo.ambientColor = [1.04, 1.0, 0.9];
+      atmo.vignetteColor = [0.3, 0.2, 0.06];
+      atmo.vignetteStrength = 0.3;
+      atmo.grade = [1.42, 1.1, 1.04, 0.45];
     } else {
-      atmo.ambientColor = [0.88, 0.85, 0.78];
-      atmo.vignetteColor = [0.1, 0.07, 0.03];
-      atmo.vignetteStrength = 0.36;
+      atmo.ambientColor = [1.06, 1.02, 0.9];
+      atmo.vignetteColor = [0.36, 0.22, 0.06];
+      atmo.vignetteStrength = 0.26;
+      atmo.grade = [1.42, 1.06, 1.05, 0.4];
     }
 
     atmo.flashColor = [...this.shaderFlashColor];
@@ -2643,12 +2914,12 @@ export class DungeonScene extends Phaser.Scene {
           {
             x: torch.x / ARENA_W,
             y: (torch.y + 20) / ARENA_H,
-            radius: 0.34 + flicker,
-            r: 0.88,
-            g: 0.52,
-            b: 0.2,
+            radius: 0.36 + flicker,
+            r: 1.0,
+            g: 0.5,
+            b: 0.12,
           },
-          0.72,
+          0.8,
         );
       }
     }

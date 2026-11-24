@@ -452,9 +452,22 @@ export type FloorScaling = {
 
 export const BIOME_ORDER: readonly BiomeId[] = ['dungeon', 'snow', 'town', 'battle', 'farm'];
 
-/** Each UTC date deterministically shuffles the 5-biome floor cycle so days open in varied worlds. */
+/**
+ * Floor 1 is always the classic Dungeon so every run starts somewhere familiar.
+ * Each UTC date shuffles the other four worlds for floors 2-5, then the cycle repeats.
+ */
 export function getDailyBiomeOrder(utcDate: string): readonly BiomeId[] {
-  return createDailyStream(utcDate, 'biome-order').shuffle(BIOME_ORDER);
+  const outdoors = BIOME_ORDER.filter((b) => b !== 'dungeon');
+  return ['dungeon', ...createDailyStream(utcDate, 'biome-order').shuffle(outdoors)];
+}
+
+/**
+ * The themed "signature" monster for a floor. Floor 1 sticks to classic slimes so
+ * the first rooms stay simple; special monsters arrive from floor 2.
+ */
+export function getFloorSignatureEnemy(floor: number, utcDate?: string): EnemyArchetype {
+  if (Math.max(1, Math.floor(floor)) === 1) return 'chaser';
+  return BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, utcDate)];
 }
 
 export function getBiomeIdForFloor(floor: number, utcDate?: string): BiomeId {
@@ -486,8 +499,8 @@ export function getFloorScaling(floor: number): FloorScaling {
 }
 
 function enemyPoolForFloor(floor: number, utcDate?: string): EnemyArchetype[] {
-  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, utcDate)];
-  if (floor <= 1) return ['chaser', 'shooter', sig, sig];
+  const sig = getFloorSignatureEnemy(floor, utcDate);
+  if (floor <= 1) return ['chaser', 'chaser', 'shooter'];
   if (floor <= 3) return [sig, sig, 'chaser', 'shooter', 'charger'];
   return [sig, sig, 'chaser', 'shooter', 'charger', 'elite_charger'];
 }
@@ -636,7 +649,7 @@ export function buildDailyDungeonMap(
   const gauntletNode = nodes.length >= 6 ? specialPool[1] : undefined;
   const bossRoomId = bossNode.id;
   const extra = scaling.extraEnemies;
-  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(f, utcDate)];
+  const sig = getFloorSignatureEnemy(f, utcDate);
   const centerSpawnY = Math.round(ARENA_H * 0.3);
   const crateCount = (base: number): number => Math.min(6, base + Math.max(0, extraCrates));
 
@@ -656,7 +669,7 @@ export function buildDailyDungeonMap(
         roomType: 'warmup',
         waves:
           f === 1
-            ? [wave(['chaser', 'chaser']), wave(['chaser', sig])]
+            ? [wave(['chaser', 'chaser']), wave(['chaser', 'shooter'])]
             : [wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra, utcDate))],
         hazards: [],
         breakables: buildBreakables(node.roomIndex, 'crate', crateCount(4), occupiedCells),
