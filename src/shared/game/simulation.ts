@@ -1944,32 +1944,83 @@ export class GameSimulation {
     dt: number,
   ): void {
     const s = this.state;
+    if (enemy.bouncesLeft === 0) {
+      enemy.bouncesLeft = enemy.id % 2 === 0 ? 1 : -1;
+    }
+    const strafeDir = enemy.bouncesLeft >= 0 ? 1 : -1;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
+      const prevX = enemy.x;
+      const prevY = enemy.y;
       if (!hasShotLOS || dist > 315) {
         this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       } else if (dist < 185) {
         this.moveWithSlide(enemy, -dirX * enemy.speed * 0.9 * dt, -dirY * enemy.speed * 0.9 * dt);
+        if (
+          dt > 0 &&
+          enemy.speed > 0 &&
+          Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
+        ) {
+          enemy.bouncesLeft = -strafeDir;
+          this.moveWithSlide(
+            enemy,
+            -dirY * -strafeDir * enemy.speed * 0.72 * dt,
+            dirX * -strafeDir * enemy.speed * 0.72 * dt,
+          );
+        }
       } else {
-        this.moveWithSlide(enemy, -dirY * enemy.speed * 0.55 * dt, dirX * enemy.speed * 0.55 * dt);
+        this.moveWithSlide(
+          enemy,
+          -dirY * strafeDir * enemy.speed * 0.72 * dt,
+          dirX * strafeDir * enemy.speed * 0.72 * dt,
+        );
+        if (
+          dt > 0 &&
+          enemy.speed > 0 &&
+          Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
+        ) {
+          enemy.bouncesLeft = -strafeDir;
+          this.moveWithSlide(
+            enemy,
+            -dirY * -strafeDir * enemy.speed * 0.72 * dt,
+            dirX * -strafeDir * enemy.speed * 0.72 * dt,
+          );
+        }
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
       if (enemy.stateTimer <= 0 && dist <= 460 && hasShotLOS) {
         enemy.state = 'telegraph';
         enemy.attackKind = 'shoot';
-        enemy.telegraphDuration = 0.6;
-        enemy.stateTimer = 0.6;
+        enemy.telegraphDuration = 0.52;
+        enemy.stateTimer = 0.52;
         enemy.telegraphLocked = false;
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer > 0.15) {
-        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+      if (enemy.stateTimer > 0.16) {
+        const rawLeadX = s.player.vx * 0.18;
+        const rawLeadY = s.player.vy * 0.18;
+        const rawLeadMag = Math.hypot(rawLeadX, rawLeadY);
+        const leadScale = rawLeadMag > 42 ? 42 / rawLeadMag : 1;
+        enemy.aimAngle = Math.atan2(
+          s.player.y + rawLeadY * leadScale - enemy.y,
+          s.player.x + rawLeadX * leadScale - enemy.x,
+        );
       } else {
         enemy.telegraphLocked = true;
       }
       if (enemy.stateTimer <= 0) {
-        const spread = s.roomIndex >= 4 ? [-0.14, 0.14] : [0];
+        const spread =
+          s.floor >= 3
+            ? enemy.burstLeft
+              ? [-0.22, 0, 0.22]
+              : [-0.14, 0.14]
+            : s.floor >= 2 || s.roomIndex >= 4
+              ? [-0.14, 0.14]
+              : [0];
+        if (s.floor >= 3) {
+          enemy.burstLeft = enemy.burstLeft ? 0 : 1;
+        }
         for (const offset of spread) {
           const ang = enemy.aimAngle + offset;
           s.projectiles.push({
@@ -1989,14 +2040,14 @@ export class GameSimulation {
           });
         }
         enemy.state = 'recover';
-        enemy.stateTimer = 0.95;
+        enemy.stateTimer = 0.78;
         enemy.attackKind = 'none';
       }
     } else if (enemy.state === 'recover') {
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
         enemy.state = 'chase';
-        enemy.stateTimer = 0.75;
+        enemy.stateTimer = 0.65;
       }
     }
   }
@@ -2823,7 +2874,7 @@ export class GameSimulation {
       this.clampToArena(gem, 10);
       if (Math.hypot(p.x - gem.x, p.y - gem.y) <= p.radius + 14) {
         s.stats.gemsEarned += 1;
-        this.addFloatingText(p.x, p.y - 30, '+1 💎', '#f0abfc', 1.2);
+        this.addFloatingText(p.x, p.y - 30, '+1 GEM', '#f0abfc', 1.2);
         this.spawnParticles(gem.x, gem.y, '#e879f9', 10, 120);
         continue;
       }
@@ -2892,16 +2943,21 @@ export class GameSimulation {
   }
 
   private spawnCoins(x: number, y: number, count: number, magnetized: boolean): void {
-    for (let i = 0; i < count; i += 1) {
+    if (count <= 0) return;
+    const maxEntities = count >= 10 ? 4 : count >= 4 ? 3 : count;
+    const baseValue = Math.floor(count / maxEntities);
+    const remainder = count % maxEntities;
+    for (let i = 0; i < maxEntities; i += 1) {
+      const value = baseValue + (i < remainder ? 1 : 0);
       const ang = this.fxRng.range(0, Math.PI * 2);
-      const spd = this.fxRng.range(60, 150);
+      const spd = this.fxRng.range(40, 105);
       this.state.coins.push({
         id: this.nextEntityId++,
         x,
         y,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        value: 1,
+        value,
         magnetized,
         age: 0,
       });
@@ -3134,7 +3190,7 @@ export class GameSimulation {
     this.addFloatingText(
       claimed.x,
       claimed.y - 32,
-      `${claimed.relic.emoji} ${claimed.relic.name} Lv ${claimed.nextLevel}`,
+      `${claimed.relic.name} Lv ${claimed.nextLevel}`,
       '#fde047',
       1.15,
     );

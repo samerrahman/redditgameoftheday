@@ -1519,6 +1519,153 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.ok(sim.state.player.hp < 100, 'boss slam should deal landing damage');
   });
 
+  void it('consolidates coin drops to at most 4 entities while preserving full coin value', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.obstacles = [];
+    sim.state.hazards = [];
+    sim.state.coins = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.x = 200;
+    sim.state.player.y = 224;
+    sim.state.modifier.coinDropMult = 1;
+    sim.state.player.damageBonusMult = 10;
+
+    const target = createEnemy(9101, 'charger', 270, 224, 1, 1, 1, 1);
+    target.spawnShieldTimer = 0;
+    target.hp = 1;
+    target.maxHp = 1;
+    target.coinDrop = 16;
+    target.state = 'recover';
+    target.stateTimer = 99;
+    // Keep a second passive enemy alive so clearing wave does not auto-magnetize everything.
+    const anchor = createEnemy(9102, 'chaser', 560, 224, 1, 1, 1, 1);
+    anchor.state = 'recover';
+    anchor.stateTimer = 99;
+    sim.state.enemies = [target, anchor];
+
+    sim.step(idleInput({ moveX: 1, actionDown: true, actionJustPressed: true }));
+    assert.equal(sim.state.coins.length, 4, 'coinDrop=16 should consolidate into 4 physical coins');
+    const totalVal = sim.state.coins.reduce((acc, c) => acc + c.value, 0);
+    assert.equal(totalVal, 16, 'consolidated coins must preserve exact coin total');
+  });
+
+  void it('uses +1 GEM floating text on gem pickup and never OS emoji', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.floatingTexts = [];
+    sim.state.gems.push({
+      id: 9201,
+      x: sim.state.player.x,
+      y: sim.state.player.y,
+      vx: 0,
+      vy: 0,
+      age: 0,
+    });
+    sim.step(idleInput());
+    const texts = sim.state.floatingTexts.map((t) => t.text);
+    assert.ok(texts.includes('+1 GEM'), `expected +1 GEM popup, got: ${texts.join(', ')}`);
+    assert.equal(texts.some((t) => t.includes('💎')), false);
+  });
+
+  void it('scales shooter orb patterns by depth and reverses strafe when wall-blocked', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.obstacles = [];
+    sim.state.hazards = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.x = 460;
+    sim.state.player.y = 224;
+    sim.state.player.iFramesTimer = 999;
+
+    const shooter = createEnemy(9301, 'shooter', 200, 224, 1, 1, 1, 1);
+    shooter.spawnShieldTimer = 0;
+
+    // Floor 1 Room 1 -> single orb
+    sim.state.floor = 1;
+    sim.state.roomIndex = 0;
+    sim.state.projectiles = [];
+    shooter.state = 'telegraph';
+    shooter.attackKind = 'shoot';
+    shooter.telegraphDuration = 0.05;
+    shooter.stateTimer = 0.01;
+    sim.state.enemies = [shooter];
+    sim.step(idleInput());
+    assert.equal(sim.state.projectiles.filter((p) => !p.friendly).length, 1);
+
+    // Floor 2 Room 1 -> twin split
+    sim.state.floor = 2;
+    sim.state.roomIndex = 0;
+    sim.state.projectiles = [];
+    shooter.state = 'telegraph';
+    shooter.attackKind = 'shoot';
+    shooter.telegraphDuration = 0.05;
+    shooter.stateTimer = 0.01;
+    sim.step(idleInput());
+    assert.equal(sim.state.projectiles.filter((p) => !p.friendly).length, 2);
+
+    // Floor 3+ -> alternates twin (2) and 3-orb fan (3)
+    sim.state.floor = 3;
+    sim.state.projectiles = [];
+    shooter.burstLeft = 0;
+    shooter.state = 'telegraph';
+    shooter.stateTimer = 0.01;
+    sim.step(idleInput());
+    assert.equal(sim.state.projectiles.filter((p) => !p.friendly).length, 2);
+
+    sim.state.projectiles = [];
+    shooter.state = 'telegraph';
+    shooter.stateTimer = 0.01;
+    sim.step(idleInput());
+    assert.equal(sim.state.projectiles.filter((p) => !p.friendly).length, 3);
+
+    // Wall-blocked strafe reverses bouncesLeft direction instead of pinning
+    shooter.x = PLAY_MIN_X + shooter.radius;
+    shooter.y = 110;
+    sim.state.player.x = shooter.x;
+    sim.state.player.y = 330;
+    shooter.state = 'chase';
+    shooter.stateTimer = 10;
+    shooter.bouncesLeft = 1;
+    sim.step(idleInput());
+    assert.equal(shooter.bouncesLeft, -1, 'shooter should flip strafe direction when blocked by arena wall');
+  });
+
+  void it('places gem icon to the left of counters and uses collapsed #end-details dropdown', () => {
+    const gameHtml = readFileSync(new URL('../client/game.html', import.meta.url), 'utf8');
+    const shopHtml = readFileSync(new URL('../client/shop.html', import.meta.url), 'utf8');
+    const startGemBlock = gameHtml.slice(
+      gameHtml.indexOf('<span class="strip-label">Gems</span>'),
+      gameHtml.indexOf('<div class="start-actions">'),
+    );
+    assert.ok(
+      startGemBlock.indexOf('gem.svg') < startGemBlock.indexOf('id="start-gems"'),
+      'gem.svg must appear to the left of #start-gems',
+    );
+    const shopOverlayGemBlock = gameHtml.slice(gameHtml.indexOf('gem-pill'), gameHtml.indexOf('id="shop-back-btn"'));
+    assert.ok(
+      shopOverlayGemBlock.indexOf('gem.svg') < shopOverlayGemBlock.indexOf('id="shop-gems"'),
+      'gem.svg must appear to the left of #shop-gems in game.html',
+    );
+    assert.ok(
+      shopHtml.indexOf('gem.svg') < shopHtml.indexOf('id="shop-gems"'),
+      'gem.svg must appear to the left of #shop-gems in shop.html',
+    );
+
+    const detailsMatch = /<details\b[^>]*id="end-details"[^>]*>/.exec(gameHtml);
+    assert.ok(detailsMatch, 'missing <details id="end-details"> dropdown in game.html');
+    assert.equal(/\bopen\b/.test(detailsMatch[0]), false, '#end-details should start collapsed');
+    const detailsStart = gameHtml.indexOf('id="end-details"');
+    const detailsEnd = gameHtml.indexOf('</details>', detailsStart);
+    const insideDetails = gameHtml.slice(detailsStart, detailsEnd);
+    assert.ok(insideDetails.includes('id="end-stats"'), '#end-stats should live inside #end-details');
+    assert.ok(insideDetails.includes('id="end-relics"'), '#end-relics should live inside #end-details');
+    assert.ok(insideDetails.includes('class="leaderboard-box"'), '.leaderboard-box should live inside #end-details');
+  });
+
   void it('contains zero middle-dot punctuation characters across src/', () => {
     const srcRoot = new URL('../', import.meta.url);
     const hits: string[] = [];

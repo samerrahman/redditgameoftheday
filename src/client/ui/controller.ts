@@ -18,10 +18,11 @@ import type {
   RunSummary,
 } from '../../shared/types.ts';
 import { getFloorBiome } from '../config/biomes.ts';
-import { ENTITY_LABELS, GAME_META, getDailyTheme } from '../config/theme.ts';
+import { ENTITY_LABELS, GAME_META, getDailyTheme, RELIC_SPRITE_FRAMES } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
 import { animateHero, type HeroLook } from './heroPreview.ts';
+import { createAtlasIcon } from './atlasIcon.ts';
 import { renderShopView } from './shopView.ts';
 
 function getEl(id: string): HTMLElement {
@@ -60,6 +61,25 @@ function getProgress(id: string): HTMLProgressElement {
     throw new Error(`Missing HTMLProgressElement #${id}`);
   }
   return node;
+}
+
+function getDetails(id: string): HTMLDetailsElement {
+  const node = document.getElementById(id);
+  if (!(node instanceof HTMLDetailsElement)) {
+    throw new Error(`Missing HTMLDetailsElement #${id}`);
+  }
+  return node;
+}
+
+function makePixelStatIcon(src: string): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = src;
+  img.className = 'stat-icon';
+  img.width = 16;
+  img.height = 16;
+  img.alt = '';
+  img.setAttribute('aria-hidden', 'true');
+  return img;
 }
 
 export class GameUIController {
@@ -150,6 +170,10 @@ export class GameUIController {
   private readonly endStreak = getEl('end-streak');
   private readonly endTitle = getEl('end-title');
   private readonly endSubtitle = getEl('end-subtitle');
+  private readonly endEssFloor = getEl('end-ess-floor');
+  private readonly endEssTime = getEl('end-ess-time');
+  private readonly endEssLoot = getEl('end-ess-loot');
+  private readonly endDetails = getDetails('end-details');
   private readonly endStats = getEl('end-stats');
   private readonly endMenuBtn = getButton('end-menu-btn');
   private readonly endRelics = getEl('end-relics');
@@ -640,7 +664,31 @@ export class GameUIController {
     this.endTitle.textContent = `Fell on Floor ${floor}`;
     const floorsCleared = summary.floorsCleared ?? 0;
     const weapon = WEAPONS[summary.weapon ?? 'longsword'];
-    this.endSubtitle.textContent = `${weapon.emoji} ${weapon.name}`;
+    this.endDetails.open = false;
+    this.endSubtitle.replaceChildren(
+      createAtlasIcon(weapon.sprite, 1, 'atlas-icon end-weapon-icon'),
+      document.createTextNode(weapon.name),
+    );
+    this.endEssFloor.textContent = `F${floor}`;
+    this.endEssTime.textContent = formatDuration(summary.elapsedSec);
+    const coinsPill = document.createElement('span');
+    coinsPill.className = 'pixel-stat coin-text';
+    coinsPill.append(
+      makePixelStatIcon('./assets/dungeon/coin_icon.png'),
+      document.createTextNode(`+${summary.coinsEarned}`),
+    );
+    const gemsEarned = summary.gemsEarned ?? 0;
+    if (gemsEarned > 0) {
+      const gemsPill = document.createElement('span');
+      gemsPill.className = 'pixel-stat gem-text';
+      gemsPill.append(
+        makePixelStatIcon('./assets/icons/gem.svg'),
+        document.createTextNode(`+${gemsEarned}`),
+      );
+      this.endEssLoot.replaceChildren(coinsPill, gemsPill);
+    } else {
+      this.endEssLoot.replaceChildren(coinsPill);
+    }
 
     // One stat per line; each row animates in after the one above it (see .end-stat-row).
     const rows: Array<[string, string]> = [
@@ -684,7 +732,10 @@ export class GameUIController {
         const def = RELICS[id];
         const chip = document.createElement('span');
         chip.className = 'relic-badge';
-        chip.textContent = `${def.emoji} ${def.name}${lv > 1 ? ` Lv ${lv}` : ''}`;
+        chip.append(
+          createAtlasIcon(RELIC_SPRITE_FRAMES[id], 1),
+          document.createTextNode(`${def.name}${lv > 1 ? ` Lv ${lv}` : ''}`),
+        );
         this.endRelics.appendChild(chip);
       }
     }
@@ -713,7 +764,10 @@ export class GameUIController {
       const def = RELICS[id];
       const badge = document.createElement('span');
       badge.className = 'relic-badge';
-      badge.textContent = `${def.emoji} ${def.shortTag}${lv > 1 ? ` ×${lv}` : ''}`;
+      badge.append(
+        createAtlasIcon(RELIC_SPRITE_FRAMES[id], 1),
+        document.createTextNode(`${def.shortTag}${lv > 1 ? ` ×${lv}` : ''}`),
+      );
       this.hudRelics.appendChild(badge);
     }
   }

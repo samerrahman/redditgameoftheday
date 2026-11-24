@@ -176,7 +176,7 @@
             </div>
             <div class="strip-stat">
               <span class="strip-label">Gems</span>
-              <strong class="strip-value gem-text pixel-stat"><span id="start-gems">0</span><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="" aria-hidden="true" /></strong>
+              <strong class="strip-value gem-text pixel-stat"><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="" aria-hidden="true" /><span id="start-gems">0</span></strong>
             </div>
           </div>
 
@@ -277,19 +277,39 @@
           </div>
 
           <h2 id="end-title" class="end-title">You Died</h2>
-          <p id="end-subtitle" class="muted-copy">Died in Room 1</p>
+          <p id="end-subtitle" class="muted-copy end-weapon-line">Longsword</p>
 
-          <ul id="end-stats" class="end-stats-list" aria-label="Run stats"></ul>
-
-          <div id="end-relics" class="end-relics"></div>
-
-          <div class="leaderboard-box">
-            <div class="leaderboard-head">
-              <span>Today's Deepest Runs</span>
-              <span id="end-score" class="mono">Score: 0</span>
+          <div id="end-essentials" class="end-essentials" aria-label="Run summary">
+            <div class="end-essential-cell">
+              <span class="end-essential-label">Floor</span>
+              <strong id="end-ess-floor" class="end-essential-value">F1</strong>
             </div>
-            <ol id="end-leaderboard" class="leaderboard-list"></ol>
+            <div class="end-essential-cell">
+              <span class="end-essential-label">Time</span>
+              <strong id="end-ess-time" class="end-essential-value">0:00</strong>
+            </div>
+            <div class="end-essential-cell">
+              <span class="end-essential-label">Loot</span>
+              <strong id="end-ess-loot" class="end-essential-value">+0</strong>
+            </div>
           </div>
+
+          <details id="end-details" class="end-details">
+            <summary class="end-details-toggle">Run Details &amp; Leaderboard</summary>
+            <div class="end-details-body">
+              <ul id="end-stats" class="end-stats-list" aria-label="Run stats"></ul>
+
+              <div id="end-relics" class="end-relics"></div>
+
+              <div class="leaderboard-box">
+                <div class="leaderboard-head">
+                  <span>Today's Deepest Runs</span>
+                  <span id="end-score" class="mono">Score: 0</span>
+                </div>
+                <ol id="end-leaderboard" class="leaderboard-list"></ol>
+              </div>
+            </div>
+          </details>
 
           <div class="end-actions">
             <button id="share-btn" type="button" class="primary-btn">Post Summary to Comments</button>
@@ -364,7 +384,7 @@
                 <span id="shop-balance">0 coins</span>
               </div>
               <div class="shop-balance-pill gem-pill">
-                <span class="pixel-stat"><span id="shop-gems">0</span><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="gems" /></span>
+                <span class="pixel-stat"><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="gems" /><span id="shop-gems">0</span></span>
               </div>
             </div>
             <button id="shop-back-btn" type="button" class="shop-close" aria-label="Close shop">✕</button>
