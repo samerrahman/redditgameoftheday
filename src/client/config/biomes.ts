@@ -1,9 +1,9 @@
 /**
  * Per-floor visual themes ("biomes"). Floor 1 is the dungeon; deeper floors cycle
- * through the outdoor Kenney packs. Purely cosmetic: layouts and enemies come from
- * the simulation and are unaffected.
+ * through custom 1:1 outdoor biome tilemaps. Purely cosmetic: layouts and enemies
+ * come from the simulation and are unaffected.
  *
- * Frame numbers index each pack's `tilemap_packed.png` (16x16 tiles, row-major:
+ * Frame numbers index each sheet's `tilemap_packed.png` (16x16 tiles, row-major:
  * ski/town/farm are 12 columns wide, battle is 18).
  */
 

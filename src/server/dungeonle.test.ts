@@ -1040,6 +1040,29 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
       }
     }
   });
+
+  void it('ships custom 1:1 biome tilemap_packed.png sheets without leftover CC0 notices', () => {
+    const sheets: Array<[string, number, number]> = [
+      ['ski', 192, 176],
+      ['town', 192, 176],
+      ['battle', 288, 176],
+      ['farm', 192, 176],
+    ];
+    for (const [folder, expW, expH] of sheets) {
+      const buf = readFileSync(new URL(`../../public/assets/${folder}/tilemap_packed.png`, import.meta.url));
+      assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${folder} must be a valid PNG`);
+      assert.equal(buf.readUInt32BE(16), expW, `${folder} width mismatch`);
+      assert.equal(buf.readUInt32BE(20), expH, `${folder} height mismatch`);
+    }
+    for (const folder of ['dungeon', 'ski', 'town', 'battle', 'farm']) {
+      const files = readdirSync(new URL(`../../public/assets/${folder}/`, import.meta.url));
+      assert.equal(
+        files.includes('LICENSE-CC0.txt'),
+        false,
+        `Leftover LICENSE-CC0.txt found in public/assets/${folder}`,
+      );
+    }
+  });
 });
 
 void describe('Gameplay Balance & Biome Enemy Updates', () => {
