@@ -37,6 +37,29 @@ export type DailyModifier = {
   deathBlast: boolean;
 };
 
+export type DailyRuleId =
+  | 'open_armory'
+  | 'melee_only'
+  | 'ranged_only'
+  | 'trial_dagger'
+  | 'trial_hammer'
+  | 'trial_scatter'
+  | 'trial_lance'
+  | 'starter_relic'
+  | 'crate_bonanza';
+
+export type DailyRuleWeaponMode = 'any' | 'melee_only' | 'ranged_only' | 'locked';
+
+export type DailyRule = {
+  id: DailyRuleId;
+  label: string;
+  description: string;
+  weaponMode: DailyRuleWeaponMode;
+  forcedWeapon?: WeaponId | undefined;
+  grantStarterRelic?: boolean | undefined;
+  extraCrates?: number | undefined;
+};
+
 export type HazardType = 'spikes' | 'barrels' | 'currents';
 
 export type RelicId =

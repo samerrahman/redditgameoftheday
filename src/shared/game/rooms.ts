@@ -122,9 +122,9 @@ export const LAYOUT_ROWS = 6;
 export type RoomLayoutId =
   | 'open'
   | 'pillars'
-  | 'side_walls'
+  | 'twin_bars'
   | 'ledges'
-  | 'corners'
+  | 'diamond'
   | 'columns'
   | 'scatter';
 
@@ -132,39 +132,39 @@ const LAYOUT_MAPS: Record<Exclude<RoomLayoutId, 'scatter'>, readonly string[]> =
   open: [],
   pillars: [
     '..........',
-    '.#......#.',
+    '..#....#..',
     '..........',
     '..........',
-    '.#......#.',
+    '..#....#..',
     '..........',
   ],
-  side_walls: [
-    '..#....#..',
-    '..#....#..',
+  twin_bars: [
     '..........',
     '..........',
     '..#....#..',
     '..#....#..',
+    '..........',
+    '..........',
   ],
   ledges: [
     '..........',
-    '.###..###.',
+    '..##..##..',
     '..........',
     '..........',
-    '.##....##.',
+    '..#....#..',
     '..........',
   ],
-  corners: [
-    '.#......#.',
-    '.##....##.',
+  diamond: [
+    '..........',
+    '...#..#...',
+    '..#....#..',
+    '..#....#..',
     '..........',
     '..........',
-    '.##....##.',
-    '.#......#.',
   ],
   columns: [
     '..........',
-    '.#.#..#.#.',
+    '...#..#...',
     '..........',
     '..........',
     '..#....#..',
@@ -173,15 +173,29 @@ const LAYOUT_MAPS: Record<Exclude<RoomLayoutId, 'scatter'>, readonly string[]> =
 };
 
 /**
- * Cells that must stay walkable: door lanes, the centre (relic pedestals, stairs,
- * fountain, boss spawn) and the player's spawn at the bottom middle.
+ * Interior tiles immediately around any cardinal doorway frame or entry lane.
+ * Kept free of obstacles, hazards, breakables and biome props so doorways stay clear.
+ */
+export function isNearDoorwayCell(i: number, j: number): boolean {
+  const northApron = i >= 3 && i <= 6 && (j === 0 || (j === 1 && (i === 4 || i === 5)));
+  const southApron = i >= 3 && i <= 6 && (j === LAYOUT_ROWS - 1 || (j === LAYOUT_ROWS - 2 && (i === 4 || i === 5)));
+  const westApron = j >= 1 && j <= 4 && (i === 0 || (i === 1 && (j === 2 || j === 3)));
+  const eastApron = j >= 1 && j <= 4 && (i === LAYOUT_COLS - 1 || (i === LAYOUT_COLS - 2 && (j === 2 || j === 3)));
+  return northApron || southApron || westApron || eastApron;
+}
+
+/**
+ * Cells that must stay free of solid blocks: the outer wall ring, corner pockets
+ * (so large enemies like the Armored Warden never wedge in corners), doorway
+ * aprons, the centre (relic pedestals, stairs, fountain, boss) and player spawn.
  */
 export function isReservedCell(i: number, j: number): boolean {
-  const nsLane = (i === 4 || i === 5) && (j <= 1 || j >= 4);
-  const ewLane = (j === 2 || j === 3) && (i <= 1 || i >= 8);
-  const centre = i >= 2 && i <= 7 && j >= 2 && j <= 3;
+  const onPerimeter = i <= 0 || i >= LAYOUT_COLS - 1 || j <= 0 || j >= LAYOUT_ROWS - 1;
+  const nearCorner = (i <= 1 || i >= LAYOUT_COLS - 2) && (j <= 1 || j >= LAYOUT_ROWS - 2);
+  const doorApron = isNearDoorwayCell(i, j);
+  const centre = i >= 3 && i <= 6 && j >= 2 && j <= 3;
   const spawn = i >= 3 && i <= 6 && j >= 4;
-  return nsLane || ewLane || centre || spawn;
+  return onPerimeter || nearCorner || doorApron || centre || spawn;
 }
 
 function cellToObstacle(i: number, j: number, id: number): ObstacleBlueprint {
@@ -212,15 +226,14 @@ export function buildObstacles(rng: SeededRng, layout: RoomLayoutId, roomIndex: 
   const cells: Array<[number, number]> = [];
   if (layout === 'scatter') {
     const free: Array<[number, number]> = [];
-    for (let j = 0; j < LAYOUT_ROWS; j += 1) {
-      for (let i = 0; i < LAYOUT_COLS; i += 1) {
-        // Keep the outermost ring mostly clear so scattered rocks read as islands.
-        if (!isReservedCell(i, j) && i > 0 && i < LAYOUT_COLS - 1 && j > 0 && j < LAYOUT_ROWS - 1) {
+    for (let j = 1; j < LAYOUT_ROWS - 1; j += 1) {
+      for (let i = 1; i < LAYOUT_COLS - 1; i += 1) {
+        if (!isReservedCell(i, j)) {
           free.push([i, j]);
         }
       }
     }
-    cells.push(...rng.shuffle(free).slice(0, rng.int(4, 6)));
+    cells.push(...rng.shuffle(free).slice(0, rng.int(3, 5)));
   } else {
     LAYOUT_MAPS[layout].forEach((row, j) => {
       for (let i = 0; i < row.length; i += 1) {
@@ -241,13 +254,13 @@ function circleHitsObstacle(x: number, y: number, r: number, obstacles: readonly
 
 function pickLayout(rng: SeededRng, role: 'entrance' | 'boss' | 'room', floor: number): RoomLayoutId {
   if (role === 'entrance' && floor === 1) return 'open';
-  if (role === 'boss') return rng.pick(['open', 'pillars', 'corners'] as const);
+  if (role === 'boss') return rng.pick(['open', 'pillars', 'columns'] as const);
   return rng.pick([
     'open',
     'pillars',
-    'side_walls',
+    'twin_bars',
     'ledges',
-    'corners',
+    'diamond',
     'columns',
     'scatter',
     'scatter',
@@ -271,7 +284,7 @@ function getSafeSpawnPoint(
     const y = rng.range(PLAY_MIN_Y + 46, PLAY_MAX_Y - 46);
     const distFromSpawn = Math.hypot(x - PLAYER_SPAWN_X, y - PLAYER_SPAWN_Y);
     const distFromCenter = Math.hypot(x - ARENA_W / 2, y - ARENA_H / 2);
-    const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 84);
+    const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 112);
     const clearOfBlocks = !circleHitsObstacle(x, y, 28, obstacles);
     if (
       distFromSpawn >= 100 &&
@@ -287,7 +300,7 @@ function getSafeSpawnPoint(
       const x = (i + 1.5) * CELL_SIZE;
       const y = (j + 1.5) * CELL_SIZE;
       const distFromSpawn = Math.hypot(x - PLAYER_SPAWN_X, y - PLAYER_SPAWN_Y);
-      const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 84);
+      const clearOfDoors = doorCenters.every((d) => Math.hypot(x - d.x, y - d.y) >= 112);
       if (distFromSpawn >= 100 && clearOfDoors && !circleHitsObstacle(x, y, 28, obstacles)) {
         return { x, y };
       }
@@ -296,13 +309,15 @@ function getSafeSpawnPoint(
   return { x: Math.round(ARENA_W * 0.25), y: Math.round(ARENA_H * 0.28) };
 }
 
-const HAZARD_CELLS: readonly (readonly [number, number])[] = [
-  [2, 1], [7, 1], [2, 4], [7, 4],
-  [3, 1], [6, 1], [1, 1], [8, 1],
-  [1, 4], [8, 4], [2, 2], [7, 2],
-  [2, 3], [7, 3], [0, 1], [9, 1],
-  [0, 4], [9, 4],
-];
+const HAZARD_CELLS: readonly (readonly [number, number])[] = (
+  [
+    [2, 1], [7, 1], [2, 4], [7, 4],
+    [3, 1], [6, 1], [1, 1], [8, 1],
+    [1, 4], [8, 4], [2, 2], [7, 2],
+    [2, 3], [7, 3], [2, 0], [7, 0],
+    [2, 5], [7, 5],
+  ] as const
+).filter(([i, j]) => !isNearDoorwayCell(i, j));
 
 function buildHazards(
   rng: SeededRng,
@@ -350,7 +365,7 @@ function buildHazards(
         id: roomIndex * 100 + 1,
         type: 'currents',
         x: ARENA_W / 2,
-        y: cellCenter(0, 1).y,
+        y: cellCenter(0, 2).y,
         w: CELL_SIZE * 4,
         h: CELL_SIZE,
         dirX: dir,
@@ -361,7 +376,7 @@ function buildHazards(
         id: roomIndex * 100 + 2,
         type: 'currents',
         x: ARENA_W / 2,
-        y: cellCenter(0, 4).y,
+        y: cellCenter(0, 3).y,
         w: CELL_SIZE * 4,
         h: CELL_SIZE,
         dirX: -dir,
@@ -379,17 +394,17 @@ function buildBreakables(
   count: number,
   blockedCells: Set<string>,
 ): BreakableBlueprint[] {
-  const candidates: readonly (readonly [number, number])[] =
+  const candidates: readonly (readonly [number, number])[] = (
     kind === 'pillar'
-      ? [
-          [2, 2], [7, 2], [2, 3], [7, 3], [1, 2], [8, 2],
-        ]
-      : [
-          [1, 1], [8, 1], [1, 4], [8, 4],
+      ? ([
+          [2, 2], [7, 2], [2, 3], [7, 3], [2, 1], [7, 1],
+        ] as const)
+      : ([
           [0, 0], [9, 0], [0, 5], [9, 5],
-          [0, 1], [9, 1], [0, 4], [9, 4],
+          [1, 0], [8, 0], [1, 5], [8, 5],
           [2, 0], [7, 0], [2, 5], [7, 5],
-        ];
+        ] as const)
+  ).filter(([i, j]) => !isNearDoorwayCell(i, j));
   return pickFreeCells(candidates, blockedCells, count).map(([i, j], idx) => {
     const pt = cellCenter(i, j);
     return {
@@ -437,9 +452,15 @@ export type FloorScaling = {
 
 export const BIOME_ORDER: readonly BiomeId[] = ['dungeon', 'snow', 'town', 'battle', 'farm'];
 
-export function getBiomeIdForFloor(floor: number): BiomeId {
+/** Each UTC date deterministically shuffles the 5-biome floor cycle so days open in varied worlds. */
+export function getDailyBiomeOrder(utcDate: string): readonly BiomeId[] {
+  return createDailyStream(utcDate, 'biome-order').shuffle(BIOME_ORDER);
+}
+
+export function getBiomeIdForFloor(floor: number, utcDate?: string): BiomeId {
   const f = Math.max(1, Math.floor(floor));
-  return BIOME_ORDER[(f - 1) % BIOME_ORDER.length]!;
+  const order = utcDate ? getDailyBiomeOrder(utcDate) : BIOME_ORDER;
+  return order[(f - 1) % order.length]!;
 }
 
 export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = {
@@ -464,8 +485,8 @@ export function getFloorScaling(floor: number): FloorScaling {
   };
 }
 
-function enemyPoolForFloor(floor: number): EnemyArchetype[] {
-  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor)];
+function enemyPoolForFloor(floor: number, utcDate?: string): EnemyArchetype[] {
+  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, utcDate)];
   if (floor <= 1) return ['chaser', 'shooter', sig, sig];
   if (floor <= 3) return [sig, sig, 'chaser', 'shooter', 'charger'];
   return [sig, sig, 'chaser', 'shooter', 'charger', 'elite_charger'];
@@ -476,34 +497,32 @@ function withExtras(
   base: EnemyArchetype[],
   floor: number,
   extraEnemies: number,
+  utcDate?: string,
 ): EnemyArchetype[] {
-  const pool = enemyPoolForFloor(floor);
+  const pool = enemyPoolForFloor(floor, utcDate);
   const out = [...base];
   for (let i = 0; i < extraEnemies; i += 1) out.push(rng.pick(pool));
   return out;
 }
 
 /**
- * Builds one floor of the daily dungeon. Every player gets the same layout for a
- * given (utcDate, floor) pair. Floors are endless: floor N+1 is generated when the
- * player takes the stairs out of floor N's boss room.
- *
- * Layout rules:
- * - 4-6 rooms per floor (including the entrance and the boss room).
- * - The entrance room has exactly one exit.
- * - The boss room is the room farthest from the entrance.
+ * Builds one floor of the daily dungeon using Binding of Isaac style BFS floor
+ * expansion: grow branching arms into neighbors that touch at most one existing room
+ * (preventing 2x2 blobs and creating distinct dead-end leaves), then place the boss
+ * at the farthest dead-end and special rooms on the remaining dead-ends.
  */
 export function buildDailyDungeonMap(
   utcDate: string,
   floor: number,
   dailyHazard: HazardType,
+  extraCrates = 0,
 ): DailyDungeonMap {
   const f = Math.max(1, Math.floor(floor));
   const scaling = getFloorScaling(f);
   const rng = createDailyStream(utcDate, `floor-${f}-map`);
-  const totalRooms = rng.int(5, 7);
-  // Only the very first room of the run is a single-door corridor. Later floors open up.
-  const entranceMaxDoors = f === 1 ? 1 : 2;
+  const totalRooms = Math.min(8, 5 + Math.floor((f - 1) / 2) + rng.int(0, 1));
+  // Only Floor 1 entrance is locked to 1 exit; deeper floors can branch up to 3 ways.
+  const entranceMaxDoors = f === 1 ? 1 : 3;
 
   const emptyBlueprint = (roomIndex: number): RoomBlueprint => ({
     roomIndex,
@@ -530,8 +549,17 @@ export function buildDailyDungeonMap(
   const degree = (n: DungeonRoomNode): number => Object.keys(n.doors).length;
   const canTakeDoor = (n: DungeonRoomNode): boolean =>
     n.id === 0 ? degree(n) < entranceMaxDoors : degree(n) < 4;
+  const countFilledNeighbors = (gx: number, gy: number): number => {
+    let count = 0;
+    for (const d of ALL_DIRS) {
+      if (grid.has(`${gx + DIR_DELTAS[d].dx},${gy + DIR_DELTAS[d].dy}`)) {
+        count += 1;
+      }
+    }
+    return count;
+  };
 
-  // First exit out of the entrance.
+  // Guarantee the initial exit from the starting room.
   const firstDir = rng.pick(['north', 'east', 'west'] as const);
   const firstDelta = DIR_DELTAS[firstDir];
   const first = makeNode(firstDelta.dx, firstDelta.dy, 1);
@@ -539,58 +567,49 @@ export function buildDailyDungeonMap(
   grid.set(`${first.gx},${first.gy}`, first);
   connectNodes(start, firstDir, first);
 
-  // Grow compactly: prefer empty cells that touch several existing rooms, so we can
-  // add loops afterwards and avoid one long corridor.
+  // Isaac BFS random-walk expansion: skip candidates with >=2 existing neighbors so
+  // the floor stays a clean branching tree with real dead-end leaves and zero 2x2 blobs.
+  let expandQueue: DungeonRoomNode[] = f === 1 ? [first] : [start, first];
+  let emptyRetries = 0;
+  let deterministicPass = false;
+
   while (nodes.length < totalRooms) {
-    const candidates: Array<{ parent: DungeonRoomNode; dir: DoorDirection; nx: number; ny: number; score: number }> = [];
-    for (const parent of nodes) {
-      if (!canTakeDoor(parent)) continue;
-      for (const dir of ALL_DIRS) {
-        const delta = DIR_DELTAS[dir];
-        const nx = parent.gx + delta.dx;
-        const ny = parent.gy + delta.dy;
-        if (Math.abs(nx) > 2 || ny < -3 || ny > 1) continue;
-        if (nx === 0 && ny === 1) continue;
-        if (grid.has(`${nx},${ny}`)) continue;
-        let touching = 0;
-        for (const d of ALL_DIRS) {
-          const nb = grid.get(`${nx + DIR_DELTAS[d].dx},${ny + DIR_DELTAS[d].dy}`);
-          if (nb && nb.id !== 0) touching += 1;
-        }
-        const score = touching + (degree(parent) <= 1 ? 0.5 : 0) + rng.next();
-        candidates.push({ parent, dir, nx, ny, score });
+    if (expandQueue.length === 0) {
+      if (deterministicPass) break;
+      emptyRetries += 1;
+      if (emptyRetries >= 4) {
+        deterministicPass = true;
       }
+      expandQueue = rng.shuffle(nodes);
     }
-    if (candidates.length === 0) break;
-    candidates.sort((x, y) => y.score - x.score);
-    const chosen = candidates[0]!;
-    const node = makeNode(chosen.nx, chosen.ny, chosen.parent.bfsDist + 1);
-    nodes.push(node);
-    grid.set(`${node.gx},${node.gy}`, node);
-    connectNodes(chosen.parent, chosen.dir, node);
-  }
 
-  // Give dead ends a second door where a neighbour exists, then sprinkle a few loops.
-  const tryLink = (a: DungeonRoomNode, chance: number): void => {
+    const parent = expandQueue.shift();
+    if (!parent || !canTakeDoor(parent)) continue;
+
     for (const dir of rng.shuffle(ALL_DIRS)) {
-      if (a.doors[dir] !== undefined) continue;
-      const b = grid.get(`${a.gx + DIR_DELTAS[dir].dx},${a.gy + DIR_DELTAS[dir].dy}`);
-      if (!b || !canTakeDoor(a) || !canTakeDoor(b)) continue;
-      if (rng.next() < chance) {
-        connectNodes(a, dir, b);
-        return;
-      }
-    }
-  };
-  for (const node of nodes) {
-    if (node.id !== 0 && degree(node) === 1) tryLink(node, 1);
-  }
-  for (const node of nodes) {
-    if (node.id !== 0) tryLink(node, 0.3);
-  }
-  if (f > 1 && degree(start) < entranceMaxDoors) tryLink(start, 1);
+      if (nodes.length >= totalRooms || !canTakeDoor(parent)) break;
+      // Never put a south door behind the starting spawn position.
+      if (parent.id === 0 && dir === 'south') continue;
 
-  // Shortest distances from the entrance.
+      const delta = DIR_DELTAS[dir];
+      const nx = parent.gx + delta.dx;
+      const ny = parent.gy + delta.dy;
+      if (Math.abs(nx) > 3 || Math.abs(ny) > 2) continue;
+      if (parent.id === 0 && nx === 0 && ny === 1) continue;
+      if (grid.has(`${nx},${ny}`)) continue;
+      if (countFilledNeighbors(nx, ny) >= 2) continue;
+      if (!deterministicPass && nodes.length > 2 && rng.next() < 0.5) continue;
+
+      const node = makeNode(nx, ny, parent.bfsDist + 1);
+      nodes.push(node);
+      grid.set(`${node.gx},${node.gy}`, node);
+      connectNodes(parent, dir, node);
+      expandQueue.push(node);
+      emptyRetries = 0;
+    }
+  }
+
+  // Shortest BFS distances from the entrance.
   const distMap = new Map<number, number>([[0, 0]]);
   const queue: number[] = [0];
   while (queue.length > 0) {
@@ -607,16 +626,19 @@ export function buildDailyDungeonMap(
     node.bfsDist = distMap.get(node.id) ?? node.bfsDist;
   }
 
-  const ranked = nodes
-    .filter((n) => n.id !== 0)
-    .sort((a, b) => (a.bfsDist !== b.bfsDist ? b.bfsDist - a.bfsDist : b.id - a.id));
-  const bossNode = ranked[0] ?? nodes[nodes.length - 1]!;
-  const eliteNode = nodes.length >= 5 ? ranked[1] : undefined;
-  const gauntletNode = nodes.length >= 6 ? ranked[2] : undefined;
+  const byDistDesc = (a: DungeonRoomNode, b: DungeonRoomNode): number =>
+    a.bfsDist !== b.bfsDist ? b.bfsDist - a.bfsDist : b.id - a.id;
+  const deadEnds = nodes.filter((n) => n.id !== 0 && degree(n) === 1).sort(byDistDesc);
+  const nonDeadEnds = nodes.filter((n) => n.id !== 0 && degree(n) !== 1).sort(byDistDesc);
+  const bossNode = deadEnds[0] ?? nonDeadEnds[0] ?? nodes[nodes.length - 1]!;
+  const specialPool = [...deadEnds.filter((n) => n.id !== bossNode.id), ...nonDeadEnds.filter((n) => n.id !== bossNode.id)];
+  const eliteNode = nodes.length >= 5 ? specialPool[0] : undefined;
+  const gauntletNode = nodes.length >= 6 ? specialPool[1] : undefined;
   const bossRoomId = bossNode.id;
   const extra = scaling.extraEnemies;
-  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(f)];
+  const sig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(f, utcDate)];
   const centerSpawnY = Math.round(ARENA_H * 0.3);
+  const crateCount = (base: number): number => Math.min(6, base + Math.max(0, extraCrates));
 
   for (const node of nodes) {
     const roomRng = createDailyStream(utcDate, `floor-${f}-room-${node.roomIndex}`);
@@ -634,10 +656,10 @@ export function buildDailyDungeonMap(
         roomType: 'warmup',
         waves:
           f === 1
-            ? [wave(['chaser', 'chaser']), wave(['chaser', 'shade'])]
-            : [wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra))],
+            ? [wave(['chaser', 'chaser']), wave(['chaser', sig])]
+            : [wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra, utcDate))],
         hazards: [],
-        breakables: buildBreakables(node.roomIndex, 'crate', 4, occupiedCells),
+        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(4), occupiedCells),
         obstacles,
         layout,
         rewardType: 'coin_cache',
@@ -646,7 +668,7 @@ export function buildDailyDungeonMap(
       };
     } else if (node.id === bossRoomId) {
       const escorts: EnemyArchetype[] =
-        f >= 3 ? withExtras(roomRng, [], f, Math.min(2, Math.floor((f - 1) / 2))) : [];
+        f >= 3 ? withExtras(roomRng, [], f, Math.min(2, Math.floor((f - 1) / 2)), utcDate) : [];
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'boss',
@@ -664,11 +686,11 @@ export function buildDailyDungeonMap(
         roomIndex: node.roomIndex,
         roomType: 'gauntlet',
         waves: [
-          wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra)),
-          wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'chaser'], f, extra)),
+          wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra, utcDate)),
+          wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'chaser'], f, extra, utcDate)),
         ],
         hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
-        breakables: buildBreakables(node.roomIndex, 'crate', 3, occupiedCells),
+        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(3), occupiedCells),
         obstacles,
         layout,
         rewardType: 'fountain_and_relics',
@@ -682,11 +704,11 @@ export function buildDailyDungeonMap(
         waves: [
           [
             { archetype: 'elite_charger', x: ARENA_W / 2, y: centerSpawnY },
-            ...wave(withExtras(roomRng, [sig, 'shooter'], f, extra)),
+            ...wave(withExtras(roomRng, [sig, 'shooter'], f, extra, utcDate)),
           ],
         ],
         hazards: [],
-        breakables: buildBreakables(node.roomIndex, 'crate', 4, occupiedCells),
+        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(4), occupiedCells),
         obstacles,
         layout,
         rewardType: 'synergy_relics',
@@ -695,9 +717,9 @@ export function buildDailyDungeonMap(
       };
     } else {
       const rewardType: RoomRewardType = roomRng.next() < 0.55 ? 'relics' : 'coin_cache';
-      const pool = enemyPoolForFloor(f);
-      const waveA = withExtras(roomRng, [sig, roomRng.pick(pool), 'chaser'], f, extra);
-      const waveB = withExtras(roomRng, ['shooter', roomRng.pick(pool), sig], f, extra);
+      const pool = enemyPoolForFloor(f, utcDate);
+      const waveA = withExtras(roomRng, [sig, roomRng.pick(pool), 'chaser'], f, extra, utcDate);
+      const waveB = withExtras(roomRng, ['shooter', roomRng.pick(pool), sig], f, extra, utcDate);
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'escalation',
@@ -706,7 +728,7 @@ export function buildDailyDungeonMap(
             ? [wave(waveA)]
             : [wave(waveA), wave(waveB)],
         hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
-        breakables: buildBreakables(node.roomIndex, 'crate', 3, occupiedCells),
+        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(3), occupiedCells),
         obstacles,
         layout,
         rewardType,

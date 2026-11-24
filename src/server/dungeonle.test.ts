@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   ARENA_H,
@@ -19,7 +19,9 @@ import {
   buildDailyDungeonMap,
   CELL_SIZE,
   getBiomeIdForFloor,
+  getDailyBiomeOrder,
   getFloorScaling,
+  isNearDoorwayCell,
   isReservedCell,
   LAYOUT_COLS,
   LAYOUT_ROWS,
@@ -32,7 +34,12 @@ import {
   isDevResetAccount,
   isStampedBuildId,
 } from '../shared/buildMeta.ts';
-import { getDailyHazard, getDailyModifier } from '../shared/modifiers.ts';
+import {
+  getDailyHazard,
+  getDailyModifier,
+  getDailyRule,
+  resolveDailyWeapon,
+} from '../shared/modifiers.ts';
 import {
   applyRunToProfile,
   clearDailyRun,
@@ -128,7 +135,7 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
     assert.equal(differs, true);
   });
 
-  void it('builds branching 5-7 room floors; only floor 1 starts with a single door', () => {
+  void it('builds Binding of Isaac style branching floors with dead-end boss/special rooms and no 2x2 blobs', () => {
     let deadEnds = 0;
     let floors = 0;
     for (const date of ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-12-01']) {
@@ -136,28 +143,63 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
         const map = buildDailyDungeonMap(date, floor, getDailyHazard(date));
         floors += 1;
         assert.equal(map.floor, floor);
-        assert.ok(map.totalRooms >= 5 && map.totalRooms <= 7, `${date} F${floor}: ${map.totalRooms}`);
+        assert.ok(map.totalRooms >= 5 && map.totalRooms <= 8, `${date} F${floor}: ${map.totalRooms}`);
         assert.equal(map.rooms.length, map.totalRooms);
         const start = map.rooms.find((r) => r.id === map.startRoomId)!;
         const startDoors = Object.keys(start.doors).length;
         if (floor === 1) assert.equal(startDoors, 1, 'floor 1 entrance has exactly one exit');
-        else assert.ok(startDoors >= 1 && startDoors <= 2);
+        else assert.ok(startDoors >= 1 && startDoors <= 3);
+        assert.equal(start.doors.south, undefined, 'entrance never puts a south door behind player spawn');
+
+        // Verify connected graph via BFS and verify no 2x2 room blobs exist on the floor grid.
+        const visited = new Set<number>([map.startRoomId]);
+        const q = [map.startRoomId];
+        while (q.length > 0) {
+          const id = q.shift()!;
+          const node = map.rooms.find((r) => r.id === id)!;
+          for (const target of Object.values(node.doors)) {
+            if (target !== undefined && !visited.has(target)) {
+              visited.add(target);
+              q.push(target);
+            }
+          }
+        }
+        assert.equal(visited.size, map.rooms.length, `${date} F${floor} must be fully connected`);
+
+        const coords = new Set(map.rooms.map((r) => `${r.gx},${r.gy}`));
+        for (const r of map.rooms) {
+          const has2x2 =
+            coords.has(`${r.gx + 1},${r.gy}`) &&
+            coords.has(`${r.gx},${r.gy + 1}`) &&
+            coords.has(`${r.gx + 1},${r.gy + 1}`);
+          assert.equal(has2x2, false, `${date} F${floor} contains a 2x2 room blob at (${r.gx},${r.gy})`);
+        }
+
         const boss = map.rooms.find((r) => r.id === map.bossRoomId)!;
         assert.equal(boss.blueprint.roomType, 'boss');
-        assert.equal(boss.bfsDist, Math.max(...map.rooms.map((r) => r.bfsDist)));
+        const floorDeadEnds = map.rooms.filter((r) => r.id !== 0 && Object.keys(r.doors).length === 1);
+        assert.ok(floorDeadEnds.length >= 1, `${date} F${floor} must have dead-end rooms`);
+        assert.equal(Object.keys(boss.doors).length, 1, 'boss room must always be a dead-end');
+        assert.equal(
+          boss.bfsDist,
+          Math.max(...floorDeadEnds.map((r) => r.bfsDist)),
+          'boss room sits at the dead-end farthest from entrance',
+        );
         assert.equal(
           map.rooms.filter((r) => r.blueprint.waves.flat().some((w) => w.archetype === 'boss')).length,
           1,
           'exactly one boss per floor',
         );
-        deadEnds += map.rooms.filter((r) => r.id !== 0 && Object.keys(r.doors).length === 1).length;
+        deadEnds += floorDeadEnds.length;
       }
     }
-    assert.ok(deadEnds / floors < 1, `rooms should mostly have 2+ doors (avg dead ends ${deadEnds / floors})`);
+    assert.ok(deadEnds / floors >= 1.5, `Isaac floors should have branching dead-end rooms (avg ${deadEnds / floors})`);
   });
 
-  void it('varies room layouts and never blocks doors, the centre, spawn or enemy spawns', () => {
+  void it('varies room layouts and never blocks perimeter, corners, doorways, centre or spawns', () => {
     const layouts = new Set<string>();
+    const warden = createEnemy(1, 'elite_charger', 300, 200, 1, 1, 1, 1);
+    assert.ok(warden.radius <= 20, `Armored Warden hitbox too large: ${warden.radius}`);
     for (const date of ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-12-01']) {
       for (let floor = 1; floor <= 6; floor += 1) {
         const map = buildDailyDungeonMap(date, floor, getDailyHazard(date));
@@ -170,6 +212,8 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
             const j = o.y / CELL_SIZE - 1;
             assert.ok(Number.isInteger(i) && Number.isInteger(j), 'blocks sit on the tile grid');
             assert.equal(isReservedCell(i, j), false, `${date} F${floor} R${room.roomIndex} blocks a reserved cell`);
+            assert.ok(i > 0 && i < LAYOUT_COLS - 1 && j > 0 && j < LAYOUT_ROWS - 1, 'no blocks on perimeter ring');
+            assert.equal(isNearDoorwayCell(i, j), false, 'no blocks near doorways');
           }
           const overlaps = (x: number, y: number, r: number): boolean =>
             bp.obstacles.some((o) => {
@@ -178,7 +222,19 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
               return Math.hypot(x - cx, y - cy) < r;
             });
           for (const spawn of bp.waves.flat()) assert.equal(overlaps(spawn.x, spawn.y, 15), false, 'enemy spawned in a block');
-          for (const br of bp.breakables) assert.equal(overlaps(br.x, br.y, br.radius), false, 'crate inside a block');
+          for (const br of bp.breakables) {
+            assert.equal(overlaps(br.x, br.y, br.radius), false, 'crate inside a block');
+            const bi = (br.x - CELL_SIZE / 2) / CELL_SIZE - 1;
+            const bj = (br.y - CELL_SIZE / 2) / CELL_SIZE - 1;
+            assert.equal(isNearDoorwayCell(bi, bj), false, 'crate near doorway');
+          }
+          for (const haz of bp.hazards) {
+            if (haz.type === 'spikes' || haz.type === 'barrels') {
+              const hi = (haz.x - CELL_SIZE / 2) / CELL_SIZE - 1;
+              const hj = (haz.y - CELL_SIZE / 2) / CELL_SIZE - 1;
+              assert.equal(isNearDoorwayCell(hi, hj), false, 'hazard near doorway');
+            }
+          }
         }
       }
     }
@@ -188,7 +244,7 @@ void describe('Deterministic Daily RNG & Floor Layouts', () => {
   void it('blocks stop the player and projectiles', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
     const block = { id: 1, x: 200, y: 200, w: 48, h: 48 };
     sim.state.obstacles = [block];
     sim.state.enemies = [];
@@ -239,7 +295,7 @@ void describe('Simple WASD + 1-Button Manual Attack Combat', () => {
   void it('does NOT auto-attack idle enemies and does NOT dash when pressing attack', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
     sim.state.player.iFramesTimer = 0;
 
     const enemy = createEnemy(900, 'chaser', sim.state.player.x + 48, sim.state.player.y, 1, 1, 1, 1);
@@ -263,7 +319,7 @@ void describe('Simple WASD + 1-Button Manual Attack Combat', () => {
   void it('swings manually in facing/aim direction, knocks back foes, and chips Warden armor in 3 hits', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
 
     sim.state.player.x = 480;
     sim.state.player.y = 350;
@@ -301,7 +357,7 @@ void describe('Simple WASD + 1-Button Manual Attack Combat', () => {
   void it('enforces endlag slowdown and blocks hold-to-spamming past cooldown', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
 
     sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
     assert.equal(sim.state.player.swingCount, 1);
@@ -328,7 +384,7 @@ void describe('Attack Relics (Blade & Arcane)', () => {
   void it('activates ember_wake, arc_conduit, blood_reset, and triggers phantom_echo/decoy_mine/volt_nova on melee hits (never air whiffs)', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
 
     sim.state.player.relics = {
       ember_wake: 1,
@@ -418,7 +474,7 @@ void describe('Attack Relics (Blade & Arcane)', () => {
   void it('activates rift_cleave, vortex_slam, mirror_guard, reaper_siphon, shatter_quake, and golden_cleave on swing', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
 
     sim.state.player.x = 480;
     sim.state.player.y = 340;
@@ -483,7 +539,7 @@ void describe('Floors: rooms, relics, boss, stairs and descent', () => {
     const profile = createDefaultProfile();
     const map = buildDailyDungeonMap(utcDate, 1, getDailyHazard(utcDate));
     const sim = new GameSimulation(utcDate, profile);
-    sim.startNewRun(utcDate, profile);
+    sim.startNewRun(utcDate, profile, { ignoreDailyWeaponRule: true });
 
     assert.equal(sim.state.floor, 1);
     assert.equal(sim.state.progressPct, 0);
@@ -568,7 +624,7 @@ void describe('Floors: rooms, relics, boss, stairs and descent', () => {
     const utcDate = '2026-11-20';
     const profile = createDefaultProfile();
     const sim = new GameSimulation(utcDate, profile);
-    sim.startNewRun(utcDate, profile);
+    sim.startNewRun(utcDate, profile, { ignoreDailyWeaponRule: true });
     let hearts = 0;
     for (let i = 0; i < 40 && hearts === 0; i += 1) {
       sim.state.breakables = [
@@ -593,7 +649,7 @@ void describe('Floors: rooms, relics, boss, stairs and descent', () => {
     const utcDate = '2026-11-21';
     const profile = createDefaultProfile();
     const sim = new GameSimulation(utcDate, profile);
-    sim.startNewRun(utcDate, profile);
+    sim.startNewRun(utcDate, profile, { ignoreDailyWeaponRule: true });
     for (let i = 0; i < 6; i += 1) {
       const map = buildDailyDungeonMap(utcDate, sim.state.floor, getDailyHazard(utcDate));
       sim.enterMapRoom(map.bossRoomId);
@@ -796,7 +852,7 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
   void it('ranged hits never stun enemies', () => {
     const profile = { ...createDefaultProfile(), ownedWeapons: ['longsword' as const, 'arcane_lance' as const], equippedWeapon: 'arcane_lance' as const };
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
     const target = createEnemy(9001, 'chaser', sim.state.player.x, sim.state.player.y - 120, 5, 1, 1, 1);
     target.spawnShieldTimer = 0;
     target.state = 'chase';
@@ -1033,7 +1089,7 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
   void it('keeps monster coin drops low and restricts gem drops to end-of-floor bosses', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
     sim.state.totalWaves = 99;
     sim.state.player.iFramesTimer = 999;
 
@@ -1086,15 +1142,24 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(sim.state.gems.length, 1, 'floor boss kill must drop a gem');
   });
 
-  void it('cycles through all 5 biomes with biome-specific signature enemies and repeats from floor 6', () => {
+  void it('shuffles the 5 biomes deterministically per date with biome-specific signature enemies and repeats from floor 6', () => {
     assert.deepEqual(
       [1, 2, 3, 4, 5, 6, 7].map((f) => getBiomeIdForFloor(f)),
       ['dungeon', 'snow', 'town', 'battle', 'farm', 'dungeon', 'snow'],
     );
-    const hazard = getDailyHazard('2026-11-20');
+    const dates = ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'];
+    const startingBiomes = new Set(dates.map((d) => getBiomeIdForFloor(1, d)));
+    assert.ok(startingBiomes.size >= 2, `expected different dates to start in different biomes, got ${[...startingBiomes].join(', ')}`);
+
+    const date = '2026-11-20';
+    const order = getDailyBiomeOrder(date);
+    assert.equal(order.length, 5);
+    assert.equal(getBiomeIdForFloor(6, date), getBiomeIdForFloor(1, date));
+
+    const hazard = getDailyHazard(date);
     for (let floor = 1; floor <= 6; floor += 1) {
-      const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor)];
-      const map = buildDailyDungeonMap('2026-11-20', floor, hazard);
+      const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, date)];
+      const map = buildDailyDungeonMap(date, floor, hazard);
       const spawnedTypes = new Set(map.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
       assert.equal(spawnedTypes.has(expectedSig), true, `Floor ${floor} missing signature enemy ${expectedSig}`);
     }
@@ -1108,7 +1173,7 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       y: number,
     ): GameSimulation => {
       const sim = new GameSimulation('2026-11-20', profile);
-      sim.startNewRun('2026-11-20', profile);
+      sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
       sim.state.obstacles = [];
       sim.state.hazards = [];
       sim.state.totalWaves = 5;
@@ -1257,7 +1322,7 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
         equippedWeapon: 'arcane_lance' as const,
       };
       const sim = new GameSimulation('2026-11-20', profile);
-      sim.startNewRun('2026-11-20', profile);
+      sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
       sim.state.obstacles = [];
       sim.state.hazards = [];
       sim.state.totalWaves = 5;
@@ -1291,9 +1356,10 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
   void it('preserves unbroken boxes when moving between rooms and keeps broken boxes broken', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
-    sim.startNewRun('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
     const startRoomId = sim.state.currentRoomId;
-    assert.equal(sim.state.breakables.length, 4, 'entrance room starts with 4 boxes');
+    const initialCount = sim.state.breakables.length;
+    assert.ok(initialCount >= 4, `entrance room starts with at least 4 boxes, got ${initialCount}`);
 
     clearRoom(sim);
     const brokenTarget = sim.state.breakables[0]!;
@@ -1302,7 +1368,7 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     sim.state.player.attackCooldown = 0;
     sim.state.player.attackEndlagTimer = 0;
     sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
-    assert.equal(sim.state.breakables.length, 3, 'breaking 1 box leaves 3 remaining');
+    assert.equal(sim.state.breakables.length, initialCount - 1, 'breaking 1 box leaves initialCount - 1 remaining');
 
     const door = sim.state.doors[0]!;
     assert.ok(door, 'cleared room must have at least one open door');
@@ -1313,11 +1379,163 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     clearRoom(sim);
     sim.enterMapRoom(startRoomId, 'door', oppositeDirection(door.dir));
     assert.equal(sim.state.currentRoomId, startRoomId);
-    assert.equal(sim.state.breakables.length, 3, 'revisiting room must keep the 3 unbroken boxes');
+    assert.equal(sim.state.breakables.length, initialCount - 1, 'revisiting room must keep unbroken boxes');
     assert.equal(
       sim.state.breakables.some((b) => b.id === brokenTarget.id),
       false,
       'broken box must stay destroyed after revisiting room',
     );
+  });
+
+  void it('varies daily rules and weapon restrictions without mutating the player profile', () => {
+    const seenModes = new Set<string>();
+    let sawTrialDate: string | null = null;
+    let sawMeleeDate: string | null = null;
+    let sawRangedDate: string | null = null;
+    let sawStarterRelicDate: string | null = null;
+    for (let day = 1; day <= 60; day += 1) {
+      const mm = day <= 30 ? '11' : '12';
+      const dd = String(day <= 30 ? day : day - 30).padStart(2, '0');
+      const d = `2026-${mm}-${dd}`;
+      const rule = getDailyRule(d);
+      seenModes.add(rule.id);
+      if (rule.weaponMode === 'locked' && !sawTrialDate) sawTrialDate = d;
+      if (rule.weaponMode === 'melee_only' && !sawMeleeDate) sawMeleeDate = d;
+      if (rule.weaponMode === 'ranged_only' && !sawRangedDate) sawRangedDate = d;
+      if (rule.grantStarterRelic && !sawStarterRelicDate) sawStarterRelicDate = d;
+    }
+    assert.ok(seenModes.size >= 5, `expected varied daily rules, saw ${[...seenModes].join(', ')}`);
+    assert.ok(sawTrialDate && sawMeleeDate && sawRangedDate && sawStarterRelicDate);
+
+    const profile = {
+      ...createDefaultProfile(),
+      ownedWeapons: ['longsword' as const],
+      equippedWeapon: 'longsword' as const,
+    };
+    const trialResolved = resolveDailyWeapon(sawTrialDate, profile);
+    assert.equal(trialResolved.weaponId, getDailyRule(sawTrialDate).forcedWeapon);
+    const trialSim = new GameSimulation(sawTrialDate, profile);
+    trialSim.startNewRun(sawTrialDate, profile);
+    assert.equal(trialSim.state.player.weaponId, getDailyRule(sawTrialDate).forcedWeapon);
+    assert.equal(profile.equippedWeapon, 'longsword', 'profile must remain unmodified');
+
+    const rangedResolved = resolveDailyWeapon(sawRangedDate, profile);
+    assert.equal(WEAPONS[rangedResolved.weaponId].style, 'ranged');
+
+    const relicSim = new GameSimulation(sawStarterRelicDate, profile);
+    relicSim.startNewRun(sawStarterRelicDate, profile);
+    assert.ok(Object.keys(relicSim.state.player.relics).length >= 1, 'starter_relic rule grants a Floor 1 relic');
+  });
+
+  void it('spawns breaking debris physics for crates and TNT barrels', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    clearRoom(sim);
+
+    const target = sim.state.breakables[0]!;
+    sim.state.player.x = target.x;
+    sim.state.player.y = target.y + 32;
+    sim.state.player.attackCooldown = 0;
+    sim.state.player.attackEndlagTimer = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    assert.ok(sim.state.debris.length >= 6, `breaking crate should spawn wood debris, got ${sim.state.debris.length}`);
+
+    const firstZ = sim.state.debris[0]!.z;
+    stepFrames(sim, 10, () => idleInput());
+    assert.notEqual(sim.state.debris[0]?.z, firstZ, 'debris should animate through the air');
+
+    // Barrel explosion spawns stave debris upon detonation
+    sim.state.debris = [];
+    sim.state.hazards = [
+      { id: 9901, type: 'barrels', x: sim.state.player.x, y: sim.state.player.y - 36, w: 56, h: 56, dirX: 0, dirY: 0, timer: 0, hp: 20, destroyed: false },
+    ];
+    sim.state.player.iFramesTimer = 999;
+    sim.state.player.attackCooldown = 0;
+    sim.state.player.attackEndlagTimer = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    assert.ok(sim.state.debris.length >= 3, 'hitting barrel spawns initial wood splinters');
+    stepFrames(sim, 12, () => idleInput());
+    assert.ok(sim.state.debris.length >= 10, 'detonating barrel bursts into stave debris');
+  });
+
+  void it('animates Boss Leap in an arc over obstacles with zero teleporting', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.obstacles = [];
+    sim.state.hazards = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.iFramesTimer = 0;
+    sim.state.player.hp = 100;
+    sim.state.player.x = 420;
+    sim.state.player.y = 260;
+
+    const boss = createEnemy(8801, 'boss', 180, 140, 1, 1, 1, 1);
+    boss.spawnShieldTimer = 0;
+    boss.state = 'telegraph';
+    boss.attackKind = 'boss_leap';
+    boss.telegraphDuration = 0.72;
+    boss.stateTimer = 0.72;
+    boss.targetX = 420;
+    boss.targetY = 260;
+    sim.state.enemies = [boss];
+
+    let maxStepDist = 0;
+    let maxLeapZ = 0;
+    let landed = false;
+    let airborneSwingMissed = false;
+    let prevX = boss.x;
+    let prevY = boss.y;
+
+    for (let i = 0; i < 120; i += 1) {
+      // Keep hero right under target to verify landing slam hits AND airborne hero swings don't strike high airborne boss.
+      sim.state.player.x = 420;
+      sim.state.player.y = 260;
+      const fireSwing = boss.leapZ > 40 && sim.state.player.attackCooldown <= 0;
+      const hpBeforeAirSwing = boss.hp;
+      sim.step(idleInput({ actionDown: fireSwing, actionJustPressed: fireSwing }));
+      const liveBoss = sim.state.enemies[0]!;
+      if (fireSwing && liveBoss.hp === hpBeforeAirSwing) {
+        airborneSwingMissed = true;
+      }
+
+      const stepDist = Math.hypot(liveBoss.x - prevX, liveBoss.y - prevY);
+      maxStepDist = Math.max(maxStepDist, stepDist);
+      maxLeapZ = Math.max(maxLeapZ, liveBoss.leapZ);
+      prevX = liveBoss.x;
+      prevY = liveBoss.y;
+      if (liveBoss.state === 'recover') {
+        landed = true;
+        break;
+      }
+    }
+
+    assert.equal(landed, true, 'boss should finish leap and enter recover');
+    assert.ok(maxLeapZ >= 110, `boss should leap high into the air, maxLeapZ=${maxLeapZ}`);
+    assert.ok(maxStepDist <= 25, `boss must glide continuously without teleporting, maxStepDist=${maxStepDist}`);
+    assert.equal(airborneSwingMissed, true, 'ground swings must not hit boss high in the air');
+    assert.equal(boss.leapZ, 0, 'boss leapZ resets to 0 on landing');
+    assert.ok(sim.state.player.hp < 100, 'boss slam should deal landing damage');
+  });
+
+  void it('contains zero middle-dot punctuation characters across src/', () => {
+    const srcRoot = new URL('../', import.meta.url);
+    const hits: string[] = [];
+    const scanDir = (dirUrl: URL): void => {
+      for (const entry of readdirSync(dirUrl, { withFileTypes: true })) {
+        const nextUrl = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dirUrl);
+        if (entry.isDirectory()) {
+          scanDir(nextUrl);
+        } else if (/\.(ts|html|css)$/.test(entry.name)) {
+          const text = readFileSync(nextUrl, 'utf8');
+          if (text.includes('\u00b7')) {
+            hits.push(nextUrl.pathname);
+          }
+        }
+      }
+    };
+    scanDir(srcRoot);
+    assert.deepEqual(hits, [], `Found middle-dot characters in: ${hits.join(', ')}`);
   });
 });

@@ -1,4 +1,9 @@
-import { getDailyHazard, getDailyModifier } from '../modifiers.ts';
+import {
+  getDailyHazard,
+  getDailyModifier,
+  getDailyStarterRelic,
+  resolveDailyWeapon,
+} from '../modifiers.ts';
 import { draftRelics } from '../relics.ts';
 import { getWeapon, type WeaponDef } from '../weapons.ts';
 import { createDailyStream, type SeededRng } from '../rng.ts';
@@ -6,6 +11,7 @@ import type {
   ActiveRelicMap,
   CosmeticId,
   DailyModifier,
+  DailyRule,
   DoorDirection,
   HazardType,
   InputFrame,
@@ -244,6 +250,23 @@ export type ParticleEffect = {
   color: string;
 };
 
+export type DebrisEffect = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  angle: number;
+  spin: number;
+  w: number;
+  h: number;
+  color: string;
+  borderColor: string;
+  ttl: number;
+  maxTtl: number;
+};
+
 export type FloatingTextEffect = {
   x: number;
   y: number;
@@ -331,6 +354,7 @@ export type GameState = {
   announcementText: string;
   announcementTimer: number;
   modifier: DailyModifier;
+  dailyRule: DailyRule;
   dailyHazard: HazardType;
   player: PlayerState;
   enemies: EnemyEntity[];
@@ -351,6 +375,7 @@ export type GameState = {
   rings: RingEffect[];
   lightnings: LightningEffect[];
   particles: ParticleEffect[];
+  debris: DebrisEffect[];
   floatingTexts: FloatingTextEffect[];
   afterimages: AfterimageEffect[];
   stats: {
@@ -387,6 +412,7 @@ export class GameSimulation {
   private lastHitProcSeq = -1;
   private weapon: WeaponDef;
   private baseModifier: DailyModifier;
+  private dailyRule: DailyRule;
   private floorScaling: FloorScaling;
   private endCallback?: ((summary: RunSummary) => void) | undefined;
 
@@ -401,14 +427,21 @@ export class GameSimulation {
     this.bossRng = createDailyStream(utcDate, 'boss');
     this.fxRng = createDailyStream(utcDate, 'fx');
     this.lootRng = createDailyStream(utcDate, 'loot');
-    this.weapon = getWeapon(profile.equippedWeapon);
+    const resolved = resolveDailyWeapon(utcDate, profile);
+    this.dailyRule = resolved.rule;
+    this.weapon = getWeapon(resolved.weaponId);
     this.baseModifier = getDailyModifier(utcDate);
     this.floorScaling = getFloorScaling(1);
-    this.dungeonMap = buildDailyDungeonMap(utcDate, 1, getDailyHazard(utcDate));
+    this.dungeonMap = buildDailyDungeonMap(
+      utcDate,
+      1,
+      getDailyHazard(utcDate),
+      this.dailyRule.extraCrates ?? 0,
+    );
     const startNode = this.dungeonMap.rooms[0];
     if (!startNode) throw new Error('Dungeon map missing start room');
     this.currentBlueprint = startNode.blueprint;
-    this.state = this.createFreshState(utcDate, profile, 'start');
+    this.state = this.createFreshState(utcDate, profile, 'start', false);
     this.refreshMapView();
   }
 
@@ -416,19 +449,31 @@ export class GameSimulation {
     this.endCallback = cb;
   }
 
-  public startNewRun(utcDate: string, profile: PlayerProfile): void {
+  public startNewRun(
+    utcDate: string,
+    profile: PlayerProfile,
+    options?: { ignoreDailyWeaponRule?: boolean },
+  ): void {
     this.profile = profile;
     this.relicRng = createDailyStream(utcDate, 'relics');
     this.bossRng = createDailyStream(utcDate, 'boss');
     this.fxRng = createDailyStream(utcDate, 'fx');
     this.lootRng = createDailyStream(utcDate, 'loot');
-    this.weapon = getWeapon(profile.equippedWeapon);
+    const ignoreRule = Boolean(options?.ignoreDailyWeaponRule);
+    const resolved = resolveDailyWeapon(utcDate, profile);
+    this.dailyRule = resolved.rule;
+    this.weapon = getWeapon(ignoreRule ? profile.equippedWeapon : resolved.weaponId);
     this.baseModifier = getDailyModifier(utcDate);
     this.floorScaling = getFloorScaling(1);
-    this.dungeonMap = buildDailyDungeonMap(utcDate, 1, getDailyHazard(utcDate));
+    this.dungeonMap = buildDailyDungeonMap(
+      utcDate,
+      1,
+      getDailyHazard(utcDate),
+      this.dailyRule.extraCrates ?? 0,
+    );
     this.roomMemory.clear();
     this.doorEntryLockTimer = 0;
-    this.state = this.createFreshState(utcDate, profile, 'playing');
+    this.state = this.createFreshState(utcDate, profile, 'playing', ignoreRule);
     this.enterMapRoom(this.dungeonMap.startRoomId, 'none', null);
   }
 
@@ -561,7 +606,9 @@ export class GameSimulation {
     this.updateDelayedBlasts(dt);
     this.updateFirePatches(dt);
     this.updateEnemies(dt);
-    for (const enemy of s.enemies) this.pushOutOfObstacles(enemy, enemy.radius);
+    for (const enemy of s.enemies) {
+      if (enemy.leapZ <= 24) this.pushOutOfObstacles(enemy, enemy.radius);
+    }
     this.updateProjectiles(dt);
     this.updateCoins(dt);
     this.updateGems(dt);
@@ -577,11 +624,17 @@ export class GameSimulation {
     utcDate: string,
     profile: PlayerProfile,
     phase: GamePhase,
+    ignoreRule: boolean,
   ): GameState {
     const modifier = this.buildScaledModifier();
+    const dailyRule = this.dailyRule;
     const dailyHazard = getDailyHazard(utcDate);
     const maxHp = BASE_HP;
     const weapon = this.weapon;
+    const initialRelics: ActiveRelicMap = {};
+    if (dailyRule.grantStarterRelic && !ignoreRule) {
+      initialRelics[getDailyStarterRelic(utcDate)] = 1;
+    }
 
     const startNode = this.dungeonMap.rooms[0];
     if (!startNode) throw new Error('Dungeon map missing start room');
@@ -620,6 +673,7 @@ export class GameSimulation {
       announcementText: '',
       announcementTimer: 0,
       modifier,
+      dailyRule,
       dailyHazard,
       player: {
         x: PLAYER_SPAWN_X,
@@ -644,7 +698,7 @@ export class GameSimulation {
         iFramesTimer: 0,
         hurtFlashTimer: 0,
         trailSpawnTimer: 0,
-        relics: {},
+        relics: initialRelics,
         rerollsRemaining: 1,
         cosmetic: profile.equippedCosmetic,
         costume: profile.equippedCostume,
@@ -670,6 +724,7 @@ export class GameSimulation {
       rings: [],
       lightnings: [],
       particles: [],
+      debris: [],
       floatingTexts: [],
       afterimages: [],
       stats: {
@@ -784,6 +839,7 @@ export class GameSimulation {
     s.firePatches = [];
     s.delayedBlasts = [];
     s.rings = [];
+    s.debris = [];
     s.coins = [];
     s.gems = [];
     s.hearts = [];
@@ -871,7 +927,12 @@ export class GameSimulation {
   private goToFloor(nextFloor: number): void {
     const s = this.state;
     this.floorScaling = getFloorScaling(nextFloor);
-    this.dungeonMap = buildDailyDungeonMap(s.utcDate, nextFloor, s.dailyHazard);
+    this.dungeonMap = buildDailyDungeonMap(
+      s.utcDate,
+      nextFloor,
+      s.dailyHazard,
+      this.dailyRule.extraCrates ?? 0,
+    );
     this.roomMemory.clear();
     s.floor = nextFloor;
     s.modifier = this.buildScaledModifier();
@@ -879,7 +940,7 @@ export class GameSimulation {
     s.afterimages = [];
     this.enterMapRoom(this.dungeonMap.startRoomId, 'portal', null);
     s.isFirstVisitToRoom = true;
-    this.announce(`Floor ${nextFloor} · Enemies grow stronger`);
+    this.announce(`Floor ${nextFloor} - Enemies grow stronger`);
   }
 
   private refreshMapView(): void {
@@ -1055,7 +1116,7 @@ export class GameSimulation {
     if (vortexLv > 0) {
       const pullRadius = 150 + 25 * (vortexLv - 1);
       for (const enemy of s.enemies) {
-        if (enemy.spawnShieldTimer > 0) continue;
+        if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24) continue;
         const dx = p.x - enemy.x;
         const dy = p.y - enemy.y;
         const dist = Math.hypot(dx, dy);
@@ -1148,7 +1209,7 @@ export class GameSimulation {
       let killCount = 0;
       const chain = { arcUsed: false };
       for (const enemy of [...s.enemies]) {
-        if (enemy.spawnShieldTimer > 0) continue;
+        if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24) continue;
         const dx = enemy.x - p.x;
         const dy = enemy.y - p.y;
         const dist = Math.hypot(dx, dy);
@@ -1448,7 +1509,7 @@ export class GameSimulation {
     const dmg = (18 + 8 * (level - 1)) * s.player.damageBonusMult * s.modifier.playerDamageMult;
 
     const candidates = s.enemies
-      .filter((e) => e.id !== sourceEnemy.id && e.spawnShieldTimer <= 0)
+      .filter((e) => e.id !== sourceEnemy.id && e.spawnShieldTimer <= 0 && e.leapZ <= 24)
       .map((e) => ({ e, dist: Math.hypot(e.x - sourceEnemy.x, e.y - sourceEnemy.y) }))
       .filter((item) => item.dist <= 210)
       .sort((a, b) => a.dist - b.dist)
@@ -1482,7 +1543,7 @@ export class GameSimulation {
       color: '#38bdf8',
     });
     for (const enemy of [...s.enemies]) {
-      if (enemy.spawnShieldTimer > 0) continue;
+      if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24) continue;
       if (Math.hypot(enemy.x - x, enemy.y - y) <= radius + enemy.radius) {
         if (enemy.archetype !== 'boss' && this.getStunSeconds() > 0) {
           enemy.state = 'staggered';
@@ -1566,13 +1627,14 @@ export class GameSimulation {
   private triggerBarrelExplosion(haz: HazardEntity): void {
     if (haz.destroyed) return;
     haz.destroyed = true;
+    this.spawnBreakDebris(haz.x, haz.y, 'barrel', true);
     this.state.delayedBlasts.push({
       kind: 'barrel_blast',
       x: haz.x,
       y: haz.y,
       radius: 105,
-      timer: 0.12,
-      maxTimer: 0.12,
+      timer: 0.14,
+      maxTimer: 0.14,
       damage: 48,
       friendly: true,
       hurtPlayerToo: true,
@@ -1605,12 +1667,15 @@ export class GameSimulation {
         color,
       });
       this.spawnParticles(blast.x, blast.y, color, 12, 180);
+      if (blast.kind === 'barrel_blast') {
+        this.spawnBreakDebris(blast.x, blast.y, 'barrel', false);
+      }
       s.shakeIntensity = Math.max(s.shakeIntensity, 5);
 
       if (blast.friendly) {
         const armorBreak = blast.kind === 'shatter_quake';
         for (const enemy of [...s.enemies]) {
-          if (enemy.spawnShieldTimer > 0) continue;
+          if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24) continue;
           const dx = enemy.x - blast.x;
           const dy = enemy.y - blast.y;
           const dist = Math.hypot(dx, dy);
@@ -1671,7 +1736,7 @@ export class GameSimulation {
         patch.tickTimer = 0.25;
         const tickDmg = patch.dps * 0.25 * s.player.damageBonusMult * s.modifier.playerDamageMult;
         for (const enemy of [...s.enemies]) {
-          if (enemy.spawnShieldTimer > 0) continue;
+          if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24) continue;
           if (Math.hypot(enemy.x - patch.x, enemy.y - patch.y) <= patch.radius + enemy.radius) {
             this.damageEnemy(enemy, tickDmg, 0, 0, false, '#fb923c');
           }
@@ -1700,7 +1765,7 @@ export class GameSimulation {
         const damp = Math.exp(-9 * s.modifier.frictionMult * dt);
         enemy.vx *= damp;
         enemy.vy *= damp;
-        this.pushOutOfObstacles(enemy, enemy.radius);
+        if (enemy.leapZ <= 24) this.pushOutOfObstacles(enemy, enemy.radius);
 
         const hitWall =
           enemy.x - enemy.radius < PLAY_MIN_X ||
@@ -1771,16 +1836,18 @@ export class GameSimulation {
         this.stepBossAI(enemy, nav.dirX, nav.dirY, dt);
       }
 
-      this.pushOutOfObstacles(enemy, enemy.radius);
+      if (enemy.leapZ <= 24) {
+        this.pushOutOfObstacles(enemy, enemy.radius);
+      }
       this.clampToArena(enemy);
     }
 
     for (let i = 0; i < s.enemies.length; i += 1) {
       const a = s.enemies[i];
-      if (!a) continue;
+      if (!a || a.leapZ > 24) continue;
       for (let j = i + 1; j < s.enemies.length; j += 1) {
         const b = s.enemies[j];
-        if (!b) continue;
+        if (!b || b.leapZ > 24) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const d = Math.hypot(dx, dy);
@@ -2366,12 +2433,12 @@ export class GameSimulation {
   ): void {
     const s = this.state;
 
-    if (boss.phase === 1 && boss.hp <= boss.maxHp * 0.5) {
+    if (boss.phase === 1 && boss.leapZ <= 0 && boss.hp <= boss.maxHp * 0.5) {
       boss.phase = 2;
       boss.state = 'recover';
       boss.stateTimer = 0.7;
       boss.attackKind = 'none';
-      this.announce('Phase 2 · Threadkeeper Overclocked!');
+      this.announce('Phase 2 - Threadkeeper Overclocked!');
       s.rings.push({
         x: boss.x,
         y: boss.y,
@@ -2402,6 +2469,15 @@ export class GameSimulation {
     }
 
     const cadenceMult = boss.phase === 2 ? 0.8 : 1;
+    const pickSafeLeapLanding = (): { x: number; y: number } => {
+      const pt = {
+        x: Math.max(PLAY_MIN_X + 64, Math.min(PLAY_MAX_X - 64, s.player.x)),
+        y: Math.max(PLAY_MIN_Y + 64, Math.min(PLAY_MAX_Y - 64, s.player.y)),
+      };
+      this.pushOutOfObstacles(pt, boss.radius);
+      this.clampToArena(pt, boss.radius);
+      return pt;
+    };
 
     if (boss.state === 'chase') {
       this.moveWithSlide(boss, navDirX * boss.speed * dt, navDirY * boss.speed * dt);
@@ -2413,11 +2489,26 @@ export class GameSimulation {
         boss.telegraphDuration = pattern === 'boss_radial' ? 0.6 : 0.72;
         boss.stateTimer = boss.telegraphDuration;
         boss.aimAngle = Math.atan2(s.player.y - boss.y, s.player.x - boss.x);
-        boss.targetX = Math.max(PLAY_MIN_X + 64, Math.min(PLAY_MAX_X - 64, s.player.x));
-        boss.targetY = Math.max(PLAY_MIN_Y + 64, Math.min(PLAY_MAX_Y - 64, s.player.y));
+        const landing = pickSafeLeapLanding();
+        boss.targetX = landing.x;
+        boss.targetY = landing.y;
+        boss.leapStartX = boss.x;
+        boss.leapStartY = boss.y;
+        boss.leapZ = 0;
       }
     } else if (boss.state === 'telegraph') {
       boss.stateTimer -= dt;
+      if (boss.attackKind === 'boss_leap') {
+        if (boss.stateTimer > 0.25) {
+          const landing = pickSafeLeapLanding();
+          boss.targetX = landing.x;
+          boss.targetY = landing.y;
+          boss.aimAngle = Math.atan2(boss.targetY - boss.y, boss.targetX - boss.x);
+        }
+        if (this.fxRng.next() < dt * 10) {
+          this.spawnParticles(boss.x, boss.y + boss.radius * 0.55, '#cbd5e1', 1, 55);
+        }
+      }
       if (boss.stateTimer <= 0) {
         if (boss.attackKind === 'boss_radial') {
           const count = boss.phase === 2 ? 8 : 6;
@@ -2443,28 +2534,62 @@ export class GameSimulation {
           boss.stateTimer = 0.85 * cadenceMult;
           boss.attackKind = 'none';
         } else {
-          boss.x = boss.targetX;
-          boss.y = boss.targetY;
-          s.shakeIntensity = Math.max(s.shakeIntensity, 7);
-          this.spawnParticles(boss.x, boss.y, '#ef4444', 14, 190);
-          if (Math.hypot(s.player.x - boss.x, s.player.y - boss.y) <= 86 + s.player.radius * 0.5) {
-            this.damagePlayer(boss.damage);
-          }
+          // Launch parabolic leap toward locked target (never instant teleport).
+          boss.state = 'attack';
+          boss.leapStartX = boss.x;
+          boss.leapStartY = boss.y;
+          boss.leapDuration = BOSS_LEAP_DURATION;
+          boss.stateTimer = BOSS_LEAP_DURATION;
+          boss.leapZ = 1;
           s.rings.push({
             x: boss.x,
             y: boss.y,
-            radius: 32,
-            maxRadius: 150,
-            ttl: 0.45,
-            maxTtl: 0.45,
-            color: '#f43f5e',
+            radius: 16,
+            maxRadius: 64,
+            ttl: 0.22,
+            maxTtl: 0.22,
+            color: '#cbd5e1',
           });
-          boss.state = 'recover';
-          boss.stateTimer = 0.95 * cadenceMult;
-          boss.attackKind = 'none';
+          this.spawnParticles(boss.x, boss.y, '#cbd5e1', 8, 120);
         }
       }
+    } else if (boss.state === 'attack' && boss.attackKind === 'boss_leap') {
+      boss.stateTimer -= dt;
+      const u = Math.max(
+        0,
+        Math.min(1, 1 - boss.stateTimer / Math.max(0.01, boss.leapDuration)),
+      );
+      boss.x = boss.leapStartX + (boss.targetX - boss.leapStartX) * u;
+      boss.y = boss.leapStartY + (boss.targetY - boss.leapStartY) * u;
+      boss.leapZ = Math.sin(u * Math.PI) * BOSS_LEAP_MAX_Z;
+
+      if (boss.stateTimer <= 0) {
+        boss.leapZ = 0;
+        boss.x = boss.targetX;
+        boss.y = boss.targetY;
+        this.pushOutOfObstacles(boss, boss.radius);
+        this.clampToArena(boss);
+        s.shakeIntensity = Math.max(s.shakeIntensity, 8.5);
+        this.spawnParticles(boss.x, boss.y, '#ef4444', 16, 210);
+        this.spawnBreakDebris(boss.x, boss.y, 'pillar', true);
+        if (Math.hypot(s.player.x - boss.x, s.player.y - boss.y) <= 86 + s.player.radius * 0.5) {
+          this.damagePlayer(boss.damage);
+        }
+        s.rings.push({
+          x: boss.x,
+          y: boss.y,
+          radius: 32,
+          maxRadius: 150,
+          ttl: 0.45,
+          maxTtl: 0.45,
+          color: '#f43f5e',
+        });
+        boss.state = 'recover';
+        boss.stateTimer = 0.95 * cadenceMult;
+        boss.attackKind = 'none';
+      }
     } else if (boss.state === 'recover') {
+      boss.leapZ = 0;
       boss.stateTimer -= dt;
       if (boss.stateTimer <= 0) {
         boss.state = 'chase';
@@ -2504,7 +2629,7 @@ export class GameSimulation {
       if (proj.friendly && proj.weaponShot) {
         const speed = Math.max(1, Math.hypot(proj.vx, proj.vy));
         for (const enemy of [...s.enemies]) {
-          if (enemy.spawnShieldTimer > 0 || proj.hitEnemyIds.includes(enemy.id)) continue;
+          if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24 || proj.hitEnemyIds.includes(enemy.id)) continue;
           if (Math.hypot(enemy.x - proj.x, enemy.y - proj.y) <= enemy.radius + proj.radius) {
             proj.hitEnemyIds.push(enemy.id);
             const killed = this.weaponHitEnemy(
@@ -2543,7 +2668,7 @@ export class GameSimulation {
         }
       } else if (proj.friendly) {
         for (const enemy of [...s.enemies]) {
-          if (enemy.spawnShieldTimer > 0 || proj.hitEnemyIds.includes(enemy.id)) continue;
+          if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24 || proj.hitEnemyIds.includes(enemy.id)) continue;
           if (Math.hypot(enemy.x - proj.x, enemy.y - proj.y) <= enemy.radius + proj.radius) {
             proj.hitEnemyIds.push(enemy.id);
             this.damageEnemy(enemy, proj.damage, proj.vx * 0.25, proj.vy * 0.25, false, '#38bdf8');
@@ -2731,8 +2856,9 @@ export class GameSimulation {
     const s = this.state;
     br.hp -= amount;
     br.hitFlash = 0.1;
-    this.spawnParticles(br.x, br.y, '#cbd5e1', 4, 90);
-    if (br.hp <= 0) {
+    const isBroken = br.hp <= 0;
+    this.spawnBreakDebris(br.x, br.y, br.kind, !isBroken);
+    if (isBroken) {
       const idx = s.breakables.indexOf(br);
       if (idx !== -1) s.breakables.splice(idx, 1);
       this.spawnCoins(br.x, br.y, 1, false);
@@ -3073,11 +3199,117 @@ export class GameSimulation {
       return pt.ttl > 0;
     });
 
+    const nextDebris: DebrisEffect[] = [];
+    for (const d of s.debris) {
+      d.ttl -= dt;
+      if (d.ttl <= 0) continue;
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      d.vz -= 640 * dt;
+      d.z += d.vz * dt;
+      d.angle += d.spin * dt;
+      if (d.z < 0) {
+        d.z = 0;
+        d.vz = Math.abs(d.vz) * 0.36;
+        d.vx *= 0.68;
+        d.vy *= 0.68;
+        d.spin *= 0.6;
+      } else {
+        d.vx *= 0.97;
+        d.vy *= 0.97;
+      }
+      nextDebris.push(d);
+    }
+    s.debris = nextDebris;
+
     s.floatingTexts = s.floatingTexts.filter((ft) => {
       ft.ttl -= dt;
       ft.y += ft.vy * dt;
       return ft.ttl > 0;
     });
+  }
+
+  private spawnBreakDebris(
+    x: number,
+    y: number,
+    kind: 'crate' | 'pillar' | 'barrel',
+    light = false,
+  ): void {
+    const palette =
+      kind === 'crate'
+        ? (['#c2844c', '#9a5b2d', '#e0a96d', '#7c4521'] as const)
+        : kind === 'barrel'
+          ? (['#b91c1c', '#92400e', '#dc2626', '#52525b', '#78350f'] as const)
+          : (['#94a3b8', '#64748b', '#cbd5e1', '#475569'] as const);
+    const borderColor =
+      kind === 'crate' ? '#2a1810' : kind === 'barrel' ? '#18181b' : '#1e293b';
+    const count = light ? (kind === 'barrel' ? 4 : 3) : kind === 'crate' ? 9 : kind === 'barrel' ? 11 : 10;
+
+    for (let i = 0; i < count; i += 1) {
+      const ang = this.fxRng.range(0, Math.PI * 2);
+      const minSpd = light ? 50 : kind === 'barrel' ? 130 : 85;
+      const maxSpd = light ? 115 : kind === 'barrel' ? 270 : 185;
+      const spd = this.fxRng.range(minSpd, maxSpd);
+      const minVz = light ? 90 : kind === 'barrel' ? 150 : 135;
+      const maxVz = light ? 150 : kind === 'barrel' ? 300 : 240;
+      const ttl = light ? this.fxRng.range(0.25, 0.38) : this.fxRng.range(0.45, 0.72);
+      const w =
+        kind === 'pillar'
+          ? this.fxRng.range(6, 12)
+          : kind === 'barrel'
+            ? this.fxRng.range(9, 15)
+            : this.fxRng.range(8, 14);
+      const h = kind === 'pillar' ? this.fxRng.range(6, 10) : this.fxRng.range(4, 6);
+      const spinSign = this.fxRng.next() < 0.5 ? -1 : 1;
+      this.state.debris.push({
+        x: x + this.fxRng.range(-10, 10),
+        y: y + this.fxRng.range(-8, 8),
+        z: this.fxRng.range(4, 14),
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        vz: this.fxRng.range(minVz, maxVz),
+        angle: this.fxRng.range(0, Math.PI * 2),
+        spin: spinSign * this.fxRng.range(5, 12),
+        w,
+        h,
+        color: palette[i % palette.length]!,
+        borderColor,
+        ttl,
+        maxTtl: ttl,
+      });
+    }
+
+    if (!light) {
+      const s = this.state;
+      if (kind === 'crate') {
+        s.rings.push({
+          x,
+          y,
+          radius: 8,
+          maxRadius: 34,
+          ttl: 0.16,
+          maxTtl: 0.16,
+          color: '#d97706',
+        });
+        this.spawnParticles(x, y, '#e7c89c', 7, 130);
+        s.shakeIntensity = Math.max(s.shakeIntensity, 2.5);
+      } else if (kind === 'pillar') {
+        s.rings.push({
+          x,
+          y,
+          radius: 10,
+          maxRadius: 38,
+          ttl: 0.18,
+          maxTtl: 0.18,
+          color: '#cbd5e1',
+        });
+        this.spawnParticles(x, y, '#cbd5e1', 8, 145);
+        s.shakeIntensity = Math.max(s.shakeIntensity, 3.8);
+      } else {
+        this.spawnParticles(x, y, '#fb923c', 7, 175);
+        this.spawnParticles(x, y, '#fde047', 5, 150);
+      }
+    }
   }
 
   private spawnParticles(x: number, y: number, color: string, count: number, maxSpeed: number): void {
@@ -3438,6 +3670,8 @@ export class GameSimulation {
 
 const HEART_CRATE_CHANCE = 0.35;
 const HEART_HEAL = 15;
+const BOSS_LEAP_DURATION = 0.78;
+const BOSS_LEAP_MAX_Z = 135;
 
 function normalizeAngle(angle: number): number {
   let a = angle;

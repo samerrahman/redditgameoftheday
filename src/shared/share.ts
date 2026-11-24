@@ -27,7 +27,7 @@ export function formatShareComment(
       return `${def.emoji} ${def.shortTag}${level > 1 ? ` x${level}` : ''}`;
     });
 
-  const relicLine = relicEntries.length > 0 ? relicEntries.join(' · ') : 'No Relics';
+  const relicLine = relicEntries.length > 0 ? relicEntries.join(', ') : 'No Relics';
 
   return [
     `**DUNGEONLE ${summary.utcDate}** — *${dungeonName}*`,

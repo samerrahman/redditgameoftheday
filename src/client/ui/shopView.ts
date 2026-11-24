@@ -10,6 +10,7 @@ import {
 import type { AccessoryId, CosmeticId, CosmeticSlot, CostumeId, PlayerProfile } from '../../shared/types.ts';
 import { WEAPONS, WEAPON_IDS } from '../../shared/weapons.ts';
 import { GAME_META } from '../config/theme.ts';
+import { getDailyRule, isWeaponAllowedByRule } from '../../shared/modifiers.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
 import { animateHero, drawHeroStill, type HeroLook } from './heroPreview.ts';
 
@@ -72,13 +73,14 @@ export function renderShopView(
   adapter: PlatformAdapter,
   els: ShopViewElements,
   callbacks: ShopViewCallbacks,
+  utcDate?: string,
 ): void {
   els.balance.textContent = `${profile.coins} ${GAME_META.coinShort}`;
   els.gems.textContent = `${profile.gems}`;
 
   const apply = (next: PlayerProfile): void => {
     callbacks.onProfileChange(next);
-    renderShopView(next, adapter, els, callbacks);
+    renderShopView(next, adapter, els, callbacks, utcDate);
   };
 
   const run = async (req: ShopActionRequest, successMsg?: string): Promise<void> => {
@@ -121,31 +123,45 @@ export function renderShopView(
     if (tab === activeTab) btn.classList.add('is-active');
     btn.addEventListener('click', () => {
       activeTab = tab;
-      renderShopView(profile, adapter, els, callbacks);
+      renderShopView(profile, adapter, els, callbacks, utcDate);
     });
     tabs.appendChild(btn);
   }
 
   const panel =
-    activeTab === 'weapons' ? renderWeapons(profile, run) : renderCosmetics(profile, run, pull);
+    activeTab === 'weapons'
+      ? renderWeapons(profile, run, utcDate)
+      : renderCosmetics(profile, run, pull);
   els.body.replaceChildren(tabs, panel);
 }
 
 type RunFn = (req: ShopActionRequest, successMsg?: string) => Promise<void>;
 
-function renderWeapons(profile: PlayerProfile, run: RunFn): HTMLElement {
+function renderWeapons(profile: PlayerProfile, run: RunFn, utcDate?: string): HTMLElement {
+  const dailyRule = utcDate ? getDailyRule(utcDate) : null;
+  const wrap = el('div', 'weapons-panel');
+  if (dailyRule && dailyRule.weaponMode !== 'any') {
+    wrap.appendChild(
+      el('p', 'shop-rule-banner', `Today's Rule: ${dailyRule.label} - ${dailyRule.description}`),
+    );
+  }
+
   const grid = el('div', 'weapon-grid');
   for (const id of WEAPON_IDS) {
     const w = WEAPONS[id];
     const owned = profile.ownedWeapons.includes(id);
     const equipped = profile.equippedWeapon === id;
+    const isTrialForced = dailyRule?.weaponMode === 'locked' && dailyRule.forcedWeapon === id;
+    const allowedToday = dailyRule ? isWeaponAllowedByRule(dailyRule, id) : true;
     const card = el('article', 'weapon-card');
     if (equipped) card.classList.add('is-equipped');
+    if (isTrialForced) card.classList.add('is-daily-trial');
+    if (!allowedToday) card.classList.add('is-rule-blocked');
 
     const stage = el('div', 'weapon-stage');
     stage.appendChild(weaponArt(w.sprite, 5));
 
-    const name = el('h4', 'weapon-name', w.name);
+    const name = el('h4', 'weapon-name', isTrialForced ? `${w.name} (Today's Trial)` : w.name);
     const tradeoffs = el('ul', 'weapon-tradeoffs');
     tradeoffs.append(el('li', 'is-pro', `+ ${w.pros}`), el('li', 'is-con', `− ${w.cons}`));
 
@@ -154,7 +170,7 @@ function renderWeapons(profile: PlayerProfile, run: RunFn): HTMLElement {
     if (equipped) {
       btn.disabled = true;
       btn.classList.add('is-equipped-btn');
-      btn.textContent = 'Equipped';
+      btn.textContent = allowedToday ? 'Equipped' : 'Equipped (Resting Today)';
     } else if (owned) {
       btn.classList.add('is-equip-btn');
       btn.textContent = 'Equip';
@@ -163,7 +179,7 @@ function renderWeapons(profile: PlayerProfile, run: RunFn): HTMLElement {
       });
     } else {
       btn.disabled = profile.coins < w.cost;
-      btn.textContent = `Buy · ${w.cost} ${GAME_META.coinShort}`;
+      btn.textContent = `Buy (${w.cost} ${GAME_META.coinShort})`;
       btn.addEventListener('click', () => {
         void run({ action: 'buy_weapon', weaponId: id }, `${w.name} equipped`);
       });
@@ -171,7 +187,8 @@ function renderWeapons(profile: PlayerProfile, run: RunFn): HTMLElement {
     card.append(stage, name, tradeoffs, btn);
     grid.appendChild(card);
   }
-  return grid;
+  wrap.appendChild(grid);
+  return wrap;
 }
 
 function renderCosmetics(profile: PlayerProfile, run: RunFn, pull: () => Promise<void>): HTMLElement {
@@ -187,7 +204,7 @@ function renderCosmetics(profile: PlayerProfile, run: RunFn, pull: () => Promise
   const pullBtn = el('button', 'primary-btn gacha-pull-btn pixel-stat');
   pullBtn.type = 'button';
   pullBtn.disabled = profile.gems < GACHA_PULL_COST;
-  pullBtn.textContent = `Pull · ${GACHA_PULL_COST}`;
+  pullBtn.textContent = `Pull ${GACHA_PULL_COST}`;
   const gemIcon = el('img', 'stat-icon');
   gemIcon.src = './assets/icons/gem.svg';
   gemIcon.alt = '';
@@ -320,7 +337,7 @@ function showPullReveal(
         el(
           'span',
           'pull-sub',
-          duplicate ? `Duplicate · +${GACHA_DUPLICATE_COINS} ${GAME_META.coinShort}` : 'New! Equipped',
+          duplicate ? `Duplicate (+${GACHA_DUPLICATE_COINS} ${GAME_META.coinShort})` : 'New! Equipped',
         ),
         ok,
       );
