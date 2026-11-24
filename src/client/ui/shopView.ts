@@ -12,6 +12,7 @@ import { WEAPONS, WEAPON_IDS } from '../../shared/weapons.ts';
 import { GAME_META } from '../config/theme.ts';
 import { getDailyRule, isWeaponAllowedByRule } from '../../shared/modifiers.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
+import { createAtlasIcon } from './atlasIcon.ts';
 import { animateHero, drawHeroStill, type HeroLook } from './heroPreview.ts';
 
 export type ShopViewElements = {
@@ -29,12 +30,6 @@ type ShopTab = 'weapons' | 'cosmetics';
 let activeTab: ShopTab = 'weapons';
 let pulling = false;
 
-// The dungeon atlas is a 28-column grid of 16px tiles with 2px gutters.
-const ATLAS_URL = './assets/dungeon/dungeon_atlas.png';
-const ATLAS_W = 512;
-const ATLAS_H = 184;
-const ATLAS_COLS = 28;
-
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -47,17 +42,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 function weaponArt(frame: string, scale: number): HTMLElement {
-  const idx = Number(frame.replace('tile_', ''));
-  const x = 2 + (idx % ATLAS_COLS) * 18;
-  const y = 2 + Math.floor(idx / ATLAS_COLS) * 18;
-  const art = el('div', 'weapon-art');
-  art.setAttribute('aria-hidden', 'true');
-  art.style.inlineSize = `${16 * scale}px`;
-  art.style.blockSize = `${16 * scale}px`;
-  art.style.backgroundImage = `url(${ATLAS_URL})`;
-  art.style.backgroundSize = `${ATLAS_W * scale}px ${ATLAS_H * scale}px`;
-  art.style.backgroundPosition = `-${x * scale}px -${y * scale}px`;
-  return art;
+  return createAtlasIcon(frame, scale, 'weapon-art');
 }
 
 function lookOf(profile: PlayerProfile): HeroLook {
@@ -204,13 +189,12 @@ function renderCosmetics(profile: PlayerProfile, run: RunFn, pull: () => Promise
   const pullBtn = el('button', 'primary-btn gacha-pull-btn pixel-stat');
   pullBtn.type = 'button';
   pullBtn.disabled = profile.gems < GACHA_PULL_COST;
-  pullBtn.textContent = `Pull ${GACHA_PULL_COST}`;
   const gemIcon = el('img', 'stat-icon');
   gemIcon.src = './assets/icons/gem.svg';
   gemIcon.alt = '';
   gemIcon.width = 16;
   gemIcon.height = 16;
-  pullBtn.appendChild(gemIcon);
+  pullBtn.replaceChildren('Pull ', gemIcon, String(GACHA_PULL_COST));
   pullBtn.setAttribute('aria-label', `Pull for ${GACHA_PULL_COST} gems`);
   pullBtn.addEventListener('click', () => {
     void pull();

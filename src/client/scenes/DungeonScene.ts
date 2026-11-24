@@ -1548,29 +1548,31 @@ export class DungeonScene extends Phaser.Scene {
     shadowG: Phaser.GameObjects.Graphics,
     state: GameState,
   ): void {
+    // Crisp 8x6 pixel diamond matching public/assets/icons/gem.svg.
+    const rows = ['..1111..', '.123311.', '12323211', '.123211.', '..1211..', '...11...'];
+    const palette: Record<string, number> = {
+      '1': 0x28618a,
+      '2': 0x45b7e5,
+      '3': 0xb5edff,
+    };
+    const px = 2;
     for (const gem of state.gems) {
-      const bob = Math.sin(state.elapsedTime * 6 + gem.id) * 3;
-      const x = gem.x;
-      const y = gem.y - 4 + bob;
+      const bob = Math.round(Math.sin(state.elapsedTime * 6 + gem.id) * 2);
+      const ox = Math.round(gem.x) - (8 * px) / 2;
+      const oy = Math.round(gem.y) - 8 + bob;
       shadowG.fillStyle(0x000000, 0.35);
-      shadowG.fillEllipse(gem.x, gem.y + 10, 16, 6);
-      const glow = 0.25 + 0.15 * Math.sin(state.elapsedTime * 8 + gem.id);
-      fxG.fillStyle(0xe879f9, glow);
-      fxG.fillCircle(x, y, 16);
-      const pts = [
-        { x, y: y - 11 },
-        { x: x + 8, y: y - 2 },
-        { x, y: y + 10 },
-        { x: x - 8, y: y - 2 },
-      ];
-      fxG.fillStyle(0xd946ef, 1);
-      this.tracePolygon(fxG, pts, true);
-      fxG.fillPath();
-      fxG.fillStyle(0xf5d0fe, 1);
-      fxG.fillRect(x - 3, y - 6, 3, 4);
-      fxG.lineStyle(2, 0x120d14, 1);
-      this.tracePolygon(fxG, pts, true);
-      fxG.strokePath();
+      shadowG.fillRect(Math.round(gem.x) - 5, Math.round(gem.y) + 8, 10, 3);
+      for (let r = 0; r < rows.length; r += 1) {
+        const row = rows[r]!;
+        for (let c = 0; c < row.length; c += 1) {
+          const code = row[c]!;
+          const color = palette[code];
+          if (color !== undefined) {
+            fxG.fillStyle(color, 1);
+            fxG.fillRect(ox + c * px, oy + r * px, px, px);
+          }
+        }
+      }
     }
   }
 

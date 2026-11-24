@@ -14,3 +14,11 @@
   vertical-align: -0.2em;
   image-rendering: pixelated;
 }
+
+.atlas-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+  vertical-align: middle;
+}
