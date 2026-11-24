@@ -1047,7 +1047,7 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     }
   });
 
-  void it('ships 15 animated pixel-art monster sets (180 frames) in monsters_atlas.json', () => {
+  void it('ships 15 animated pixel-art monster sets + chest & mimic wake (185 frames) in monsters_atlas.json', () => {
     const pngBuf = readFileSync(new URL('../../public/assets/dungeon/monsters_atlas.png', import.meta.url));
     assert.equal(pngBuf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     const pngW = pngBuf.readUInt32BE(16);
@@ -1068,11 +1068,32 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     const framesObj = raw.frames;
     assert.ok(typeof framesObj === 'object' && framesObj !== null);
     const frameEntries = Object.entries(framesObj);
-    assert.equal(frameEntries.length, 180, 'expected 15 monsters x 12 frames = 180 frames');
+    assert.equal(frameEntries.length, 185, 'expected 15 monsters x 12 frames + chest_closed + mimic_wake_0..3 = 185 frames');
     const frameMap = new Map(frameEntries);
 
     type Rect = { x: number; y: number; w: number; h: number };
     const rects: Rect[] = [];
+    const expectFrame = (key: string, w: number, h: number): void => {
+      const entry: unknown = frameMap.get(key);
+      assert.ok(typeof entry === 'object' && entry !== null && 'frame' in entry, `Missing ${key}`);
+      const f: unknown = entry.frame;
+      assert.ok(
+        typeof f === 'object'
+          && f !== null
+          && 'x' in f
+          && 'y' in f
+          && 'w' in f
+          && 'h' in f
+          && typeof f.x === 'number'
+          && typeof f.y === 'number'
+          && f.w === w
+          && f.h === h,
+        `Unexpected frame rect for ${key}`,
+      );
+      assert.ok(f.x >= 0 && f.y >= 0 && f.x + f.w <= pngW && f.y + f.h <= pngH, `Out-of-bounds rect ${key}`);
+      rects.push({ x: f.x, y: f.y, w: f.w, h: f.h });
+    };
+
     const expectedSpecs: Array<[string, number, number]> = [
       ['slime', 16, 16],
       ['mage', 16, 16],
@@ -1094,27 +1115,14 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     for (const [skin, w, h] of expectedSpecs) {
       for (const action of ['idle', 'run', 'attack'] as const) {
         for (let i = 0; i < 4; i += 1) {
-          const key = `${skin}_${action}_${i}`;
-          const entry: unknown = frameMap.get(key);
-          assert.ok(typeof entry === 'object' && entry !== null && 'frame' in entry, `Missing ${key}`);
-          const f: unknown = entry.frame;
-          assert.ok(
-            typeof f === 'object'
-              && f !== null
-              && 'x' in f
-              && 'y' in f
-              && 'w' in f
-              && 'h' in f
-              && typeof f.x === 'number'
-              && typeof f.y === 'number'
-              && f.w === w
-              && f.h === h,
-            `Unexpected frame rect for ${key}`,
-          );
-          assert.ok(f.x >= 0 && f.y >= 0 && f.x + f.w <= pngW && f.y + f.h <= pngH, `Out-of-bounds rect ${key}`);
-          rects.push({ x: f.x, y: f.y, w: f.w, h: f.h });
+          expectFrame(`${skin}_${action}_${i}`, w, h);
         }
       }
+    }
+
+    expectFrame('chest_closed', 16, 16);
+    for (let i = 0; i < 4; i += 1) {
+      expectFrame(`mimic_wake_${i}`, 16, 16);
     }
 
     for (let i = 0; i < rects.length; i += 1) {
@@ -1516,6 +1524,34 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       false,
       'broken box must stay destroyed after revisiting room',
     );
+  });
+
+  void it('spawns closed treasure chests in dungeon rooms and rewards 4 coins when opened', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    clearRoom(sim);
+    sim.state.coins = [];
+    const earnedBefore = sim.state.stats.coinsEarned;
+
+    const chest = sim.state.breakables.find((b) => b.kind === 'chest');
+    assert.ok(chest, 'entrance room should spawn at least one world chest');
+
+    sim.state.player.x = chest.x;
+    sim.state.player.y = chest.y + 32;
+    sim.state.player.attackCooldown = 0;
+    sim.state.player.attackEndlagTimer = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    if (sim.state.breakables.some((b) => b.id === chest.id)) {
+      sim.state.player.attackCooldown = 0;
+      sim.state.player.attackEndlagTimer = 0;
+      sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    }
+
+    assert.equal(sim.state.breakables.some((b) => b.id === chest.id), false, 'chest should open when struck');
+    const uncollectedValue = sim.state.coins.reduce((sum, c) => sum + c.value, 0);
+    const totalCoinValue = (sim.state.stats.coinsEarned - earnedBefore) + uncollectedValue;
+    assert.equal(totalCoinValue, 4, 'opening a world chest should award 4 coins worth of loot');
   });
 
   void it('varies daily rules and weapon restrictions without mutating the player profile', () => {

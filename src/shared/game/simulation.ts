@@ -120,7 +120,7 @@ export type BreakableEntity = {
   hp: number;
   maxHp: number;
   radius: number;
-  kind: 'crate' | 'pillar';
+  kind: 'crate' | 'pillar' | 'chest';
   hitFlash: number;
 };
 
@@ -2943,8 +2943,14 @@ export class GameSimulation {
     if (isBroken) {
       const idx = s.breakables.indexOf(br);
       if (idx !== -1) s.breakables.splice(idx, 1);
-      this.spawnCoins(br.x, br.y, 1, false);
-      if (br.kind === 'crate' && this.lootRng.next() < HEART_CRATE_CHANCE) {
+      if (br.kind === 'chest') {
+        this.spawnCoins(br.x, br.y, 4, false);
+        this.spawnParticles(br.x, br.y, '#fde047', 12, 155);
+        this.addFloatingText(br.x, br.y - 24, 'CHEST! +4', '#fde047', 1.1);
+      } else {
+        this.spawnCoins(br.x, br.y, 1, false);
+      }
+      if ((br.kind === 'crate' || br.kind === 'chest') && this.lootRng.next() < HEART_CRATE_CHANCE) {
         s.hearts.push({ id: this.nextEntityId++, x: br.x, y: br.y, age: 0 });
       }
     }
@@ -3329,18 +3335,20 @@ export class GameSimulation {
   private spawnBreakDebris(
     x: number,
     y: number,
-    kind: 'crate' | 'pillar' | 'barrel',
+    kind: 'crate' | 'pillar' | 'barrel' | 'chest',
     light = false,
   ): void {
     const palette =
-      kind === 'crate'
-        ? (['#c2844c', '#9a5b2d', '#e0a96d', '#7c4521'] as const)
-        : kind === 'barrel'
-          ? (['#b91c1c', '#92400e', '#dc2626', '#52525b', '#78350f'] as const)
-          : (['#94a3b8', '#64748b', '#cbd5e1', '#475569'] as const);
+      kind === 'chest'
+        ? (['#894c37', '#c47e52', '#f3a629', '#fef074'] as const)
+        : kind === 'crate'
+          ? (['#c2844c', '#9a5b2d', '#e0a96d', '#7c4521'] as const)
+          : kind === 'barrel'
+            ? (['#b91c1c', '#92400e', '#dc2626', '#52525b', '#78350f'] as const)
+            : (['#94a3b8', '#64748b', '#cbd5e1', '#475569'] as const);
     const borderColor =
-      kind === 'crate' ? '#2a1810' : kind === 'barrel' ? '#18181b' : '#1e293b';
-    const count = light ? (kind === 'barrel' ? 4 : 3) : kind === 'crate' ? 9 : kind === 'barrel' ? 11 : 10;
+      kind === 'crate' || kind === 'chest' ? '#2a1810' : kind === 'barrel' ? '#18181b' : '#1e293b';
+    const count = light ? (kind === 'barrel' ? 4 : 3) : kind === 'crate' ? 9 : kind === 'chest' ? 10 : kind === 'barrel' ? 11 : 10;
 
     for (let i = 0; i < count; i += 1) {
       const ang = this.fxRng.range(0, Math.PI * 2);
@@ -3378,7 +3386,19 @@ export class GameSimulation {
 
     if (!light) {
       const s = this.state;
-      if (kind === 'crate') {
+      if (kind === 'chest') {
+        s.rings.push({
+          x,
+          y,
+          radius: 10,
+          maxRadius: 42,
+          ttl: 0.2,
+          maxTtl: 0.2,
+          color: '#fbbf24',
+        });
+        this.spawnParticles(x, y, '#fde047', 10, 150);
+        s.shakeIntensity = Math.max(s.shakeIntensity, 3);
+      } else if (kind === 'crate') {
         s.rings.push({
           x,
           y,

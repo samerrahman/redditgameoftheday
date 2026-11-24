@@ -35,7 +35,7 @@ export type BreakableBlueprint = {
   y: number;
   hp: number;
   radius: number;
-  kind: 'crate' | 'pillar';
+  kind: 'crate' | 'pillar' | 'chest';
 };
 
 /** Solid, indestructible block (one 56px floor cell). Blocks movement and projectiles. */
@@ -405,7 +405,7 @@ function buildBreakables(
           [2, 0], [7, 0], [2, 5], [7, 5],
         ] as const)
   ).filter(([i, j]) => !isNearDoorwayCell(i, j));
-  return pickFreeCells(candidates, blockedCells, count).map(([i, j], idx) => {
+  const results: BreakableBlueprint[] = pickFreeCells(candidates, blockedCells, count).map(([i, j], idx) => {
     const pt = cellCenter(i, j);
     return {
       id: roomIndex * 1000 + idx,
@@ -416,6 +416,12 @@ function buildBreakables(
       kind,
     };
   });
+  // Place one real closed chest in standard crate rooms so chests and Mimics share the world.
+  if (kind === 'crate' && results.length >= 2) {
+    const last = results[results.length - 1]!;
+    results[results.length - 1] = { ...last, kind: 'chest', hp: 24 };
+  }
+  return results;
 }
 
 function makeWave(

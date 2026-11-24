@@ -59,7 +59,7 @@ const MONSTER_SKIN_RATES = {
 
 type MonsterSkin = keyof typeof MONSTER_SKIN_RATES;
 
-const CHASER_SKINS: readonly MonsterSkin[] = ['slime', 'imp', 'myconid', 'mimic'];
+const CHASER_SKINS: readonly MonsterSkin[] = ['slime', 'mimic', 'imp', 'myconid'];
 const SHOOTER_SKINS: readonly MonsterSkin[] = ['mage', 'archer'];
 const CHARGER_SKINS: readonly MonsterSkin[] = ['brute', 'golem'];
 
@@ -499,6 +499,8 @@ export class DungeonScene extends Phaser.Scene {
         'monsters',
       );
     }
+
+    define('monster_mimic_wake', [0, 1, 2, 3].map((i) => `mimic_wake_${i}`), 8, 0, 'monsters');
 
     define('coin_spin', ['coin_0', 'coin_1', 'coin_2', 'coin_3'], 10);
     define('gem_spin', ['gem_0', 'gem_1', 'gem_2', 'gem_3'], 8);
@@ -1618,19 +1620,22 @@ export class DungeonScene extends Phaser.Scene {
 
     for (const br of state.breakables) {
       activeIds.add(br.id);
-      const frame = br.kind === 'pillar' ? 'tile_065' : 'tile_063';
+      const isChest = br.kind === 'chest';
+      const texture = isChest ? 'monsters' : 'dungeon';
+      const frame = isChest ? 'chest_closed' : br.kind === 'pillar' ? 'tile_065' : 'tile_063';
+      const baseSize = isChest ? 16 * PIXEL_SCALE : CELL_SIZE;
       let spr = this.breakableSprites.get(br.id);
       if (!spr) {
-        spr = this.add.image(br.x, br.y, 'dungeon', frame).setDisplaySize(CELL_SIZE, CELL_SIZE).setDepth(9);
+        spr = this.add.image(br.x, br.y, texture, frame).setDisplaySize(baseSize, baseSize).setDepth(9);
         this.breakableSprites.set(br.id, spr);
       }
 
       const shakeX = br.hitFlash > 0 ? Math.sin(state.elapsedTime * 85 + br.id) * 3 : 0;
-      const drawW = br.hitFlash > 0 ? Math.round(CELL_SIZE * 1.08) : CELL_SIZE;
-      const drawH = br.hitFlash > 0 ? Math.round(CELL_SIZE * 0.92) : CELL_SIZE;
+      const drawW = br.hitFlash > 0 ? Math.round(baseSize * 1.08) : baseSize;
+      const drawH = br.hitFlash > 0 ? Math.round(baseSize * 0.92) : baseSize;
       spr
-        .setPosition(br.x + shakeX, br.y + (CELL_SIZE - drawH) * 0.35)
-        .setFrame(frame)
+        .setTexture(texture, frame)
+        .setPosition(br.x + shakeX, br.y + (baseSize - drawH) * 0.35)
         .setDisplaySize(drawW, drawH);
       if (br.hitFlash > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
@@ -1871,6 +1876,8 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       const scale = this.getEnemyScale() * popMult;
+      const skin = this.getEnemySkin(enemy);
+      const isMimicWake = skin === 'mimic' && enemy.state === 'spawning';
       const isBossLeapTelegraph =
         enemy.archetype === 'boss' &&
         enemy.attackKind === 'boss_leap' &&
@@ -1881,16 +1888,28 @@ export class DungeonScene extends Phaser.Scene {
         enemy.state === 'attack' &&
         enemy.leapZ > 0;
       const heightRatio = Math.max(0, Math.min(1, enemy.leapZ / 135));
-      const alpha = enemy.state === 'spawning' ? 0.45 : 1;
+      const alpha = isMimicWake ? 1 : enemy.state === 'spawning' ? 0.45 : 1;
       const fx = this.updateEnemyFx(enemy, state);
-      const pose = computeEnemyPose(enemy, fx, this.fxClock - fx.stateStartedAt, state.elapsedTime);
+      const inState = this.fxClock - fx.stateStartedAt;
+      const pose = isMimicWake
+        ? {
+            sx: 1,
+            sy: 1,
+            rot: 0,
+            ox: inState > 0.14 ? Math.sin(state.elapsedTime * 60 + enemy.id) * 1.8 : 0,
+            oy: 0,
+            charge: 0,
+          }
+        : computeEnemyPose(enemy, fx, inState, state.elapsedTime);
       const colors = ENEMY_COLORS[enemy.archetype];
       const airborne = Math.min(0, pose.oy);
 
-      // Signature-colour glow under every monster (pulses while winding up).
-      const glowPulse = 0.22 + 0.06 * Math.sin(state.elapsedTime * 5 + enemy.id) + pose.charge * 0.3;
-      shadowG.fillStyle(colors.main, glowPulse);
-      shadowG.fillEllipse(enemy.x, enemy.y + enemy.radius * 0.7, enemy.radius * 2.8, enemy.radius * 1.2);
+      // Signature-colour glow under every monster (hidden until Mimic chest cracks open).
+      if (!isMimicWake || inState >= 0.25) {
+        const glowPulse = 0.22 + 0.06 * Math.sin(state.elapsedTime * 5 + enemy.id) + pose.charge * 0.3;
+        shadowG.fillStyle(colors.main, glowPulse);
+        shadowG.fillEllipse(enemy.x, enemy.y + enemy.radius * 0.7, enemy.radius * 2.8, enemy.radius * 1.2);
+      }
       if (pose.charge > 0) {
         // Wind-up: a bright ring tightening around the monster.
         const ringR = enemy.radius * (2.4 - 1.1 * pose.charge);
@@ -2238,7 +2257,10 @@ export class DungeonScene extends Phaser.Scene {
     texture: 'monsters';
     frame: string;
   } {
-    return { texture: 'monsters', frame: `${this.getEnemySkin(enemy)}_idle_0` };
+    const skin = this.getEnemySkin(enemy);
+    const frame =
+      skin === 'mimic' && enemy.state === 'spawning' ? 'mimic_wake_0' : `${skin}_idle_0`;
+    return { texture: 'monsters', frame };
   }
 
   private getEnemyScale(): number {
@@ -2247,6 +2269,9 @@ export class DungeonScene extends Phaser.Scene {
 
   private pickEnemyAnim(enemy: EnemyEntity): string {
     const skin = this.getEnemySkin(enemy);
+    if (skin === 'mimic' && enemy.state === 'spawning') {
+      return 'monster_mimic_wake';
+    }
     if (enemy.archetype === 'boss' && enemy.attackKind === 'boss_leap') {
       if (enemy.state === 'telegraph') return 'monster_boss_run';
       if (enemy.state === 'attack') {
