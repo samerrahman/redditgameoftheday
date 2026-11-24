@@ -39,6 +39,30 @@ import type { InputController } from '../game/input.ts';
 
 const PIXEL_SCALE = 3;
 
+const MONSTER_SKIN_RATES = {
+  slime: { idle: 6, run: 10, attack: 12 },
+  mage: { idle: 5, run: 8, attack: 10 },
+  brute: { idle: 5, run: 8, attack: 12 },
+  warden: { idle: 5, run: 8, attack: 12 },
+  shade: { idle: 6, run: 9, attack: 12 },
+  yeti: { idle: 5, run: 8, attack: 11 },
+  sapper: { idle: 6, run: 10, attack: 12 },
+  tank: { idle: 6, run: 9, attack: 12 },
+  bull: { idle: 6, run: 10, attack: 12 },
+  boss: { idle: 6, run: 9, attack: 12 },
+  archer: { idle: 5, run: 9, attack: 12 },
+  imp: { idle: 7, run: 11, attack: 12 },
+  mimic: { idle: 6, run: 9, attack: 12 },
+  golem: { idle: 5, run: 7, attack: 11 },
+  myconid: { idle: 6, run: 9, attack: 12 },
+} as const;
+
+type MonsterSkin = keyof typeof MONSTER_SKIN_RATES;
+
+const CHASER_SKINS: readonly MonsterSkin[] = ['slime', 'imp', 'myconid', 'mimic'];
+const SHOOTER_SKINS: readonly MonsterSkin[] = ['mage', 'archer'];
+const CHARGER_SKINS: readonly MonsterSkin[] = ['brute', 'golem'];
+
 function snapPx(value: number): number {
   return Math.round(value / PIXEL_SCALE) * PIXEL_SCALE;
 }
@@ -207,6 +231,11 @@ export class DungeonScene extends Phaser.Scene {
       'dungeon',
       './assets/dungeon/dungeon_atlas.png',
       './assets/dungeon/dungeon_atlas.json',
+    );
+    this.load.atlas(
+      'monsters',
+      './assets/dungeon/monsters_atlas.png',
+      './assets/dungeon/monsters_atlas.json',
     );
     this.load.atlas(
       'cosmetics',
@@ -411,7 +440,7 @@ export class DungeonScene extends Phaser.Scene {
       frames: Array<string | number>,
       frameRate: number,
       repeat = -1,
-      atlasKey: 'dungeon' | 'cosmetics' | 'ski' | 'town' | 'battle' | 'farm' = 'dungeon',
+      atlasKey: 'dungeon' | 'cosmetics' | 'monsters' | 'ski' | 'town' | 'battle' | 'farm' = 'dungeon',
     ) => {
       if (this.anims.exists(key)) return;
       this.anims.create({
@@ -445,30 +474,31 @@ export class DungeonScene extends Phaser.Scene {
       }
     }
 
-    define('slime_idle', ['slime_idle_0', 'slime_idle_1', 'slime_idle_2', 'slime_idle_3'], 6);
-    define('slime_run', ['slime_run_0', 'slime_run_1', 'slime_run_2', 'slime_run_3'], 10);
-    define('slime_telegraph', ['slime_telegraph_0', 'slime_telegraph_1'], 12);
-
-    define('wizard_idle', ['wizard_idle_0', 'wizard_idle_1', 'wizard_idle_2', 'wizard_idle_3'], 5);
-    define('wizard_run', ['wizard_run_0', 'wizard_run_1', 'wizard_run_2', 'wizard_run_3'], 8);
-    define('wizard_cast', ['wizard_cast_0', 'wizard_cast_1'], 10);
-
-    define('cyclops_idle', ['cyclops_idle_0', 'cyclops_idle_1', 'cyclops_idle_2', 'cyclops_idle_3'], 5);
-    define('cyclops_run', ['cyclops_run_0', 'cyclops_run_1', 'cyclops_run_2', 'cyclops_run_3'], 8);
-    define('cyclops_charge', ['cyclops_charge_0', 'cyclops_charge_1'], 12);
-
-    define('warden_idle', ['warden_idle_0', 'warden_idle_1', 'warden_idle_2', 'warden_idle_3'], 5);
-    define('warden_run', ['warden_run_0', 'warden_run_1', 'warden_run_2', 'warden_run_3'], 8);
-    define('warden_charge', ['warden_charge_0', 'warden_charge_1'], 12);
-
-    define('boss_idle', ['boss_idle_0', 'boss_idle_1', 'boss_idle_2', 'boss_idle_3'], 6);
-    define('boss_run', ['boss_run_0', 'boss_run_1', 'boss_run_2', 'boss_run_3'], 9);
-    define('boss_attack', ['boss_attack_0', 'boss_attack_1'], 10);
-
-    define('yeti_walk', [78, 79], 6, -1, 'ski');
-    define('yeti_cast', [80], 6, -1, 'ski');
-    define('tank_roll', [152], 6, -1, 'battle');
-    define('tank_fire', [153], 6, -1, 'battle');
+    for (const [skin, rates] of Object.entries(MONSTER_SKIN_RATES) as Array<
+      [MonsterSkin, (typeof MONSTER_SKIN_RATES)[MonsterSkin]]
+    >) {
+      define(
+        `monster_${skin}_idle`,
+        [0, 1, 2, 3].map((i) => `${skin}_idle_${i}`),
+        rates.idle,
+        -1,
+        'monsters',
+      );
+      define(
+        `monster_${skin}_run`,
+        [0, 1, 2, 3].map((i) => `${skin}_run_${i}`),
+        rates.run,
+        -1,
+        'monsters',
+      );
+      define(
+        `monster_${skin}_attack`,
+        [0, 1, 2, 3].map((i) => `${skin}_attack_${i}`),
+        rates.attack,
+        -1,
+        'monsters',
+      );
+    }
 
     define('coin_spin', ['coin_0', 'coin_1', 'coin_2', 'coin_3'], 10);
     define('gem_spin', ['gem_0', 'gem_1', 'gem_2', 'gem_3'], 8);
@@ -1817,7 +1847,7 @@ export class DungeonScene extends Phaser.Scene {
       activeIds.add(enemy.id);
       let spr = this.enemySprites.get(enemy.id);
       if (!spr) {
-        const startAsset = this.getEnemyAsset(enemy.archetype);
+        const startAsset = this.getEnemyAsset(enemy);
         spr = this.add.sprite(enemy.x, enemy.y, startAsset.texture, startAsset.frame).setDepth(10);
         this.enemySprites.set(enemy.id, spr);
       }
@@ -1840,7 +1870,7 @@ export class DungeonScene extends Phaser.Scene {
         }
       }
 
-      const scale = this.getEnemyScale(enemy.archetype) * popMult;
+      const scale = this.getEnemyScale() * popMult;
       const isBossLeapTelegraph =
         enemy.archetype === 'boss' &&
         enemy.attackKind === 'boss_leap' &&
@@ -1909,15 +1939,8 @@ export class DungeonScene extends Phaser.Scene {
         .setFlipX(state.player.x < enemy.x);
 
       const animKey = this.pickEnemyAnim(enemy);
-      if (animKey) {
-        spr.anims.timeScale = isBossLeapTelegraph ? 1.85 : isBossLeapAir ? 1.35 : 1;
-        spr.play(animKey, true);
-      } else {
-        spr.anims.timeScale = 1;
-        const asset = this.getEnemyAsset(enemy.archetype);
-        spr.stop();
-        spr.setTexture(asset.texture, asset.frame);
-      }
+      spr.anims.timeScale = isBossLeapTelegraph ? 1.85 : isBossLeapAir ? 1.35 : 1;
+      spr.play(animKey, true);
 
       if (enemy.hitFlashTimer > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
@@ -1927,10 +1950,8 @@ export class DungeonScene extends Phaser.Scene {
       } else if (pose.charge > 0.55 && Math.sin(state.elapsedTime * 40) > 0) {
         // Flicker in the monster's colour right before it strikes.
         spr.setTint(colors.main).setTintMode(Phaser.TintModes.ADD);
-      } else if (enemy.archetype === 'shade') {
-        spr
-          .setTint(enemy.state === 'telegraph' ? 0xc084fc : 0xe9d5ff)
-          .setTintMode(Phaser.TintModes.MULTIPLY);
+      } else if (enemy.archetype === 'shade' && enemy.state === 'telegraph') {
+        spr.setTint(0xc084fc).setTintMode(Phaser.TintModes.MULTIPLY);
       } else {
         spr.clearTint();
       }
@@ -2187,73 +2208,56 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private getEnemyAsset(archetype: EnemyArchetype): {
-    texture: 'dungeon' | 'ski' | 'battle' | 'farm';
-    frame: string | number;
-  } {
-    switch (archetype) {
+  private getEnemySkin(enemy: EnemyEntity): MonsterSkin {
+    const idx = Math.abs(enemy.id);
+    switch (enemy.archetype) {
       case 'chaser':
-        return { texture: 'dungeon', frame: 'slime_idle_0' };
+        return CHASER_SKINS[idx % CHASER_SKINS.length]!;
       case 'shooter':
-        return { texture: 'dungeon', frame: 'wizard_idle_0' };
+        return SHOOTER_SKINS[idx % SHOOTER_SKINS.length]!;
       case 'charger':
-        return { texture: 'dungeon', frame: 'cyclops_idle_0' };
+        return CHARGER_SKINS[idx % CHARGER_SKINS.length]!;
       case 'elite_charger':
-        return { texture: 'dungeon', frame: 'warden_idle_0' };
+        return 'warden';
       case 'boss':
-        return { texture: 'dungeon', frame: 'boss_idle_0' };
+        return 'boss';
       case 'shade':
-        return { texture: 'dungeon', frame: 'tile_121' };
+        return 'shade';
       case 'yeti':
-        return { texture: 'ski', frame: 78 };
+        return 'yeti';
       case 'bomber':
-        return { texture: 'dungeon', frame: 'tile_111' };
+        return 'sapper';
       case 'mortar_tank':
-        return { texture: 'battle', frame: 152 };
+        return 'tank';
       case 'stampede':
-        return { texture: 'farm', frame: 121 };
+        return 'bull';
     }
   }
 
-  private getEnemyScale(archetype: EnemyArchetype): number {
-    return archetype === 'elite_charger' ? 2.65 : PIXEL_SCALE;
+  private getEnemyAsset(enemy: EnemyEntity): {
+    texture: 'monsters';
+    frame: string;
+  } {
+    return { texture: 'monsters', frame: `${this.getEnemySkin(enemy)}_idle_0` };
   }
 
-  private pickEnemyAnim(enemy: EnemyEntity): string | null {
-    if (enemy.archetype === 'chaser') {
-      if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'slime_telegraph';
-      return enemy.state === 'chase' ? 'slime_run' : 'slime_idle';
-    }
-    if (enemy.archetype === 'shooter') {
-      if (enemy.state === 'telegraph') return 'wizard_cast';
-      return enemy.state === 'chase' ? 'wizard_run' : 'wizard_idle';
-    }
-    if (enemy.archetype === 'charger') {
-      if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'cyclops_charge';
-      return enemy.state === 'chase' ? 'cyclops_run' : 'cyclops_idle';
-    }
-    if (enemy.archetype === 'elite_charger') {
-      if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'warden_charge';
-      return enemy.state === 'chase' ? 'warden_run' : 'warden_idle';
-    }
-    if (enemy.archetype === 'yeti') {
-      return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'yeti_cast' : 'yeti_walk';
-    }
-    if (enemy.archetype === 'mortar_tank') {
-      return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'tank_fire' : 'tank_roll';
-    }
-    if (enemy.archetype === 'shade' || enemy.archetype === 'bomber' || enemy.archetype === 'stampede') {
-      return null;
-    }
-    if (enemy.attackKind === 'boss_leap') {
-      if (enemy.state === 'telegraph') return 'boss_run';
+  private getEnemyScale(): number {
+    return PIXEL_SCALE;
+  }
+
+  private pickEnemyAnim(enemy: EnemyEntity): string {
+    const skin = this.getEnemySkin(enemy);
+    if (enemy.archetype === 'boss' && enemy.attackKind === 'boss_leap') {
+      if (enemy.state === 'telegraph') return 'monster_boss_run';
       if (enemy.state === 'attack') {
         const u = 1 - Math.max(0, enemy.stateTimer) / Math.max(0.01, enemy.leapDuration);
-        return u < 0.55 ? 'boss_run' : 'boss_attack';
+        return u < 0.55 ? 'monster_boss_run' : 'monster_boss_attack';
       }
     }
-    if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'boss_attack';
-    return enemy.state === 'chase' ? 'boss_run' : 'boss_idle';
+    if (enemy.state === 'telegraph' || enemy.state === 'attack') {
+      return `monster_${skin}_attack`;
+    }
+    return enemy.state === 'chase' ? `monster_${skin}_run` : `monster_${skin}_idle`;
   }
 
   private syncPlayer(

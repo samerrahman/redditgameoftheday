@@ -1047,6 +1047,86 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     }
   });
 
+  void it('ships 15 animated pixel-art monster sets (180 frames) in monsters_atlas.json', () => {
+    const pngBuf = readFileSync(new URL('../../public/assets/dungeon/monsters_atlas.png', import.meta.url));
+    assert.equal(pngBuf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+    const pngW = pngBuf.readUInt32BE(16);
+    const pngH = pngBuf.readUInt32BE(20);
+
+    const raw: unknown = JSON.parse(
+      readFileSync(new URL('../../public/assets/dungeon/monsters_atlas.json', import.meta.url), 'utf8'),
+    );
+    assert.ok(typeof raw === 'object' && raw !== null && 'meta' in raw && 'frames' in raw);
+    const meta = raw.meta;
+    assert.ok(typeof meta === 'object' && meta !== null && 'size' in meta);
+    const size = meta.size;
+    assert.ok(
+      typeof size === 'object' && size !== null && 'w' in size && 'h' in size && size.w === pngW && size.h === pngH,
+      `monsters_atlas.json meta.size must match PNG ${pngW}x${pngH}`,
+    );
+
+    const framesObj = raw.frames;
+    assert.ok(typeof framesObj === 'object' && framesObj !== null);
+    const frameEntries = Object.entries(framesObj);
+    assert.equal(frameEntries.length, 180, 'expected 15 monsters x 12 frames = 180 frames');
+    const frameMap = new Map(frameEntries);
+
+    type Rect = { x: number; y: number; w: number; h: number };
+    const rects: Rect[] = [];
+    const expectedSpecs: Array<[string, number, number]> = [
+      ['slime', 16, 16],
+      ['mage', 16, 16],
+      ['brute', 20, 20],
+      ['warden', 28, 26],
+      ['shade', 16, 16],
+      ['yeti', 22, 22],
+      ['sapper', 16, 16],
+      ['tank', 22, 22],
+      ['bull', 22, 22],
+      ['boss', 32, 32],
+      ['archer', 16, 16],
+      ['imp', 16, 16],
+      ['mimic', 16, 16],
+      ['golem', 24, 24],
+      ['myconid', 16, 16],
+    ];
+
+    for (const [skin, w, h] of expectedSpecs) {
+      for (const action of ['idle', 'run', 'attack'] as const) {
+        for (let i = 0; i < 4; i += 1) {
+          const key = `${skin}_${action}_${i}`;
+          const entry: unknown = frameMap.get(key);
+          assert.ok(typeof entry === 'object' && entry !== null && 'frame' in entry, `Missing ${key}`);
+          const f: unknown = entry.frame;
+          assert.ok(
+            typeof f === 'object'
+              && f !== null
+              && 'x' in f
+              && 'y' in f
+              && 'w' in f
+              && 'h' in f
+              && typeof f.x === 'number'
+              && typeof f.y === 'number'
+              && f.w === w
+              && f.h === h,
+            `Unexpected frame rect for ${key}`,
+          );
+          assert.ok(f.x >= 0 && f.y >= 0 && f.x + f.w <= pngW && f.y + f.h <= pngH, `Out-of-bounds rect ${key}`);
+          rects.push({ x: f.x, y: f.y, w: f.w, h: f.h });
+        }
+      }
+    }
+
+    for (let i = 0; i < rects.length; i += 1) {
+      const a = rects[i]!;
+      for (let j = i + 1; j < rects.length; j += 1) {
+        const b = rects[j]!;
+        const overlap = a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+        assert.equal(overlap, false, 'monsters_atlas frames must not overlap');
+      }
+    }
+  });
+
   void it('keeps biome solid obstacle sprites strictly separate from walk-through decor', () => {
     const biomesSrc = readFileSync(new URL('../client/config/biomes.ts', import.meta.url), 'utf8');
     const sections = biomesSrc.split(/\bid:\s*'/g).slice(1);
