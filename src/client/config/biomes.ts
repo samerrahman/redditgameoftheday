@@ -141,9 +141,57 @@ export const BIOMES: readonly FloorBiome[] = [
     torches: false,
     blocks: { sheet: 'farm', frames: [96, 97] }, // hay bales
   },
+  {
+    id: 'ember',
+    name: 'Cinder Vault',
+    floor: null,
+    floorTint: 0xdfa088,
+    wallTint: 0xc97b63,
+    ambientBg: 0x261412,
+    decor: [],
+    decorCount: [0, 0],
+    torches: true,
+    blocks: null,
+  },
+  {
+    id: 'mire',
+    name: 'Sunken Mire',
+    floor: { sheet: 'battle', frames: [0, 0, 1] },
+    patches: { sheet: 'town', frames: [25], count: 4 },
+    floorTint: 0x7da37e,
+    wallTint: 0x6e8c72,
+    ambientBg: 0x131f19,
+    decor: [
+      { sheet: 'town', frames: [4, 16], weight: 2 },
+      { sheet: 'town', frames: [5], weight: 2 },
+      { sheet: 'town', frames: [106], weight: 1 },
+      { sheet: 'town', frames: [107], weight: 1 },
+    ],
+    decorCount: [4, 6],
+    torches: false,
+    blocks: { sheet: 'town', frames: [107, 130] },
+  },
+  {
+    id: 'sand',
+    name: 'Dune Catacomb',
+    floor: { sheet: 'town', frames: [109] },
+    patches: { sheet: 'farm', frames: [48, 49, 50], count: 3 },
+    floorTint: 0xe6cf9a,
+    wallTint: 0xd9ba82,
+    ambientBg: 0x261f14,
+    decor: [
+      { sheet: 'town', frames: [107], weight: 2 },
+      { sheet: 'town', frames: [83], weight: 1 },
+      { sheet: 'battle', frames: [5], weight: 2 },
+      { sheet: 'farm', frames: [96], weight: 1 },
+    ],
+    decorCount: [4, 6],
+    torches: true,
+    blocks: { sheet: 'battle', frames: [5] },
+  },
 ];
 
-/** Floors cycle daily-shuffled biomes across all 5 themes, repeating from Floor 6. */
+/** Floors cycle daily-shuffled biomes across all 8 themes, repeating from Floor 9. */
 export function getFloorBiome(floor: number, utcDate?: string): FloorBiome {
   const biomeId = getBiomeIdForFloor(floor, utcDate);
   return BIOMES.find((b) => b.id === biomeId) ?? BIOMES[0]!;

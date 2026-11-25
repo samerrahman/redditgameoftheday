@@ -119,8 +119,9 @@ export const RELICS: Record<RelicId, RelicDef> = {
     emoji: '🪙',
     shortTag: 'Gild',
     starter: false,
-    synergyImpact: false,
-    summary: (lv) => `Hits burst +${2 * lv} magnetized coins`,
+    synergyImpact: true,
+    summary: (lv) =>
+      `Hits burst +${2 * lv} coins, gild-blast (${16 + 8 * (lv - 1)} dmg), +${2 * lv}% dmg per 10 coins`,
   },
   concussion: {
     id: 'concussion',

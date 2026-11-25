@@ -12,7 +12,7 @@ import {
 } from '../../shared/game/constants.ts';
 import type { EnemyEntity } from '../../shared/game/enemies.ts';
 import { CELL_SIZE, isNearDoorwayCell, oppositeDirection } from '../../shared/game/rooms.ts';
-import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
+import { isSpikeActive, type GameSimulation, type GameState } from '../../shared/game/simulation.ts';
 import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
 import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
 import { COSMETIC_IDS, COSMETICS, isCosmeticId } from '../../shared/shop.ts';
@@ -112,7 +112,6 @@ export class DungeonScene extends Phaser.Scene {
   private fountainBottom: Phaser.GameObjects.Image | null = null;
 
   private readonly enemySprites = new Map<number, Phaser.GameObjects.Sprite>();
-  private readonly wardenShields = new Map<number, Phaser.GameObjects.Image>();
   private readonly hazardSprites = new Map<number, Phaser.GameObjects.Image>();
   private readonly breakableSprites = new Map<number, Phaser.GameObjects.Image>();
   private readonly coinSprites = new Map<number, Phaser.GameObjects.Sprite>();
@@ -1112,6 +1111,7 @@ export class DungeonScene extends Phaser.Scene {
     this.drawGems(fxG, shadowG, state);
     this.drawHearts(fxG, shadowG, state);
     this.syncFirePatches(state);
+    this.drawSporeClouds(fxG, state);
     this.syncDelayedBlasts(teleG, state);
     this.drawTelegraphs(teleG, state);
     this.syncAfterimages(state);
@@ -1155,19 +1155,25 @@ export class DungeonScene extends Phaser.Scene {
     const color =
       archetype === 'chaser'
         ? 0x25956a
-        : archetype === 'shooter' || archetype === 'shade'
-          ? 0x7e22ce
-          : archetype === 'yeti'
-            ? 0x38bdf8
-            : archetype === 'bomber'
-              ? 0xf59e0b
-              : archetype === 'mortar_tank'
-                ? 0x64748b
-                : archetype === 'stampede'
-                  ? 0x92400e
-                  : archetype === 'boss'
-                    ? 0x991b1b
-                    : 0x7c2d12;
+        : archetype === 'myconid'
+          ? 0x65a30d
+          : archetype === 'imp'
+            ? 0xf97316
+            : archetype === 'archer'
+              ? 0xe2e8f0
+              : archetype === 'shooter' || archetype === 'shade'
+                ? 0x7e22ce
+                : archetype === 'yeti'
+                  ? 0x38bdf8
+                  : archetype === 'bomber'
+                    ? 0xf59e0b
+                    : archetype === 'mortar_tank'
+                      ? 0x64748b
+                      : archetype === 'stampede'
+                        ? 0x92400e
+                        : archetype === 'boss'
+                          ? 0x991b1b
+                          : 0x7c2d12;
     d.fillStyle(color, 0.34);
     d.fillCircle(x, y + 6, archetype === 'boss' ? 28 : 13);
     d.fillCircle(x + 9, y + 2, 5);
@@ -1299,11 +1305,10 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       if (haz.type === 'spikes') {
-        const warning = haz.timer >= 2.0 && haz.timer < 2.55;
-        const active = haz.timer >= 2.55;
+        const active = isSpikeActive(haz.timer);
         spr
           .setPosition(haz.x, haz.y)
-          .setFrame(active ? 'spikes_2' : warning ? 'spikes_1' : 'spikes_0')
+          .setFrame(active ? 'spikes_2' : 'spikes_0')
           .setDisplaySize(haz.w, haz.h)
           .setDepth(5)
           .setVisible(true);
@@ -1485,7 +1490,7 @@ export class DungeonScene extends Phaser.Scene {
 
     for (const br of state.breakables) {
       activeIds.add(br.id);
-      const frame = br.kind === 'pillar' ? 'tile_065' : 'tile_063';
+      const frame = br.kind === 'chest' ? 'tile_091' : br.kind === 'pillar' ? 'tile_065' : 'tile_063';
       let spr = this.breakableSprites.get(br.id);
       if (!spr) {
         spr = this.add.image(br.x, br.y, 'dungeon', frame).setDisplaySize(CELL_SIZE, CELL_SIZE).setDepth(9);
@@ -1625,6 +1630,16 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
+  private drawSporeClouds(fxG: Phaser.GameObjects.Graphics, state: GameState): void {
+    for (const cloud of state.sporeClouds) {
+      const fade = Math.max(0, Math.min(1, cloud.ttl / Math.max(0.01, cloud.maxTtl)));
+      fxG.fillStyle(0x65a30d, 0.24 * fade);
+      fxG.fillCircle(cloud.x, cloud.y, cloud.radius);
+      fxG.lineStyle(2, 0xa3e635, 0.55 * fade);
+      fxG.strokeCircle(cloud.x, cloud.y, cloud.radius * (0.86 + 0.14 * Math.sin(state.elapsedTime * 5 + cloud.id)));
+    }
+  }
+
   private syncDelayedBlasts(teleG: Phaser.GameObjects.Graphics, state: GameState): void {
     for (let i = 0; i < this.blastPool.length; i += 1) {
       const spr = this.blastPool[i];
@@ -1640,7 +1655,9 @@ export class DungeonScene extends Phaser.Scene {
         ? 0xfb923c
         : blast.kind === 'ice_mortar'
           ? 0x67e8f9
-          : 0xef4444;
+          : blast.kind === 'spore_pod'
+            ? 0x84cc16
+            : 0xef4444;
       teleG.fillStyle(stroke, blast.friendly ? 0.15 : 0.22);
       teleG.fillCircle(blast.x, blast.y, blast.radius);
       teleG.lineStyle(2, stroke, 1);
@@ -1653,6 +1670,15 @@ export class DungeonScene extends Phaser.Scene {
           .setPosition(blast.x, blast.y)
           .setAlpha(1)
           .clearTint()
+          .setVisible(true);
+      } else if (blast.kind === 'spore_pod') {
+        spr
+          .setTexture('dungeon', 'orb_enemy_0')
+          .setScale(2.1 + 0.35 * Math.sin(progress * Math.PI))
+          .setPosition(blast.x, blast.y)
+          .setAlpha(0.95)
+          .setTint(0x84cc16)
+          .setTintMode(Phaser.TintModes.MULTIPLY)
           .setVisible(true);
       } else if (blast.kind === 'barrel_blast') {
         const swell = CELL_SIZE * (1 + 0.26 * progress);
@@ -1736,17 +1762,16 @@ export class DungeonScene extends Phaser.Scene {
 
     for (const enemy of state.enemies) {
       activeIds.add(enemy.id);
+      const effectiveArch = enemy.archetype === 'boss' && enemy.bossBase ? enemy.bossBase : enemy.archetype;
       let spr = this.enemySprites.get(enemy.id);
       if (!spr) {
-        const startAsset = this.getEnemyAsset(enemy.archetype);
+        const startAsset = this.getEnemyAsset(effectiveArch);
         spr = this.add.sprite(enemy.x, enemy.y, startAsset.texture, startAsset.frame).setDepth(10);
         this.enemySprites.set(enemy.id, spr);
       }
 
       if (hideEnemies) {
         spr.setVisible(false);
-        const oldShield = this.wardenShields.get(enemy.id);
-        oldShield?.setVisible(false);
         continue;
       }
 
@@ -1761,7 +1786,7 @@ export class DungeonScene extends Phaser.Scene {
         }
       }
 
-      const scale = this.getEnemyScale(enemy.archetype) * popMult;
+      const scale = this.getEnemyScale(enemy) * popMult;
       const isBossLeapTelegraph =
         enemy.archetype === 'boss' &&
         enemy.attackKind === 'boss_leap' &&
@@ -1821,51 +1846,37 @@ export class DungeonScene extends Phaser.Scene {
         spr.play(animKey, true);
       } else {
         spr.anims.timeScale = 1;
-        const asset = this.getEnemyAsset(enemy.archetype);
+        const asset = this.getEnemyAsset(effectiveArch);
         spr.stop();
         spr.setTexture(asset.texture, asset.frame);
       }
 
       if (enemy.hitFlashTimer > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-      } else if (enemy.archetype === 'shade') {
+      } else if (effectiveArch === 'shade') {
         spr
           .setTint(enemy.state === 'telegraph' ? 0xc084fc : 0xe9d5ff)
           .setTintMode(Phaser.TintModes.MULTIPLY);
-      } else if (enemy.archetype === 'stampede' && (enemy.state === 'telegraph' || enemy.state === 'attack')) {
+      } else if (effectiveArch === 'myconid') {
+        spr
+          .setTint(enemy.state === 'telegraph' ? 0xa3e635 : 0xbef264)
+          .setTintMode(Phaser.TintModes.MULTIPLY);
+      } else if (effectiveArch === 'imp') {
+        spr
+          .setTint(enemy.state === 'telegraph' ? 0xfb923c : 0xfca5a5)
+          .setTintMode(Phaser.TintModes.MULTIPLY);
+      } else if (effectiveArch === 'archer') {
+        spr.setTint(0xf1f5f9).setTintMode(Phaser.TintModes.MULTIPLY);
+      } else if (effectiveArch === 'stampede' && (enemy.state === 'telegraph' || enemy.state === 'attack')) {
         spr.setTint(0xfca5a5).setTintMode(Phaser.TintModes.MULTIPLY);
-      } else if (enemy.archetype === 'bomber' && enemy.state === 'telegraph') {
+      } else if (effectiveArch === 'bomber' && enemy.state === 'telegraph') {
         spr.setTint(0xfdba74).setTintMode(Phaser.TintModes.MULTIPLY);
       } else {
         spr.clearTint();
       }
 
-      // Floating shield icon on armored foes while armor > 0
-      if (enemy.armor > 0) {
-        let shield = this.wardenShields.get(enemy.id);
-        if (!shield) {
-          shield = this.add.image(enemy.x, enemy.y, 'dungeon', 'tile_102').setScale(2.0).setDepth(11);
-          this.wardenShields.set(enemy.id, shield);
-        }
-        const side = state.player.x < enemy.x ? -1 : 1;
-        shield.setPosition(enemy.x + side * 22, enemy.y + 4).setVisible(true);
-      } else {
-        const oldShield = this.wardenShields.get(enemy.id);
-        if (oldShield) {
-          oldShield.destroy();
-          this.wardenShields.delete(enemy.id);
-        }
-      }
-
       if (enemy.state === 'staggered') {
         this.nextLabel(enemy.x, enemy.y - enemy.radius - 18, '✦ STUNNED ✦', '#fde047', 16);
-      } else if (enemy.archetype !== 'boss' && enemy.hp < enemy.maxHp) {
-        const bw = enemy.radius * 2.1;
-        const ratio = Math.max(0, enemy.hp / enemy.maxHp);
-        fxG.fillStyle(0x1d1520, 0.92);
-        fxG.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 14, bw, 5);
-        fxG.fillStyle(enemy.armor > 0 ? 0xf5b82e : 0xe23c3c, 1);
-        fxG.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 14, bw * ratio, 5);
       }
     }
 
@@ -1873,11 +1884,6 @@ export class DungeonScene extends Phaser.Scene {
       if (!activeIds.has(id)) {
         spr.destroy();
         this.enemySprites.delete(id);
-        const sh = this.wardenShields.get(id);
-        if (sh) {
-          sh.destroy();
-          this.wardenShields.delete(id);
-        }
       }
     }
   }
@@ -1907,54 +1913,83 @@ export class DungeonScene extends Phaser.Scene {
         return { texture: 'battle', frame: 152 };
       case 'stampede':
         return { texture: 'farm', frame: 121 };
+      case 'myconid':
+        return { texture: 'dungeon', frame: 'tile_108' };
+      case 'imp':
+        return { texture: 'dungeon', frame: 'tile_120' };
+      case 'archer':
+        return { texture: 'dungeon', frame: 'tile_098' };
     }
   }
 
-  private getEnemyScale(archetype: EnemyArchetype): number {
-    switch (archetype) {
+  private getEnemyScale(enemy: EnemyEntity): number {
+    const baseArch = enemy.archetype === 'boss' && enemy.bossBase ? enemy.bossBase : enemy.archetype;
+    let baseScale: number;
+    switch (baseArch) {
       case 'chaser':
-        return 2.6;
+        baseScale = 2.6;
+        break;
       case 'shooter':
       case 'shade':
       case 'bomber':
-        return 2.7;
+      case 'myconid':
+        baseScale = 2.7;
+        break;
+      case 'imp':
+        baseScale = 2.55;
+        break;
+      case 'archer':
+        baseScale = 2.75;
+        break;
       case 'charger':
       case 'yeti':
       case 'mortar_tank':
-        return 3.0;
+        baseScale = 3.0;
+        break;
       case 'stampede':
-        return 2.9;
+        baseScale = 2.9;
+        break;
       case 'elite_charger':
-        return 2.85;
+        baseScale = 2.85;
+        break;
       case 'boss':
         return 4.35;
     }
+    return enemy.archetype === 'boss' ? Math.min(4.6, baseScale * 1.48) : baseScale;
   }
 
   private pickEnemyAnim(enemy: EnemyEntity): string | null {
-    if (enemy.archetype === 'chaser') {
+    const arch = enemy.archetype === 'boss' && enemy.bossBase ? enemy.bossBase : enemy.archetype;
+    if (arch === 'chaser') {
       if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'slime_telegraph';
       return enemy.state === 'chase' ? 'slime_run' : 'slime_idle';
     }
-    if (enemy.archetype === 'shooter') {
+    if (arch === 'shooter') {
       if (enemy.state === 'telegraph') return 'wizard_cast';
       return enemy.state === 'chase' ? 'wizard_run' : 'wizard_idle';
     }
-    if (enemy.archetype === 'charger') {
+    if (arch === 'charger') {
       if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'cyclops_charge';
       return enemy.state === 'chase' ? 'cyclops_run' : 'cyclops_idle';
     }
-    if (enemy.archetype === 'elite_charger') {
+    if (arch === 'elite_charger') {
       if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'warden_charge';
       return enemy.state === 'chase' ? 'warden_run' : 'warden_idle';
     }
-    if (enemy.archetype === 'yeti') {
+    if (arch === 'yeti') {
       return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'yeti_cast' : 'yeti_walk';
     }
-    if (enemy.archetype === 'mortar_tank') {
+    if (arch === 'mortar_tank') {
       return enemy.state === 'telegraph' || enemy.state === 'attack' ? 'tank_fire' : 'tank_roll';
     }
-    if (enemy.archetype === 'shade' || enemy.archetype === 'bomber' || enemy.archetype === 'stampede') {
+    if (
+      arch === 'shade' ||
+      arch === 'bomber' ||
+      arch === 'stampede' ||
+      arch === 'myconid' ||
+      arch === 'imp' ||
+      arch === 'archer'
+    ) {
       return null;
     }
     if (enemy.attackKind === 'boss_leap') {
@@ -2277,6 +2312,26 @@ export class DungeonScene extends Phaser.Scene {
         fxG.fillCircle(proj.x, proj.y, proj.radius * 0.6);
         continue;
       }
+      if (proj.kind === 'arrow') {
+        const cos = Math.cos(proj.angle);
+        const sin = Math.sin(proj.angle);
+        const tx = proj.x - cos * 16;
+        const ty = proj.y - sin * 16;
+        fxG.lineStyle(3, 0x92400e, 1);
+        fxG.lineBetween(tx, ty, proj.x, proj.y);
+        fxG.fillStyle(0xf8fafc, 1);
+        fxG.fillCircle(proj.x + cos * 2, proj.y + sin * 2, 3.2);
+        continue;
+      }
+      if (proj.kind === 'ember') {
+        const tx = proj.x - Math.cos(proj.angle) * 14;
+        const ty = proj.y - Math.sin(proj.angle) * 14;
+        fxG.lineStyle(6, 0xf97316, 0.65);
+        fxG.lineBetween(tx, ty, proj.x, proj.y);
+        fxG.fillStyle(0xfef08a, 1);
+        fxG.fillCircle(proj.x, proj.y, Math.max(3, proj.radius * 0.65));
+        continue;
+      }
       if (proj.kind === 'rift_wave') {
         fxG.lineStyle(7, 0x38bdf8, 1);
         fxG.beginPath();
@@ -2458,10 +2513,12 @@ export class DungeonScene extends Phaser.Scene {
     if (state.onboardingTimer <= 0 || state.roomIndex !== 1 || state.phase !== 'playing') return;
     const alpha = Math.min(1, state.onboardingTimer / 0.8);
     const p = state.player;
-    const boxW = 340;
-    const boxH = 34;
+    const measuredW = this.onboardingText?.width ?? 0;
+    const measuredH = this.onboardingText?.height ?? 0;
+    const boxW = Math.min(PLAY_MAX_X - PLAY_MIN_X - 16, Math.max(360, Math.ceil(measuredW + 32)));
+    const boxH = Math.max(36, Math.ceil(measuredH + 16));
     const bx = Math.max(PLAY_MIN_X + 8, Math.min(PLAY_MAX_X - boxW - 8, p.x - boxW / 2));
-    const by = Math.min(PLAY_MAX_Y - 38, p.y + 26);
+    const by = Math.min(PLAY_MAX_Y - boxH - 4, p.y + 26);
 
     g.fillStyle(0x1d1520, 0.94 * alpha);
     g.fillRect(bx, by, boxW, boxH);

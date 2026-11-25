@@ -202,6 +202,9 @@ export const ENTITY_LABELS = {
     bomber: 'Alley Sapper',
     mortar_tank: 'Iron Tank',
     stampede: 'Stampede Bull',
+    myconid: 'Spore Myconid',
+    imp: 'Ember Imp',
+    archer: 'Bone Archer',
   } satisfies Record<EnemyArchetype, string>,
   rooms: {
     warmup: 'Floor Entrance',
