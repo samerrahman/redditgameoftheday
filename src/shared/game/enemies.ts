@@ -20,7 +20,10 @@ export type EnemyAttackKind =
   | 'ice_mortar'
   | 'drop_bomb'
   | 'tank_burst'
-  | 'ricochet_charge';
+  | 'ricochet_charge'
+  | 'spore_burst'
+  | 'imp_dart'
+  | 'shoot_arrow';
 
 export type EnemyEntity = {
   id: number;
@@ -106,9 +109,9 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     telegraphDuration: 0.62,
   },
   elite_charger: {
-    baseHp: 215,
+    baseHp: 250,
     radius: 20,
-    armor: 3,
+    armor: 0,
     speed: 118,
     damage: 22,
     coinDrop: 6,
@@ -157,9 +160,9 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     telegraphDuration: 0.42,
   },
   mortar_tank: {
-    baseHp: 115,
+    baseHp: 135,
     radius: 20,
-    armor: 2,
+    armor: 0,
     speed: 78,
     damage: 14,
     coinDrop: 3,
@@ -176,7 +179,39 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     spawnTime: 0.55,
     telegraphDuration: 0.55,
   },
+  myconid: {
+    baseHp: 58,
+    radius: 15,
+    armor: 0,
+    speed: 112,
+    damage: 12,
+    coinDrop: 2,
+    spawnTime: 0.55,
+    telegraphDuration: 0.56,
+  },
+  imp: {
+    baseHp: 38,
+    radius: 14,
+    armor: 0,
+    speed: 162,
+    damage: 12,
+    coinDrop: 2,
+    spawnTime: 0.55,
+    telegraphDuration: 0.42,
+  },
+  archer: {
+    baseHp: 44,
+    radius: 15,
+    armor: 0,
+    speed: 116,
+    damage: 14,
+    coinDrop: 2,
+    spawnTime: 0.55,
+    telegraphDuration: 0.52,
+  },
 };
+
+export const ALL_ENEMY_ARCHETYPES = Object.keys(ENEMY_SPECS) as readonly EnemyArchetype[];
 
 export function createEnemy(
   id: number,

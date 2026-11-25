@@ -13,7 +13,7 @@ import {
   PLAY_MIN_X,
   PLAY_MIN_Y,
 } from '../shared/game/constants.ts';
-import { createEnemy } from '../shared/game/enemies.ts';
+import { ALL_ENEMY_ARCHETYPES, createEnemy } from '../shared/game/enemies.ts';
 import {
   BIOME_SIGNATURE_ENEMY,
   buildDailyDungeonMap,
@@ -27,7 +27,11 @@ import {
   LAYOUT_ROWS,
   oppositeDirection,
 } from '../shared/game/rooms.ts';
-import { GameSimulation } from '../shared/game/simulation.ts';
+import {
+  GameSimulation,
+  SPIKE_ACTIVE_THRESHOLD,
+  SPIKE_CYCLE_SEC,
+} from '../shared/game/simulation.ts';
 import {
   BUILD_ID,
   ENFORCE_SINGLE_DAILY_RUN,
@@ -322,7 +326,7 @@ void describe('Simple WASD + 1-Button Manual Attack Combat', () => {
     assert.ok(Math.abs(sim.state.player.vy) <= PLAYER_SPEED + 1);
   });
 
-  void it('swings manually in facing/aim direction, knocks back foes, and chips Warden armor in 3 hits', () => {
+  void it('swings manually in facing/aim direction, knocks back Warden, and deals direct HP damage without armor', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);
     sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
@@ -335,29 +339,38 @@ void describe('Simple WASD + 1-Button Manual Attack Combat', () => {
     sim.state.enemies = [elite];
     sim.state.totalWaves = 1;
 
-    // 1st manual swing upward -> chips 1 armor plate (3 -> 2)
+    assert.equal(elite.armor, 0);
+    assert.equal(elite.maxArmor, 0);
+    assert.ok(elite.maxHp >= 240, `expected chunky Warden HP >= 240, got ${elite.maxHp}`);
+
+    const hpBefore = elite.hp;
+    const yBefore = elite.y;
+
+    // 1st manual swing upward deals full direct HP damage and applies upward knockback
     sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
     assert.equal(sim.state.player.swingCount, 1);
     assert.ok(sim.state.player.attackCooldown > 0);
-    assert.equal(elite.armor, 2);
-    assert.ok(elite.hp < elite.maxHp);
+    assert.equal(elite.armor, 0);
+    const firstSwingDmg = hpBefore - elite.hp;
+    assert.ok(firstSwingDmg > 0, 'Warden should take immediate direct HP damage');
+    assert.ok(elite.vy < 0, 'upward swing should knock Warden upward');
+    // Only the War Hammer (or the very rare Concussion relic) stuns.
+    assert.notEqual(elite.state, 'staggered');
+    assert.ok(sim.state.hitstopTimer > 0);
 
-    // Wait out cooldown + bring elite back in range, then 2nd and 3rd swings
+    // Knockback pushes Warden back over subsequent frames
+    stepFrames(sim, 6, () => idleInput());
+    assert.ok(elite.y < yBefore, 'knockback should visibly push Warden away');
+
+    // Wait out cooldown, bring Warden back in range, and confirm identical unmitigated damage on swing 2
     const cdFrames = Math.ceil((ATTACK_CD * sim.state.modifier.attackCdMult) / FIXED_DT) + 2;
     stepFrames(sim, cdFrames, () => idleInput());
     elite.x = 480;
     elite.y = 275;
-    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
-    assert.equal(elite.armor, 1);
-
-    stepFrames(sim, cdFrames, () => idleInput());
-    elite.x = 480;
-    elite.y = 275;
+    const hpBeforeSecond = elite.hp;
     sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
     assert.equal(elite.armor, 0);
-    // Only the War Hammer (or the very rare Concussion relic) stuns.
-    assert.notEqual(elite.state, 'staggered');
-    assert.ok(sim.state.hitstopTimer > 0);
+    assert.equal(hpBeforeSecond - elite.hp, firstSwingDmg, 'unarmored Warden takes consistent full swing damage');
   });
 
   void it('enforces endlag slowdown and blocks hold-to-spamming past cooldown', () => {
@@ -1047,7 +1060,7 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     }
   });
 
-  void it('ships 15 animated pixel-art monster sets + chest & mimic wake (185 frames) in monsters_atlas.json', () => {
+  void it('ships 15 animated pixel-art monster sets, chest/mimic wake & projectile FX (191 frames) in monsters_atlas.json', () => {
     const pngBuf = readFileSync(new URL('../../public/assets/dungeon/monsters_atlas.png', import.meta.url));
     assert.equal(pngBuf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     const pngW = pngBuf.readUInt32BE(16);
@@ -1068,7 +1081,11 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     const framesObj = raw.frames;
     assert.ok(typeof framesObj === 'object' && framesObj !== null);
     const frameEntries = Object.entries(framesObj);
-    assert.equal(frameEntries.length, 185, 'expected 15 monsters x 12 frames + chest_closed + mimic_wake_0..3 = 185 frames');
+    assert.equal(
+      frameEntries.length,
+      191,
+      'expected 15 monsters x 12 frames + chest_closed + mimic_wake_0..3 + arrow/ember/spore FX = 191 frames',
+    );
     const frameMap = new Map(frameEntries);
 
     type Rect = { x: number; y: number; w: number; h: number };
@@ -1123,6 +1140,11 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
     expectFrame('chest_closed', 16, 16);
     for (let i = 0; i < 4; i += 1) {
       expectFrame(`mimic_wake_${i}`, 16, 16);
+    }
+    for (let i = 0; i < 2; i += 1) {
+      expectFrame(`arrow_${i}`, 12, 5);
+      expectFrame(`ember_dart_${i}`, 10, 6);
+      expectFrame(`spore_puff_${i}`, 12, 12);
     }
 
     for (let i = 0; i < rects.length; i += 1) {
@@ -1234,6 +1256,9 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       'bomber',
       'mortar_tank',
       'stampede',
+      'myconid',
+      'imp',
+      'archer',
     ] as const;
 
     for (let i = 0; i < 200; i += 1) {
@@ -1247,7 +1272,7 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       const e = createEnemy(10_000 + i, arch, sim.state.player.x, sim.state.player.y - 36, 1, 1, 1, 1);
       e.spawnShieldTimer = 0;
       e.hp = 1;
-      e.armor = 0;
+      assert.equal(e.armor, 0, `${arch} should spawn without armor`);
       assert.ok(e.coinDrop <= (arch === 'elite_charger' ? 6 : 3), `unexpected coinDrop for ${arch}: ${e.coinDrop}`);
       sim.state.enemies = [e];
       sim.state.player.attackCooldown = 0;
@@ -1289,12 +1314,18 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(getBiomeIdForFloor(6, date), getBiomeIdForFloor(1, date));
 
     const hazard = getDailyHazard(date);
-    // Floor 1 uses only classic monsters (plus the boss); themed specials start on floor 2.
+    // Floor 1 uses only classic monsters (plus the boss); biome specials start on floor 2.
     const floor1 = buildDailyDungeonMap(date, 1, hazard);
     const floor1Types = new Set(floor1.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
     for (const t of floor1Types) {
-      assert.ok(['chaser', 'shooter', 'charger', 'elite_charger', 'boss'].includes(t), `floor 1 spawned special monster ${t}`);
+      assert.ok(
+        ['chaser', 'shooter', 'charger', 'elite_charger', 'boss', 'myconid', 'imp', 'archer'].includes(t),
+        `floor 1 spawned biome special monster ${t}`,
+      );
     }
+    assert.equal(floor1Types.has('myconid'), true, 'floor 1 should naturally feature myconid');
+    assert.equal(floor1Types.has('imp'), true, 'floor 1 should naturally feature imp');
+    assert.equal(floor1Types.has('archer'), true, 'floor 1 should naturally feature archer');
     for (let floor = 2; floor <= 6; floor += 1) {
       if (getBiomeIdForFloor(floor, date) === 'dungeon') continue; // floor 6 = dungeon again
       const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, date)];
@@ -1615,7 +1646,7 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     // Barrel explosion spawns stave debris upon detonation
     sim.state.debris = [];
     sim.state.hazards = [
-      { id: 9901, type: 'barrels', x: sim.state.player.x, y: sim.state.player.y - 36, w: 56, h: 56, dirX: 0, dirY: 0, timer: 0, hp: 20, destroyed: false },
+      { id: 9901, type: 'barrels', x: sim.state.player.x, y: sim.state.player.y - 36, w: 56, h: 56, dirX: 0, dirY: 0, timer: 0, active: false, hp: 20, destroyed: false },
     ];
     sim.state.player.iFramesTimer = 999;
     sim.state.player.attackCooldown = 0;
@@ -1865,6 +1896,7 @@ void describe('Explosive barrels react to monster attacks', () => {
     dirX: 0,
     dirY: 0,
     timer: 0,
+    active: false,
     hp: 20,
     destroyed: false,
   });
@@ -1918,5 +1950,199 @@ void describe('Explosive barrels react to monster attacks', () => {
     assert.equal(sim.state.hazards[0]!.destroyed, true, 'first barrel hit by the bullet');
     assert.equal(sim.state.hazards[1]!.destroyed, true, 'neighbour chain-reacts');
     assert.equal(sim.state.hazards[2]!.destroyed, false, 'distant barrel untouched');
+  });
+});
+
+void describe('Promoted Archetypes (Myconid, Imp, Archer), Zero Enemy Armor & Binary Spikes', () => {
+  const setupArenaWith = (
+    arch: 'myconid' | 'imp' | 'archer',
+    x: number,
+    y: number,
+    playerX = ARENA_W / 2,
+    playerY = ARENA_H - 96,
+  ): GameSimulation => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.obstacles = [];
+    sim.state.hazards = [];
+    sim.state.breakables = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.x = playerX;
+    sim.state.player.y = playerY;
+    sim.state.player.iFramesTimer = 999;
+    const foe = createEnemy(8101, arch, x, y, 1, 1, 1, 1);
+    foe.spawnShieldTimer = 0;
+    foe.state = 'chase';
+    foe.stateTimer = 0;
+    sim.state.enemies = [foe];
+    return sim;
+  };
+
+  void it('spawns every enemy archetype with zero armor and chunky miniboss HP', () => {
+    assert.equal(ALL_ENEMY_ARCHETYPES.length, 13);
+    for (const arch of ALL_ENEMY_ARCHETYPES) {
+      const foe = createEnemy(1, arch, 240, 200, 1, 1, 1, 1);
+      assert.equal(foe.armor, 0, `${arch} must spawn with armor === 0`);
+      assert.equal(foe.maxArmor, 0, `${arch} must spawn with maxArmor === 0`);
+    }
+    const warden = createEnemy(2, 'elite_charger', 240, 200, 1, 1, 1, 1);
+    const tank = createEnemy(3, 'mortar_tank', 240, 200, 1, 1, 1, 1);
+    assert.ok(warden.maxHp >= 240, `Warden baseHp should be bumped >= 240, got ${warden.maxHp}`);
+    assert.ok(tank.maxHp >= 130, `Mortar Tank baseHp should be bumped >= 130, got ${tank.maxHp}`);
+  });
+
+  void it('Myconid telegraphs spore_burst, emits a lingering spore cloud, and damages overlapping hero', () => {
+    const sim = setupArenaWith('myconid', ARENA_W / 2, ARENA_H - 180, ARENA_W / 2, ARENA_H - 96);
+    const myc = sim.state.enemies[0]!;
+
+    let sawSporeTelegraph = false;
+    for (let i = 0; i < 60 && sim.state.sporeClouds.length === 0; i += 1) {
+      sim.step(idleInput());
+      if (myc.state === 'telegraph' && myc.attackKind === 'spore_burst') {
+        sawSporeTelegraph = true;
+      }
+    }
+    assert.equal(sawSporeTelegraph, true, 'Myconid should telegraph attackKind === spore_burst');
+    assert.equal(sim.state.sporeClouds.length, 1, 'Myconid should emit a lingering spore cloud');
+    const cloud = sim.state.sporeClouds[0]!;
+    assert.ok(cloud.id > 0 && cloud.radius >= 50 && cloud.ttl > 0 && cloud.maxTtl === 2.6 && cloud.damage > 0);
+
+    // Move hero into the spore cloud with zero iFrames and confirm damage
+    sim.state.player.iFramesTimer = 0;
+    sim.state.player.hp = sim.state.player.maxHp;
+    sim.state.player.x = cloud.x;
+    sim.state.player.y = cloud.y;
+    sim.step(idleInput());
+    assert.ok(sim.state.player.hp < sim.state.player.maxHp, 'standing inside spore cloud should damage the player');
+
+    // Step past maxTtl to verify expiration
+    sim.state.player.iFramesTimer = 999;
+    sim.state.enemies = [];
+    sim.state.totalWaves = 5;
+    sim.state.waveIndex = 0;
+    stepFrames(sim, Math.ceil(cloud.maxTtl / FIXED_DT) + 4, () => idleInput());
+    assert.equal(sim.state.sporeClouds.length, 0, 'spore cloud should expire cleanly after ttl');
+  });
+
+  void it('Imp fires distinct ember dart projectiles and performs a diagonal flank hop', () => {
+    const sim = setupArenaWith('imp', ARENA_W / 2, 160, ARENA_W / 2, 330);
+    const imp = sim.state.enemies[0]!;
+
+    let sawImpTelegraph = false;
+    let sawEmberDart = false;
+    let hopStartX = imp.x;
+    let hopStartY = imp.y;
+    let capturedHopStart = false;
+
+    for (let i = 0; i < 65; i += 1) {
+      sim.step(idleInput());
+      if (imp.state === 'telegraph' && imp.attackKind === 'imp_dart') {
+        sawImpTelegraph = true;
+      }
+      const ember = sim.state.projectiles.find((pr) => !pr.friendly && pr.kind === 'ember');
+      if (ember) {
+        sawEmberDart = true;
+        assert.ok(Math.hypot(ember.vx, ember.vy) >= 380, 'ember dart should be fast');
+        if (!capturedHopStart) {
+          hopStartX = imp.x;
+          hopStartY = imp.y;
+          capturedHopStart = true;
+        }
+      }
+    }
+
+    assert.equal(sawImpTelegraph, true, 'Imp should telegraph attackKind === imp_dart');
+    assert.equal(sawEmberDart, true, 'Imp should fire kind === ember dart projectile');
+    const lateralShift = Math.abs(imp.x - hopStartX);
+    const totalHopDist = Math.hypot(imp.x - hopStartX, imp.y - hopStartY);
+    assert.ok(lateralShift >= 20 && totalHopDist >= 30, `Imp should flank hop sideways (dx=${lateralShift.toFixed(1)}, d=${totalHopDist.toFixed(1)})`);
+  });
+
+  void it('Archer fires fast narrow arrow projectiles aligned with aimAngle and mirror_guard rotates reflected arrows', () => {
+    const sim = setupArenaWith('archer', ARENA_W / 2, 120, ARENA_W / 2, 360);
+    const archer = sim.state.enemies[0]!;
+
+    let sawArrowTelegraph = false;
+    let arrowProj = sim.state.projectiles.find((pr) => !pr.friendly && pr.kind === 'arrow');
+    for (let i = 0; i < 65 && !arrowProj; i += 1) {
+      sim.step(idleInput());
+      if (archer.state === 'telegraph' && archer.attackKind === 'shoot_arrow') {
+        sawArrowTelegraph = true;
+      }
+      arrowProj = sim.state.projectiles.find((pr) => !pr.friendly && pr.kind === 'arrow');
+    }
+
+    assert.equal(sawArrowTelegraph, true, 'Archer should telegraph attackKind === shoot_arrow');
+    assert.ok(arrowProj, 'Archer must fire a kind === arrow projectile');
+    const speed = Math.hypot(arrowProj.vx, arrowProj.vy);
+    assert.ok(speed >= 480, `arrow should be fast (got ${speed})`);
+    assert.ok(arrowProj.radius <= 6, `arrow should have narrow hitbox (got ${arrowProj.radius})`);
+    const velAngle = Math.atan2(arrowProj.vy, arrowProj.vx);
+    assert.ok(Math.abs(arrowProj.angle - velAngle) < 0.01, 'arrow angle must match its flight velocity');
+
+    // Reflect with mirror_guard and confirm reflected arrow rotates along its new velocity
+    sim.state.player.relics = { mirror_guard: 1 };
+    arrowProj.x = sim.state.player.x;
+    arrowProj.y = sim.state.player.y - 42;
+    sim.state.player.attackCooldown = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+    assert.equal(arrowProj.friendly, true, 'mirror_guard should reflect enemy arrow');
+    assert.ok(
+      Math.abs(arrowProj.angle - Math.atan2(arrowProj.vy, arrowProj.vx)) < 0.01,
+      'reflected arrow angle should match new reflected flight direction',
+    );
+  });
+
+  void it('runs spikes with strict binary OFF/ON behavior and zero ambiguous half-active damage window', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.obstacles = [];
+    sim.state.enemies = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.x = 300;
+    sim.state.player.y = 220;
+    sim.state.player.iFramesTimer = 0;
+    sim.state.player.hp = sim.state.player.maxHp;
+
+    // Start inside the old 2.0..2.55 window; spikes must be cleanly OFF and safe.
+    const spike = {
+      id: 7701,
+      type: 'spikes' as const,
+      x: 300,
+      y: 220,
+      w: CELL_SIZE,
+      h: CELL_SIZE,
+      dirX: 0,
+      dirY: 0,
+      timer: 2.05,
+      active: false,
+      hp: 20,
+      destroyed: false,
+    };
+    sim.state.hazards = [spike];
+
+    while (spike.timer + FIXED_DT < SPIKE_ACTIVE_THRESHOLD) {
+      sim.step(idleInput());
+      assert.equal(spike.active, false, `spike must stay OFF at t=${spike.timer.toFixed(3)}`);
+      assert.equal(sim.state.player.hp, sim.state.player.maxHp, 'OFF spikes must deal zero damage');
+    }
+
+    // Crossing SPIKE_ACTIVE_THRESHOLD flips spike ON and immediately damages overlapping player
+    sim.step(idleInput());
+    assert.equal(spike.active, true, 'spike must flip cleanly ON at threshold');
+    assert.ok(sim.state.player.hp < sim.state.player.maxHp, 'ON spikes must damage player');
+
+    // Step across cycle wrap back to OFF and confirm safe again
+    const hpAfterHit = sim.state.player.hp;
+    const framesToWrap = Math.ceil((SPIKE_CYCLE_SEC - spike.timer) / FIXED_DT) + 2;
+    sim.state.player.iFramesTimer = 99;
+    stepFrames(sim, framesToWrap, () => idleInput());
+    assert.equal(spike.active, false, 'spike must flip cleanly OFF after cycle wrap');
+    sim.state.player.iFramesTimer = 0;
+    stepFrames(sim, 10, () => idleInput());
+    assert.equal(spike.active, false);
+    assert.equal(sim.state.player.hp, hpAfterHit, 'wrapped OFF spikes must deal zero damage');
   });
 });

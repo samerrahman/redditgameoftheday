@@ -206,6 +206,9 @@ export type EnemyArchetype =
   | 'yeti'
   | 'bomber'
   | 'mortar_tank'
-  | 'stampede';
+  | 'stampede'
+  | 'myconid'
+  | 'imp'
+  | 'archer';
 
 export type RoomType = 'warmup' | 'escalation' | 'elite' | 'gauntlet' | 'boss' | 'endless';

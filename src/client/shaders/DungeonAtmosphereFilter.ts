@@ -69,11 +69,10 @@ void main ()
     lightAccum += accumLight(puv, cell, uLightPos4, uLightCol4);
     lightAccum += accumLight(puv, cell, uLightPos5, uLightCol5);
 
-    vec3 lit = base.rgb * clamp(uAmbientColor + lightAccum, uAmbientColor, vec3(1.32));
-    lit += lightAccum * (0.045 + base.rgb * 0.08);
+    vec3 lit = base.rgb * clamp(uAmbientColor + lightAccum, uAmbientColor, vec3(1.14));
+    lit += lightAccum * (0.025 + base.rgb * 0.04);
 
-    // Colour grade: vivid, saturated look. Vibrance pushes muted colours harder than
-    // already-saturated ones so skin/whites don't blow out.
+    // Subtle Hearth & Slate colour grade (keeps palette true without neon oversaturation).
     float luma = dot(lit, vec3(0.299, 0.587, 0.114));
     float chroma = max(lit.r, max(lit.g, lit.b)) - min(lit.r, min(lit.g, lit.b));
     float satAmount = uGrade.x + uGrade.w * (1.0 - clamp(chroma * 2.0, 0.0, 1.0));
@@ -81,15 +80,15 @@ void main ()
     lit = (lit - 0.5) * uGrade.y + 0.5;
     lit = clamp(lit * uGrade.z, 0.0, 1.0);
 
-    // Pixel-snapped Bayer-dithered dungeon vignette around edges.
+    // Calm ink vignette framing the arena edges without muddying floor readability.
     vec2 vigDiff = (puv - vec2(0.5, 0.5)) * vec2(1.0, 0.92);
     float vigDist = length(vigDiff);
-    float vigFactor = clamp((vigDist - 0.34) / 0.44, 0.0, 1.0) * uVignetteColor.a;
+    float vigFactor = clamp((vigDist - 0.36) / 0.44, 0.0, 1.0) * uVignetteColor.a;
     float vigBayer = fract(dot(mod(cell, 2.0), vec2(0.5, 0.25)) + 0.125);
     float vigStep = floor(vigFactor * vigFactor * 6.0 + vigBayer) / 6.0;
-    lit = mix(lit, uVignetteColor.rgb, clamp(vigStep, 0.0, 0.5));
+    lit = mix(lit, uVignetteColor.rgb, clamp(vigStep, 0.0, 0.35));
 
-    lit = mix(lit, uFlashColor.rgb, clamp(uFlashColor.a, 0.0, 0.55));
+    lit = mix(lit, uFlashColor.rgb, clamp(uFlashColor.a, 0.0, 0.35));
     gl_FragColor = vec4(lit, base.a);
 }
 `.trim();
@@ -98,13 +97,13 @@ const EMPTY_LIGHT_POS: [number, number, number, number] = [0, 0, 0, 0];
 const EMPTY_LIGHT_COL: [number, number, number] = [0, 0, 0];
 
 export class DungeonAtmosphereController extends Phaser.Filters.Controller {
-  public ambientColor: [number, number, number] = [0.64, 0.6, 0.74];
-  public vignetteColor: [number, number, number] = [0.05, 0.03, 0.09];
-  public vignetteStrength = 0.58;
-  public flashColor: [number, number, number] = [1, 0.85, 0.6];
+  public ambientColor: [number, number, number] = [0.97, 0.96, 0.98];
+  public vignetteColor: [number, number, number] = [0.078, 0.075, 0.102];
+  public vignetteStrength = 0.16;
+  public flashColor: [number, number, number] = [0.95, 0.85, 0.55];
   public flashStrength = 0;
   /** saturation, contrast, brightness, vibrance */
-  public grade: [number, number, number, number] = [1.35, 1.08, 1.06, 0.35];
+  public grade: [number, number, number, number] = [1.02, 1.02, 1.0, 0.0];
 
   public readonly lights: Array<[number, number, number, number]> = Array.from(
     { length: 6 },

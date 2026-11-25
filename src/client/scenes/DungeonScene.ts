@@ -25,7 +25,6 @@ import {
   FxParticles,
   GOLD_PALETTE,
   HIT_REACT_TIME,
-  rgb01,
   WEAPON_PALETTES,
   type WeaponPalette,
 } from './juice.ts';
@@ -59,8 +58,8 @@ const MONSTER_SKIN_RATES = {
 
 type MonsterSkin = keyof typeof MONSTER_SKIN_RATES;
 
-const CHASER_SKINS: readonly MonsterSkin[] = ['slime', 'mimic', 'imp', 'myconid'];
-const SHOOTER_SKINS: readonly MonsterSkin[] = ['mage', 'archer'];
+const CHASER_SKINS: readonly MonsterSkin[] = ['slime', 'mimic'];
+const SHOOTER_SKINS: readonly MonsterSkin[] = ['mage'];
 const CHARGER_SKINS: readonly MonsterSkin[] = ['brute', 'golem'];
 
 function snapPx(value: number): number {
@@ -73,14 +72,14 @@ function drawPixelShadow(
   cy: number,
   halfW: number,
   halfH: number,
-  alpha = 0.42,
+  alpha = 0.36,
 ): void {
   const x = snapPx(cx);
   const y = snapPx(cy);
   const hw = Math.max(PIXEL_SCALE * 2, snapPx(halfW));
   const hh = Math.max(PIXEL_SCALE, snapPx(halfH));
   const inset = hw > PIXEL_SCALE * 3 ? PIXEL_SCALE : 0;
-  g.fillStyle(0x0b0710, alpha);
+  g.fillStyle(0x14131a, alpha);
   g.fillRect(x - hw + inset, y - hh, (hw - inset) * 2, hh * 2);
   if (inset > 0) {
     g.fillRect(x - hw, y - hh + PIXEL_SCALE, hw * 2, Math.max(PIXEL_SCALE, hh * 2 - PIXEL_SCALE * 2));
@@ -176,13 +175,13 @@ export class DungeonScene extends Phaser.Scene {
   private fountainBottom: Phaser.GameObjects.Image | null = null;
 
   private readonly enemySprites = new Map<number, Phaser.GameObjects.Sprite>();
-  private readonly wardenShields = new Map<number, Phaser.GameObjects.Image>();
   private readonly hazardSprites = new Map<number, Phaser.GameObjects.Image>();
   private readonly breakableSprites = new Map<number, Phaser.GameObjects.Image>();
   private readonly coinSprites = new Map<number, Phaser.GameObjects.Sprite>();
   private readonly gemSprites = new Map<number, Phaser.GameObjects.Sprite>();
   private readonly heartSprites = new Map<number, Phaser.GameObjects.Sprite>();
   private readonly projectileSprites = new Map<number, Phaser.GameObjects.Sprite>();
+  private readonly sporeCloudSprites = new Map<number, Phaser.GameObjects.Sprite[]>();
   private readonly pedestalSprites = new Map<number, ManagedPedestal>();
   private readonly portalSprites = new Map<string, ManagedPortal>();
 
@@ -260,7 +259,7 @@ export class DungeonScene extends Phaser.Scene {
     this.atmosphere = attachDungeonAtmosphere(this);
 
     const moteRng = createDailyStream(this.bridge.sim.state.utcDate, 'ambient-motes');
-    this.ambientMotes = Array.from({ length: 10 }, () => ({
+    this.ambientMotes = Array.from({ length: 6 }, () => ({
       x: PLAY_MIN_X + 16 + moteRng.next() * (PLAY_MAX_X - PLAY_MIN_X - 32),
       y: PLAY_MIN_Y + 16 + moteRng.next() * (PLAY_MAX_Y - PLAY_MIN_Y - 32),
       vx: (moteRng.next() - 0.5) * 14,
@@ -326,8 +325,8 @@ export class DungeonScene extends Phaser.Scene {
         fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
-        color: '#86efac',
-        stroke: '#1a121b',
+        color: '#96db6e',
+        stroke: '#14131a',
         strokeThickness: 5,
         resolution: 2,
       })
@@ -340,8 +339,8 @@ export class DungeonScene extends Phaser.Scene {
         fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
-        color: '#fff7e8',
-        stroke: '#1a121b',
+        color: '#f2efe4',
+        stroke: '#14131a',
         strokeThickness: 4,
         align: 'center',
         wordWrap: { width: ARENA_W - 140 },
@@ -356,8 +355,8 @@ export class DungeonScene extends Phaser.Scene {
         fontFamily: "'Pixelify Sans', system-ui, sans-serif",
         fontSize: '18px',
         fontStyle: 'bold',
-        color: '#fff7e8',
-        stroke: '#1a121b',
+        color: '#f2efe4',
+        stroke: '#14131a',
         strokeThickness: 4,
         resolution: 2,
       })
@@ -371,8 +370,8 @@ export class DungeonScene extends Phaser.Scene {
           fontFamily: "'Pixelify Sans', system-ui, sans-serif",
           fontSize: '19px',
           fontStyle: 'bold',
-          color: '#fff7e8',
-          stroke: '#1a121b',
+          color: '#f2efe4',
+          stroke: '#14131a',
           strokeThickness: 5,
           resolution: 2,
         })
@@ -501,6 +500,9 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     define('monster_mimic_wake', [0, 1, 2, 3].map((i) => `mimic_wake_${i}`), 8, 0, 'monsters');
+    define('arrow_fly', ['arrow_0', 'arrow_1'], 14, -1, 'monsters');
+    define('ember_dart_fly', ['ember_dart_0', 'ember_dart_1'], 14, -1, 'monsters');
+    define('spore_puff_drift', ['spore_puff_0', 'spore_puff_1'], 6, -1, 'monsters');
 
     define('coin_spin', ['coin_0', 'coin_1', 'coin_2', 'coin_3'], 10);
     define('gem_spin', ['gem_0', 'gem_1', 'gem_2', 'gem_3'], 8);
@@ -574,17 +576,10 @@ export class DungeonScene extends Phaser.Scene {
           const pickAlt = rng.next() < 0.05 ? 'tile_042' : rng.pick(floorFrames);
           const img = this.add
             .image(cx, cy, 'dungeon', pickAlt)
-            .setDisplaySize(tileSize + 1, tileSize + 1)
-            .setTint(theme.floorTint);
+            .setDisplaySize(tileSize + 1, tileSize + 1);
           container.add(img);
         }
       }
-      // Additive colour wash: tinting dark tiles can only darken them, so add a
-      // soft layer of the theme colour on top to make the floor glow with colour.
-      const wash = this.add
-        .rectangle(ARENA_W / 2, ARENA_H / 2, ARENA_W, ARENA_H, theme.floorTint, 0.2)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      container.add(wash);
     }
 
     for (let r = 0; r < rows - 1; r += 1) {
@@ -632,9 +627,9 @@ export class DungeonScene extends Phaser.Scene {
 
     // Subtle inner wall shadow framing the playable floor
     const borderShadow = this.add.graphics();
-    borderShadow.fillStyle(0x000000, 0.28);
+    borderShadow.fillStyle(0x14131a, 0.24);
     borderShadow.fillRect(PLAY_MIN_X, PLAY_MIN_Y, PLAY_MAX_X - PLAY_MIN_X, 12);
-    borderShadow.fillStyle(0x000000, 0.16);
+    borderShadow.fillStyle(0x14131a, 0.14);
     borderShadow.fillRect(PLAY_MIN_X, PLAY_MIN_Y, 8, PLAY_MAX_Y - PLAY_MIN_Y);
     borderShadow.fillRect(PLAY_MAX_X - 8, PLAY_MIN_Y, 8, PLAY_MAX_Y - PLAY_MIN_Y);
     container.add(borderShadow);
@@ -953,7 +948,7 @@ export class DungeonScene extends Phaser.Scene {
         this.builtRoomKey = this.pendingPortalKey;
         this.pendingPortalSwap = false;
       }
-      tG?.fillStyle(0x120d14, 0.85 * Math.sin(progress * Math.PI));
+      tG?.fillStyle(0x14131a, 0.85 * Math.sin(progress * Math.PI));
       tG?.fillRect(0, 0, ARENA_W, ARENA_H);
       return;
     }
@@ -1062,7 +1057,7 @@ export class DungeonScene extends Phaser.Scene {
 
       if (tG) {
         const veilAlpha = 0.24 * Math.sin(progress * Math.PI);
-        tG.fillStyle(0x120d14, veilAlpha);
+        tG.fillStyle(0x14131a, veilAlpha);
         tG.fillRect(camOffsetX, camOffsetY, ARENA_W, ARENA_H);
       }
       return;
@@ -1109,7 +1104,7 @@ export class DungeonScene extends Phaser.Scene {
         const targetY = ARENA_H / 2 + (state.player.y - ARENA_H / 2) * 0.45;
         cam.centerOn(targetX, targetY);
       }
-      tG.fillStyle(0x120d14, 0.86);
+      tG.fillStyle(0x14131a, 0.86);
       tG.fillRect(-ARENA_W * 0.5, -ARENA_H * 0.5, ARENA_W * 2, ARENA_H * 2);
       return;
     }
@@ -1128,15 +1123,15 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     if (progress < 0.14) {
-      const flashAlpha = 0.28 * (1 - progress / 0.14);
-      tG.fillStyle(0xef4444, flashAlpha);
+      const flashAlpha = 0.24 * (1 - progress / 0.14);
+      tG.fillStyle(0xe04f44, flashAlpha);
       tG.fillRect(-ARENA_W * 0.5, -ARENA_H * 0.5, ARENA_W * 2, ARENA_H * 2);
     }
 
     if (progress > 0.74) {
       const veilProgress = Math.min(1, (progress - 0.74) / 0.18);
       const veilAlpha = 0.86 * Math.pow(veilProgress, 1.3);
-      tG.fillStyle(0x120d14, veilAlpha);
+      tG.fillStyle(0x14131a, veilAlpha);
       tG.fillRect(-ARENA_W * 0.5, -ARENA_H * 0.5, ARENA_W * 2, ARENA_H * 2);
     }
   }
@@ -1148,26 +1143,26 @@ export class DungeonScene extends Phaser.Scene {
     isTop: boolean,
   ): void {
     if (height <= 0) return;
-    g.fillStyle(0x161018, 0.98);
+    g.fillStyle(0x14131a, 0.98);
     g.fillRect(0, topY, ARENA_W, height);
 
-    g.fillStyle(0x4a3b4c, 1);
+    g.fillStyle(0x43495e, 1);
     for (let bx = 48; bx < ARENA_W; bx += 64) {
       g.fillRect(bx - 5, topY, 10, height);
     }
 
     const barY = isTop ? topY + Math.max(0, height - 18) : topY + 6;
     if (height >= 20) {
-      g.fillStyle(0x2d2231, 1);
+      g.fillStyle(0x2c303e, 1);
       g.fillRect(0, barY, ARENA_W, 12);
-      g.fillStyle(0xf5b82e, 0.9);
+      g.fillStyle(0xe6a82e, 0.9);
       for (let rx = 48; rx < ARENA_W; rx += 64) {
         g.fillRect(rx - 2, barY + 4, 4, 4);
       }
     }
 
     const edgeY = isTop ? topY + height : topY;
-    g.lineStyle(3, 0x7c6582, 1);
+    g.lineStyle(3, 0x6a738c, 1);
     g.lineBetween(0, edgeY, ARENA_W, edgeY);
   }
 
@@ -1206,6 +1201,7 @@ export class DungeonScene extends Phaser.Scene {
     this.syncGems(state);
     this.syncHearts(state);
     this.syncFirePatches(state);
+    this.syncSporeClouds(teleG, state);
     this.syncDelayedBlasts(teleG, state);
     this.drawTelegraphs(teleG, state);
     this.syncAfterimages(state);
@@ -1229,8 +1225,8 @@ export class DungeonScene extends Phaser.Scene {
         this.stampSplatter(prev.x, prev.y, prev.archetype);
         this.spawnBoom(prev.x, prev.y, prev.archetype === 'boss' ? 4.0 : PIXEL_SCALE);
         if (prev.archetype === 'boss' && !this.prefersReducedMotion()) {
-          this.shaderFlashColor = [1, 0.88, 0.55];
-          this.shaderFlash = 0.34;
+          this.shaderFlashColor = [0.9, 0.66, 0.18];
+          this.shaderFlash = 0.22;
         }
       }
     }
@@ -1240,8 +1236,8 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     if (state.player.hurtFlashTimer > 0.45 && !this.prefersReducedMotion()) {
-      this.shaderFlashColor = [0.95, 0.2, 0.22];
-      this.shaderFlash = Math.max(this.shaderFlash, 0.22);
+      this.shaderFlashColor = [0.88, 0.31, 0.27];
+      this.shaderFlash = Math.max(this.shaderFlash, 0.16);
     }
 
     if (state.player.swingCount > this.prevSwingCount && !this.prefersReducedMotion()) {
@@ -1260,26 +1256,26 @@ export class DungeonScene extends Phaser.Scene {
     const d = this.decalGraphics;
     if (!d) return;
     const color =
-      archetype === 'chaser'
-        ? 0x22c55e
+      archetype === 'chaser' || archetype === 'myconid'
+        ? 0x265c42
         : archetype === 'shooter' || archetype === 'shade'
-          ? 0x9333ea
+          ? 0x4b356e
           : archetype === 'yeti'
-            ? 0x38bdf8
-            : archetype === 'bomber'
-              ? 0xf59e0b
-              : archetype === 'mortar_tank'
-                ? 0x64748b
+            ? 0x45a2e5
+            : archetype === 'bomber' || archetype === 'imp'
+              ? 0x8c5236
+              : archetype === 'mortar_tank' || archetype === 'archer'
+                ? 0x43495e
                 : archetype === 'stampede'
-                  ? 0x92400e
+                  ? 0x4d2e24
                   : archetype === 'boss'
-                    ? 0xb02024
-                    : 0x965630;
+                    ? 0x7a222e
+                    : 0x4d2e24;
     const sx = snapPx(x);
     const sy = snapPx(y + 6);
     const s = PIXEL_SCALE;
-    const rad = archetype === 'boss' ? 8 : 4;
-    d.fillStyle(color, 0.36);
+    const rad = archetype === 'boss' ? 7 : 3;
+    d.fillStyle(color, 0.2);
     for (let dy = -rad; dy <= rad; dy += 1) {
       for (let dx = -rad; dx <= rad; dx += 1) {
         if (dx * dx + dy * dy <= rad * rad) {
@@ -1332,10 +1328,10 @@ export class DungeonScene extends Phaser.Scene {
       if (!open) continue;
 
       const glowColor = door.targetIsBoss
-        ? 0xef4444
+        ? 0xe04f44
         : door.targetCleared
-          ? 0x94a3b8
-          : 0xfef08a;
+          ? 0x6a738c
+          : 0xe6a82e;
       const glowAlpha = door.targetCleared ? 0.14 : pulse;
 
       let posX = ARENA_W / 2;
@@ -1377,9 +1373,9 @@ export class DungeonScene extends Phaser.Scene {
       );
 
       if (door.targetIsBoss && !door.targetCleared) {
-        this.nextLabel(posX + labelOffsetX, posY + labelOffsetY, 'BOSS', '#fecaca', 16);
+        this.nextLabel(posX + labelOffsetX, posY + labelOffsetY, 'BOSS', '#f2efe4', 16);
       } else if (!door.targetCleared) {
-        this.nextLabel(posX + labelOffsetX, posY + labelOffsetY, arrow, '#fde68a', 18);
+        this.nextLabel(posX + labelOffsetX, posY + labelOffsetY, arrow, '#f7df86', 18);
       }
     }
   }
@@ -1398,13 +1394,13 @@ export class DungeonScene extends Phaser.Scene {
       if (haz.type === 'currents') {
         const halfW = haz.w / 2;
         const halfH = haz.h / 2;
-        teleG.fillStyle(0x38bdf8, 0.13);
+        teleG.fillStyle(0x45a2e5, 0.12);
         teleG.fillRect(haz.x - halfW, haz.y - halfH, haz.w, haz.h);
-        teleG.lineStyle(2, 0x38bdf8, 0.34);
+        teleG.lineStyle(2, 0x45a2e5, 0.32);
         teleG.strokeRect(haz.x - halfW, haz.y - halfH, haz.w, haz.h);
 
         const offset = ((state.elapsedTime * 90) % 44) * haz.dirX;
-        teleG.lineStyle(3, hexNum(this.bridge.theme.hazardAccent), 0.75);
+        teleG.lineStyle(3, hexNum(this.bridge.theme.hazardAccent), 0.72);
         for (let cx = haz.x - halfW + 30; cx <= haz.x + halfW - 30; cx += 44) {
           const px = snapPx(cx + offset);
           const py = snapPx(haz.y);
@@ -1426,11 +1422,9 @@ export class DungeonScene extends Phaser.Scene {
       }
 
       if (haz.type === 'spikes') {
-        const warning = haz.timer >= 2.0 && haz.timer < 2.55;
-        const active = haz.timer >= 2.55;
         spr
           .setPosition(haz.x, haz.y)
-          .setFrame(active ? 'spikes_2' : warning ? 'spikes_1' : 'spikes_0')
+          .setFrame(haz.active ? 'spikes_2' : 'spikes_0')
           .setDisplaySize(haz.w, haz.h)
           .setDepth(5)
           .setVisible(true);
@@ -1477,7 +1471,7 @@ export class DungeonScene extends Phaser.Scene {
     this.fountainLabel
       ?.setPosition(f.x, f.y - 54)
       .setText(active ? '+35% HP FOUNTAIN' : 'FOUNTAIN USED')
-      .setColor(active ? '#86efac' : '#94a3b8')
+      .setColor(active ? '#96db6e' : '#a9b6cc')
       .setVisible(true);
   }
 
@@ -1499,15 +1493,15 @@ export class DungeonScene extends Phaser.Scene {
       }
       entry.hatch.setPosition(portal.x, portal.y).setVisible(true);
 
-      const primary = 0xf5c234;
+      const primary = 0xe6a82e;
       const sx = snapPx(portal.x);
       const sy = snapPx(portal.y);
       const box = Math.sin(state.elapsedTime * 5) > 0 ? 30 : 27;
 
       // Crisp stepped pixel rune brackets framing the descent stairs (zero mixels)
-      fxG.fillStyle(primary, 0.16);
+      fxG.fillStyle(primary, 0.14);
       fxG.fillRect(sx - 27, sy - 27, 54, 54);
-      fxG.fillStyle(primary, 0.92);
+      fxG.fillStyle(primary, 0.9);
       fxG.fillRect(sx - box, sy - box, 12, 3);
       fxG.fillRect(sx - box, sy - box, 3, 12);
       fxG.fillRect(sx + box - 12, sy - box, 12, 3);
@@ -1524,12 +1518,12 @@ export class DungeonScene extends Phaser.Scene {
           const ang = -Math.PI / 2 + (i / segs) * Math.PI * 2;
           const rx = snapPx(sx + Math.cos(ang) * 36);
           const ry = snapPx(sy + Math.sin(ang) * 36);
-          fxG.fillStyle(0xfef08a, 1);
+          fxG.fillStyle(0xf7df86, 1);
           fxG.fillRect(rx - 3, ry - 3, 6, 6);
         }
       }
 
-      this.nextLabel(portal.x, portal.y - 48, portal.label, '#fff7e8', 17);
+      this.nextLabel(portal.x, portal.y - 48, portal.label, '#f2efe4', 17);
     }
 
     for (const [key, entry] of this.portalSprites.entries()) {
@@ -1573,13 +1567,13 @@ export class DungeonScene extends Phaser.Scene {
           .setScale(PIXEL_SCALE)
           .setVisible(true);
         if (ped.hovered) {
-          entry.item.setTint(0xfef08a);
+          entry.item.setTint(0xf7df86);
         } else {
           entry.item.clearTint();
         }
 
         const lvLabel = ped.nextLevel > 1 ? ` ${ped.nextLevel}` : '';
-        this.nextLabel(ped.x, ped.y + 50, `${ped.relic.name}${lvLabel}`, ped.hovered ? '#fde047' : '#fff7e8', 17);
+        this.nextLabel(ped.x, ped.y + 50, `${ped.relic.name}${lvLabel}`, ped.hovered ? '#f7df86' : '#f2efe4', 17);
       }
 
       // Only describe a relic when you stand next to it.
@@ -1596,9 +1590,9 @@ export class DungeonScene extends Phaser.Scene {
         const boxH = Math.max(42, Math.ceil(measuredH + 16));
         const boxX = ARENA_W / 2 - boxW / 2;
         const boxY = 104;
-        fxG.fillStyle(0x140d1d, 0.94);
+        fxG.fillStyle(0x14131a, 0.94);
         fxG.fillRect(boxX, boxY, boxW, boxH);
-        fxG.lineStyle(3, 0xf5c234, 1);
+        fxG.lineStyle(3, 0xe6a82e, 1);
         fxG.strokeRect(boxX, boxY, boxW, boxH);
 
         this.tooltipText?.setPosition(ARENA_W / 2, boxY + boxH / 2);
@@ -1739,6 +1733,62 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
+  private syncSporeClouds(teleG: Phaser.GameObjects.Graphics, state: GameState): void {
+    const activeIds = new Set<number>();
+
+    if (!this.pendingPortalSwap) {
+      for (const cloud of state.sporeClouds) {
+        activeIds.add(cloud.id);
+        const life = Math.max(0, Math.min(1, cloud.ttl / Math.max(0.01, cloud.maxTtl)));
+        const fade = life < 0.28 ? life / 0.28 : 1;
+
+        // Calm, readable moss-teal spore zone (no harsh neon glow).
+        teleG.fillStyle(0x265c42, 0.16 * fade);
+        teleG.fillCircle(cloud.x, cloud.y, cloud.radius);
+        teleG.lineStyle(2, 0x4eab5b, 0.58 * fade);
+        teleG.strokeCircle(cloud.x, cloud.y, cloud.radius);
+        const innerR = cloud.radius * (0.64 + 0.05 * Math.sin(state.elapsedTime * 3.2 + cloud.id));
+        teleG.lineStyle(1.5, 0x96db6e, 0.3 * fade);
+        teleG.strokeCircle(cloud.x, cloud.y, innerR);
+
+        let puffs = this.sporeCloudSprites.get(cloud.id);
+        if (!puffs) {
+          puffs = Array.from({ length: 3 }, () => {
+            const s = this.add
+              .sprite(cloud.x, cloud.y, 'monsters', 'spore_puff_0')
+              .setScale(PIXEL_SCALE)
+              .setDepth(7);
+            s.play('spore_puff_drift');
+            return s;
+          });
+          this.sporeCloudSprites.set(cloud.id, puffs);
+        }
+
+        for (let i = 0; i < puffs.length; i += 1) {
+          const spr = puffs[i];
+          if (!spr) continue;
+          const ang = state.elapsedTime * 0.75 + cloud.id * 1.3 + (i * Math.PI * 2) / puffs.length;
+          const dist = cloud.radius * 0.42;
+          const bob = Math.sin(state.elapsedTime * 2.8 + i * 2.1 + cloud.id) * 4;
+          spr
+            .setPosition(cloud.x + Math.cos(ang) * dist, cloud.y + Math.sin(ang) * dist * 0.78 + bob)
+            .setScale(PIXEL_SCALE * (0.88 + 0.1 * fade))
+            .setAlpha(0.72 * fade)
+            .setVisible(true);
+        }
+      }
+    }
+
+    for (const [id, puffs] of this.sporeCloudSprites.entries()) {
+      if (!activeIds.has(id)) {
+        for (const spr of puffs) {
+          spr.destroy();
+        }
+        this.sporeCloudSprites.delete(id);
+      }
+    }
+  }
+
   private syncDelayedBlasts(teleG: Phaser.GameObjects.Graphics, state: GameState): void {
     for (let i = 0; i < this.blastPool.length; i += 1) {
       const spr = this.blastPool[i];
@@ -1751,13 +1801,13 @@ export class DungeonScene extends Phaser.Scene {
 
       const progress = 1 - blast.timer / blast.maxTimer;
       const stroke = blast.friendly
-        ? 0xfb923c
+        ? 0xe6a82e
         : blast.kind === 'ice_mortar'
-          ? 0x67e8f9
-          : 0xef4444;
-      teleG.fillStyle(stroke, blast.friendly ? 0.15 : 0.22);
+          ? 0x9edbf7
+          : 0xe04f44;
+      teleG.fillStyle(stroke, blast.friendly ? 0.12 : 0.14);
       teleG.fillCircle(blast.x, blast.y, blast.radius);
-      teleG.lineStyle(2, stroke, 1);
+      teleG.lineStyle(2, stroke, 0.9);
       teleG.strokeCircle(blast.x, blast.y, Math.max(4, blast.radius * progress));
 
       if (blast.kind === 'decoy_mine') {
@@ -1779,7 +1829,7 @@ export class DungeonScene extends Phaser.Scene {
         if (Math.floor(progress * 10) % 2 === 0) {
           spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
         } else {
-          spr.setTint(0xfb923c).setTintMode(Phaser.TintModes.MULTIPLY);
+          spr.setTint(0xf0853a).setTintMode(Phaser.TintModes.MULTIPLY);
         }
       } else if (blast.kind === 'sapper_bomb') {
         spr
@@ -1807,8 +1857,22 @@ export class DungeonScene extends Phaser.Scene {
     for (const enemy of state.enemies) {
       if (enemy.state === 'spawning') {
         const t = 1 - enemy.stateTimer / 0.65;
-        teleG.lineStyle(2, 0xf87171, 0.85);
+        teleG.lineStyle(2, 0xe04f44, 0.65);
         teleG.strokeCircle(enemy.x, enemy.y, enemy.radius + (1 - Math.max(0, t)) * 22);
+      } else if (
+        enemy.archetype === 'myconid' &&
+        enemy.state === 'telegraph' &&
+        enemy.attackKind === 'spore_burst'
+      ) {
+        const dur = Math.max(0.01, enemy.telegraphDuration);
+        const t = Math.max(0, Math.min(1, 1 - enemy.stateTimer / dur));
+        const r = 66;
+        teleG.fillStyle(0x265c42, 0.08 + 0.08 * t);
+        teleG.fillCircle(enemy.x, enemy.y, r);
+        teleG.lineStyle(2, 0x4eab5b, 0.35 + 0.4 * t);
+        teleG.strokeCircle(enemy.x, enemy.y, r);
+        teleG.lineStyle(2, 0x96db6e, 0.3 + 0.45 * t);
+        teleG.strokeCircle(enemy.x, enemy.y, Math.max(12, r * t));
       }
     }
   }
@@ -1859,8 +1923,6 @@ export class DungeonScene extends Phaser.Scene {
 
       if (hideEnemies) {
         spr.setVisible(false);
-        const oldShield = this.wardenShields.get(enemy.id);
-        oldShield?.setVisible(false);
         continue;
       }
 
@@ -1904,22 +1966,28 @@ export class DungeonScene extends Phaser.Scene {
       const colors = ENEMY_COLORS[enemy.archetype];
       const airborne = Math.min(0, pose.oy);
 
-      // Signature-colour glow under every monster (hidden until Mimic chest cracks open).
-      if (!isMimicWake || inState >= 0.25) {
-        const glowPulse = 0.22 + 0.06 * Math.sin(state.elapsedTime * 5 + enemy.id) + pose.charge * 0.3;
-        shadowG.fillStyle(colors.main, glowPulse);
-        shadowG.fillEllipse(enemy.x, enemy.y + enemy.radius * 0.7, enemy.radius * 2.8, enemy.radius * 1.2);
+      // Quiet dark contact shadow under every monster (hidden while Mimic chest is still closed).
+      if (!isBossLeapAir && (!isMimicWake || inState >= 0.25)) {
+        drawPixelShadow(
+          shadowG,
+          enemy.x,
+          enemy.y + enemy.radius * 0.72,
+          enemy.radius * 0.92 * popMult,
+          Math.max(5, enemy.radius * 0.34 * popMult),
+          0.36,
+        );
       }
       if (pose.charge > 0) {
-        // Wind-up: a bright ring tightening around the monster.
-        const ringR = enemy.radius * (2.4 - 1.1 * pose.charge);
-        shadowG.lineStyle(3, colors.hot, 0.35 + 0.55 * pose.charge);
+        // Crisp wind-up telegraph ring ONLY during active telegraph.
+        const ringR = enemy.radius * (2.2 - 0.95 * pose.charge);
+        const ringColor = enemy.archetype === 'myconid' ? 0x4eab5b : 0xe04f44;
+        shadowG.lineStyle(2, ringColor, 0.25 + 0.55 * pose.charge);
         shadowG.strokeEllipse(enemy.x, enemy.y + enemy.radius * 0.6, ringR * 2, ringR * 0.9);
       }
 
       if (isBossLeapAir) {
         const shadowMult = 1 - 0.34 * heightRatio;
-        const shadowAlpha = 0.44 * (1 - 0.32 * heightRatio);
+        const shadowAlpha = 0.4 * (1 - 0.32 * heightRatio);
         drawPixelShadow(
           shadowG,
           enemy.x,
@@ -1928,7 +1996,7 @@ export class DungeonScene extends Phaser.Scene {
           Math.max(6, enemy.radius * 0.36 * popMult * shadowMult * (1 + airborne / 110)),
           shadowAlpha,
         );
-        fxG.lineStyle(2, 0xf43f5e, 0.24 + 0.36 * (1 - heightRatio));
+        fxG.lineStyle(2, 0xe04f44, 0.24 + 0.36 * (1 - heightRatio));
         fxG.strokeCircle(enemy.targetX, enemy.targetY, 32 + 46 * (1 - heightRatio));
       }
 
@@ -1963,36 +2031,16 @@ export class DungeonScene extends Phaser.Scene {
 
       if (enemy.hitFlashTimer > 0) {
         spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-      } else if (fx.hitT > HIT_REACT_TIME * 0.35) {
-        // After the white pop, a hot pink-red glow that fades out.
-        spr.setTint(0xb8325a).setTintMode(Phaser.TintModes.ADD);
-      } else if (pose.charge > 0.55 && Math.sin(state.elapsedTime * 40) > 0) {
-        // Flicker in the monster's colour right before it strikes.
-        spr.setTint(colors.main).setTintMode(Phaser.TintModes.ADD);
+      } else if (pose.charge > 0.75 && Math.sin(state.elapsedTime * 12) > 0) {
+        const pulseColor = enemy.archetype === 'myconid' ? 0x96db6e : 0xe04f44;
+        spr.setTint(pulseColor).setTintMode(Phaser.TintModes.MULTIPLY);
       } else if (enemy.archetype === 'shade' && enemy.state === 'telegraph') {
-        spr.setTint(0xc084fc).setTintMode(Phaser.TintModes.MULTIPLY);
+        spr.setTint(0xa770d6).setTintMode(Phaser.TintModes.MULTIPLY);
       } else {
         spr.clearTint();
       }
 
       this.spawnEnemyStateFx(enemy, fx, colors);
-
-      // Floating shield icon on armored foes while armor > 0
-      if (enemy.armor > 0) {
-        let shield = this.wardenShields.get(enemy.id);
-        if (!shield) {
-          shield = this.add.image(enemy.x, enemy.y, 'dungeon', 'tile_102').setScale(PIXEL_SCALE).setDepth(11);
-          this.wardenShields.set(enemy.id, shield);
-        }
-        const side = state.player.x < enemy.x ? -1 : 1;
-        shield.setPosition(enemy.x + side * 28, enemy.y + 4).setVisible(true);
-      } else {
-        const oldShield = this.wardenShields.get(enemy.id);
-        if (oldShield) {
-          oldShield.destroy();
-          this.wardenShields.delete(enemy.id);
-        }
-      }
 
       if (enemy.state === 'staggered') {
         // Dizzy stars circling the head.
@@ -2003,17 +2051,24 @@ export class DungeonScene extends Phaser.Scene {
             enemy.x + Math.cos(a) * enemy.radius * 0.9,
             enemy.y - enemy.radius - 10 + Math.sin(a) * 4,
             4,
-            i === 1 ? 0x7dd3fc : 0xfde047,
+            i === 1 ? 0x9edbf7 : 0xf7df86,
             0.95,
           );
         }
-      } else if (enemy.archetype !== 'boss' && enemy.hp < enemy.maxHp) {
-        const bw = enemy.radius * 2.1;
+      } else if (
+        (enemy.archetype === 'boss' || enemy.archetype === 'elite_charger') &&
+        enemy.hp < enemy.maxHp
+      ) {
+        const bw = enemy.radius * 2.2;
+        const bx = enemy.x - bw / 2;
+        const by = enemy.y - enemy.radius - 14;
         const ratio = Math.max(0, enemy.hp / enemy.maxHp);
-        fxG.fillStyle(0x1d1520, 0.92);
-        fxG.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 14, bw, 5);
-        fxG.fillStyle(enemy.armor > 0 ? 0xf5b82e : 0xe23c3c, 1);
-        fxG.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 14, bw * ratio, 5);
+        fxG.fillStyle(0x14131a, 0.95);
+        fxG.fillRect(bx - 1, by - 1, bw + 2, 6);
+        fxG.fillStyle(0x21232e, 1);
+        fxG.fillRect(bx, by, bw, 4);
+        fxG.fillStyle(0xe04f44, 1);
+        fxG.fillRect(bx, by, bw * ratio, 4);
       }
     }
 
@@ -2025,11 +2080,6 @@ export class DungeonScene extends Phaser.Scene {
       if (!activeIds.has(id)) {
         spr.destroy();
         this.enemySprites.delete(id);
-        const sh = this.wardenShields.get(id);
-        if (sh) {
-          sh.destroy();
-          this.wardenShields.delete(id);
-        }
       }
     }
   }
@@ -2086,11 +2136,8 @@ export class DungeonScene extends Phaser.Scene {
     if (this.prefersReducedMotion()) return;
     const colors = ENEMY_COLORS[enemy.archetype];
     const angle = Math.atan2(dirY, dirX);
-    // Weapon-coloured sparks spraying away from the hit, plus a burst ring.
-    this.fxParticles.burst(enemy.x, enemy.y, pal.sparks, 10, 340, { shape: 'spark', angle, spread: 1.8, ttl: 0.3, size: 3 });
-    this.fxParticles.add({ x: enemy.x, y: enemy.y, color: pal.main, shape: 'ring', size: enemy.radius * 0.6, ttl: 0.22 });
-    // Bits of the monster's own colour.
-    this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot], 6, 180, { size: 4, ttl: 0.45, gravity: 420, angle, spread: 2.4 });
+    this.fxParticles.burst(enemy.x, enemy.y, pal.sparks, 5, 300, { shape: 'spark', angle, spread: 1.6, ttl: 0.24, size: 3 });
+    this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot], 3, 160, { size: 3, ttl: 0.36, gravity: 420, angle, spread: 2.0 });
   }
 
   private spawnAttackStartFx(enemy: EnemyEntity, colors: { main: number; hot: number }): void {
@@ -2100,63 +2147,54 @@ export class DungeonScene extends Phaser.Scene {
     const aimY = Math.sin(enemy.aimAngle);
     const behindAngle = enemy.aimAngle + Math.PI;
     if (kind === 'lunge' || kind === 'charge' || kind === 'ricochet_charge') {
-      this.fxParticles.burst(enemy.x - aimX * enemy.radius, enemy.y - aimY * enemy.radius + enemy.radius * 0.5, [colors.main, 0xe7d8c5], 8, 200, { angle: behindAngle, spread: 1.4, ttl: 0.4, size: 4 });
-      this.fxParticles.add({ x: enemy.x, y: enemy.y, color: colors.hot, shape: 'ring', size: enemy.radius * 0.7, ttl: 0.25 });
+      this.fxParticles.burst(enemy.x - aimX * enemy.radius, enemy.y - aimY * enemy.radius + enemy.radius * 0.5, [colors.main, 0xd49562], 4, 180, { angle: behindAngle, spread: 1.2, ttl: 0.32, size: 3 });
     } else if (kind === 'boss_radial') {
-      this.fxParticles.add({ x: enemy.x, y: enemy.y, color: colors.main, shape: 'ring', size: 22, ttl: 0.5 });
-      this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot, 0xffffff], 20, 360, { shape: 'spark', ttl: 0.45 });
+      this.fxParticles.add({ x: enemy.x, y: enemy.y, color: colors.main, shape: 'ring', size: 22, ttl: 0.45 });
+      this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot, 0xf2efe4], 12, 320, { shape: 'spark', ttl: 0.38 });
     } else if (kind === 'boss_leap' || kind === 'drop_bomb') {
-      this.fxParticles.burst(enemy.x, enemy.y + enemy.radius * 0.7, [0xe7d8c5, colors.main], 10, 160, { ttl: 0.4, size: 4 });
-    } else {
-      // Casting / firing: a muzzle flash toward the target.
+      this.fxParticles.burst(enemy.x, enemy.y + enemy.radius * 0.7, [0xd49562, colors.main], 6, 140, { ttl: 0.32, size: 3 });
+    } else if (kind === 'spore_burst') {
+      this.fxParticles.burst(enemy.x, enemy.y, [0x4eab5b, 0x96db6e], 6, 110, { ttl: 0.32, size: 3 });
+    } else if (kind === 'shoot_arrow') {
       const mx = enemy.x + aimX * enemy.radius;
       const my = enemy.y + aimY * enemy.radius;
-      this.fxParticles.burst(mx, my, [colors.hot, colors.main, 0xffffff], 10, 300, { shape: 'spark', angle: enemy.aimAngle, spread: 0.9, ttl: 0.25 });
-      this.fxParticles.add({ x: mx, y: my, color: colors.hot, shape: 'ring', size: 8, ttl: 0.2 });
+      this.fxParticles.burst(mx, my, [0xf2efe4, 0xd49562], 2, 140, { shape: 'spark', angle: enemy.aimAngle, spread: 0.5, ttl: 0.14, size: 2 });
+    } else if (kind === 'imp_dart') {
+      const mx = enemy.x + aimX * enemy.radius;
+      const my = enemy.y + aimY * enemy.radius;
+      this.fxParticles.burst(mx, my, [0xf0853a, 0xf7df86], 4, 190, { shape: 'spark', angle: enemy.aimAngle, spread: 0.6, ttl: 0.18, size: 2 });
+    } else {
+      const mx = enemy.x + aimX * enemy.radius;
+      const my = enemy.y + aimY * enemy.radius;
+      this.fxParticles.burst(mx, my, [colors.hot, colors.main, 0xf2efe4], 5, 240, { shape: 'spark', angle: enemy.aimAngle, spread: 0.8, ttl: 0.2 });
     }
   }
 
-  /** Continuous effects while a monster winds up or dashes. */
+  /** Continuous effects while a monster dashes or fans projectiles (kept minimal for visual clarity). */
   private spawnEnemyStateFx(enemy: EnemyEntity, fx: EnemyFxState, colors: { main: number; hot: number }): void {
     if (this.prefersReducedMotion() || this.frameDt <= 0) return;
     fx.trailCd -= this.frameDt;
     if (fx.trailCd > 0) return;
-    if (enemy.state === 'telegraph') {
-      // Energy gathering inward.
-      fx.trailCd = 0.06;
-      const a = Math.random() * Math.PI * 2;
-      const r = enemy.radius * 2.2;
-      this.fxParticles.add({
-        x: enemy.x + Math.cos(a) * r,
-        y: enemy.y + Math.sin(a) * r,
-        vx: -Math.cos(a) * r * 4,
-        vy: -Math.sin(a) * r * 4,
-        color: Math.random() < 0.5 ? colors.hot : colors.main,
-        size: 3,
-        ttl: 0.22,
-        drag: 0,
-      });
-    } else if (enemy.state === 'attack') {
+    if (enemy.state === 'attack') {
       const kind = fx.lastAttackKind;
       if (kind === 'lunge' || kind === 'charge' || kind === 'ricochet_charge') {
-        // Speed trail behind the dash.
-        fx.trailCd = 0.025;
+        fx.trailCd = 0.045;
         const aimX = Math.cos(enemy.aimAngle);
         const aimY = Math.sin(enemy.aimAngle);
-        const side = (Math.random() - 0.5) * enemy.radius * 1.4;
+        const side = (Math.random() - 0.5) * enemy.radius * 1.2;
         this.fxParticles.add({
           x: enemy.x - aimX * enemy.radius + -aimY * side,
           y: enemy.y - aimY * enemy.radius + aimX * side,
-          vx: -aimX * 220,
-          vy: -aimY * 220,
+          vx: -aimX * 190,
+          vy: -aimY * 190,
           color: Math.random() < 0.6 ? colors.main : colors.hot,
           shape: 'spark',
           size: 3,
-          ttl: 0.22,
+          ttl: 0.18,
         });
       } else if (kind === 'shade_fan') {
-        fx.trailCd = 0.05;
-        this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot], 2, 120, { ttl: 0.3, size: 3 });
+        fx.trailCd = 0.08;
+        this.fxParticles.burst(enemy.x, enemy.y, [colors.main, colors.hot], 1, 100, { ttl: 0.24, size: 3 });
       }
     }
   }
@@ -2170,59 +2208,56 @@ export class DungeonScene extends Phaser.Scene {
     if (w.style === 'melee') {
       const arc = (Math.max(1, w.arcDeg) * Math.PI) / 180;
       const sign = p.swingCount % 2 === 1 ? 1 : -1;
-      const n = w.id === 'hammer' ? 16 : 11;
+      const n = w.id === 'hammer' ? 8 : 5;
       for (let i = 0; i < n; i += 1) {
-        const u = i / (n - 1) - 0.5;
+        const u = i / Math.max(1, n - 1) - 0.5;
         const a = angle + sign * u * arc;
         const r = w.range * (0.65 + Math.random() * 0.3);
         const tang = a + sign * Math.PI * 0.5;
-        const spd = 120 + Math.random() * 160;
+        const spd = 110 + Math.random() * 140;
         this.fxParticles.add({
           x: p.x + Math.cos(a) * r,
           y: p.y + Math.sin(a) * r,
-          vx: Math.cos(tang) * spd + Math.cos(a) * 40,
-          vy: Math.sin(tang) * spd + Math.sin(a) * 40,
+          vx: Math.cos(tang) * spd + Math.cos(a) * 35,
+          vy: Math.sin(tang) * spd + Math.sin(a) * 35,
           color: pal.sparks[i % pal.sparks.length] ?? pal.main,
-          shape: i % 3 === 0 ? 'spark' : 'dot',
+          shape: i % 2 === 0 ? 'spark' : 'dot',
           size: w.id === 'hammer' ? 4 : 3,
-          ttl: 0.28,
+          ttl: 0.22,
         });
       }
       if (w.id === 'hammer') {
         const ix = p.x + Math.cos(angle) * w.range * 0.7;
         const iy = p.y + Math.sin(angle) * w.range * 0.7;
-        this.fxParticles.add({ x: ix, y: iy, color: pal.main, shape: 'ring', size: 18, ttl: 0.35 });
+        this.fxParticles.add({ x: ix, y: iy, color: pal.main, shape: 'ring', size: 18, ttl: 0.32 });
       }
     } else {
       const mx = p.x + Math.cos(angle) * 24;
       const my = p.y + Math.sin(angle) * 24;
-      this.fxParticles.burst(mx, my, pal.sparks, 10, 300, { shape: 'spark', angle, spread: 1.0, ttl: 0.22 });
-      this.fxParticles.add({ x: mx, y: my, color: pal.main, shape: 'ring', size: 7, ttl: 0.18 });
+      this.fxParticles.burst(mx, my, pal.sparks, 5, 240, { shape: 'spark', angle, spread: 0.9, ttl: 0.18 });
     }
-    // Subtle full-screen colour pulse in the weapon's colour.
-    this.shaderFlashColor = rgb01(pal.main);
-    this.shaderFlash = Math.max(this.shaderFlash, 0.06);
   }
 
-  /** Glowing trails behind projectiles: weapon colours for yours, hot orange for enemies'. */
+  /** Sparse projectile trails: clean sky tones for friendly shots, warm ember for enemy orbs/darts. */
   private spawnProjectileTrails(state: GameState): void {
     if (this.prefersReducedMotion() || this.frameDt <= 0) return;
     for (const proj of state.projectiles) {
-      if (Math.random() > 0.75) continue;
+      if (proj.kind === 'arrow') continue;
+      if (Math.random() > 0.15) continue;
       let colors: number[];
-      if (!proj.friendly) colors = [0xfb923c, 0xfde047, 0xf87171];
+      if (!proj.friendly) colors = proj.kind === 'ember' ? [0xf0853a, 0xf7df86] : [0xf0853a, 0xf7df86, 0xe04f44];
       else if (proj.kind === 'lance') colors = WEAPON_PALETTES.arcane_lance.sparks;
       else if (proj.kind === 'bolt') colors = WEAPON_PALETTES.scatter_staff.sparks;
-      else if (proj.kind === 'rift_wave') colors = [0x38bdf8, 0x7dd3fc, 0xffffff];
-      else colors = [0x7dd3fc, 0xffffff];
+      else if (proj.kind === 'rift_wave') colors = [0x45a2e5, 0x9edbf7, 0xf2efe4];
+      else colors = [0x9edbf7, 0xf2efe4];
       this.fxParticles.add({
         x: proj.x + (Math.random() - 0.5) * 4,
         y: proj.y + (Math.random() - 0.5) * 4,
         vx: -proj.vx * 0.08,
         vy: -proj.vy * 0.08,
-        color: colors[Math.floor(Math.random() * colors.length)] ?? 0xffffff,
-        size: proj.kind === 'lance' ? 4 : 3,
-        ttl: 0.25,
+        color: colors[Math.floor(Math.random() * colors.length)] ?? 0xf2efe4,
+        size: proj.kind === 'lance' ? 3 : 2,
+        ttl: 0.18,
       });
     }
   }
@@ -2250,6 +2285,12 @@ export class DungeonScene extends Phaser.Scene {
         return 'tank';
       case 'stampede':
         return 'bull';
+      case 'myconid':
+        return 'myconid';
+      case 'imp':
+        return 'imp';
+      case 'archer':
+        return 'archer';
     }
   }
 
@@ -2391,16 +2432,16 @@ export class DungeonScene extends Phaser.Scene {
           const soulAlpha = Math.sin(soulT * Math.PI) * 0.95;
           const soulX = snapPx(p.x + Math.sin(soulT * Math.PI * 2.5) * 6);
           const soulY = snapPx(p.y - 12 - soulT * 48);
-          fxG.fillStyle(0x1c1221, soulAlpha);
+          fxG.fillStyle(0x14131a, soulAlpha);
           fxG.fillRect(soulX - 9, soulY - 9, 18, 18);
-          fxG.fillStyle(0xe0f2fe, soulAlpha);
+          fxG.fillStyle(0x9edbf7, soulAlpha);
           fxG.fillRect(soulX - 6, soulY - 6, 12, 12);
-          fxG.fillStyle(0xffffff, soulAlpha);
+          fxG.fillStyle(0xf2efe4, soulAlpha);
           fxG.fillRect(soulX - 3, soulY - 3, 6, 6);
-          fxG.fillStyle(0x1c1221, soulAlpha);
+          fxG.fillStyle(0x14131a, soulAlpha);
           fxG.fillRect(soulX - 3, soulY - 3, 3, 3);
           fxG.fillRect(soulX + 3, soulY - 3, 3, 3);
-          fxG.fillStyle(0xe0f2fe, soulAlpha * 0.85);
+          fxG.fillStyle(0x9edbf7, soulAlpha * 0.85);
           fxG.fillRect(soulX - 6, soulY + 12, 3, 3);
           fxG.fillRect(soulX + 3, soulY + 15, 3, 3);
         }
@@ -2445,7 +2486,7 @@ export class DungeonScene extends Phaser.Scene {
       const sx = snapPx(px);
       const sy = snapPx(py);
       const r = snapPx(p.radius + 9);
-      fxG.fillStyle(0x38bdf8, 0.82);
+      fxG.fillStyle(0x45a2e5, 0.82);
       fxG.fillRect(sx - r, sy - r, 9, 3);
       fxG.fillRect(sx - r, sy - r, 3, 9);
       fxG.fillRect(sx + r - 9, sy - r, 9, 3);
@@ -2565,7 +2606,7 @@ export class DungeonScene extends Phaser.Scene {
     if (p.attackAnimTimer > 0 && swingT < 0.35) {
       this.weaponSprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     } else if (this.readyFlashTimer > 0) {
-      this.weaponSprite.setTint(0xfde68a).setTintMode(Phaser.TintModes.FILL);
+      this.weaponSprite.setTint(0xf7df86).setTintMode(Phaser.TintModes.FILL);
     } else {
       this.weaponSprite.clearTint();
     }
@@ -2584,10 +2625,10 @@ export class DungeonScene extends Phaser.Scene {
           const bx = snapPx(proj.x - Math.cos(proj.angle) * i * 5);
           const by = snapPx(proj.y - Math.sin(proj.angle) * i * 5);
           if (i <= 2) {
-            fxG.fillStyle(0x1c1221, 1);
+            fxG.fillStyle(0x14131a, 1);
             fxG.fillRect(bx - 6, by - 6, 12, 12);
           }
-          fxG.fillStyle(i === 0 ? 0xffffff : i <= 2 ? 0xe0f2fe : 0x38bdf8, i === 0 ? 1 : 0.85);
+          fxG.fillStyle(i === 0 ? 0xf2efe4 : i <= 2 ? 0x9edbf7 : 0x45a2e5, i === 0 ? 1 : 0.85);
           fxG.fillRect(bx - 3, by - 3, 6, 6);
         }
         continue;
@@ -2597,16 +2638,16 @@ export class DungeonScene extends Phaser.Scene {
         const ty = snapPx(proj.y - Math.sin(proj.angle) * 9);
         const px = snapPx(proj.x);
         const py = snapPx(proj.y);
-        fxG.fillStyle(0x1c1221, 1);
+        fxG.fillStyle(0x14131a, 1);
         fxG.fillRect(px - 6, py - 6, 12, 12);
-        fxG.fillStyle(0xc084fc, 0.78);
+        fxG.fillStyle(0xa770d6, 0.78);
         fxG.fillRect(tx - 3, ty - 3, 6, 6);
-        fxG.fillStyle(0xf5d0fe, 1);
+        fxG.fillStyle(0xf2efe4, 1);
         fxG.fillRect(px - 3, py - 3, 6, 6);
         continue;
       }
       if (proj.kind === 'rift_wave') {
-        fxG.lineStyle(6, 0x38bdf8, 1);
+        fxG.lineStyle(6, 0x45a2e5, 1);
         fxG.beginPath();
         fxG.arc(
           proj.x - Math.cos(proj.angle) * 8,
@@ -2617,6 +2658,36 @@ export class DungeonScene extends Phaser.Scene {
           false,
         );
         fxG.strokePath();
+        continue;
+      }
+
+      if (proj.kind === 'arrow') {
+        activeIds.add(proj.id);
+        let spr = this.projectileSprites.get(proj.id);
+        if (!spr) {
+          spr = this.add
+            .sprite(proj.x, proj.y, 'monsters', 'arrow_0')
+            .setScale(PIXEL_SCALE)
+            .setDepth(13);
+          spr.play('arrow_fly');
+          this.projectileSprites.set(proj.id, spr);
+        }
+        spr.setPosition(proj.x, proj.y).setRotation(Math.atan2(proj.vy, proj.vx));
+        continue;
+      }
+
+      if (proj.kind === 'ember') {
+        activeIds.add(proj.id);
+        let spr = this.projectileSprites.get(proj.id);
+        if (!spr) {
+          spr = this.add
+            .sprite(proj.x, proj.y, 'monsters', 'ember_dart_0')
+            .setScale(PIXEL_SCALE)
+            .setDepth(13);
+          spr.play('ember_dart_fly');
+          this.projectileSprites.set(proj.id, spr);
+        }
+        spr.setPosition(proj.x, proj.y).setRotation(Math.atan2(proj.vy, proj.vx));
         continue;
       }
 
@@ -2717,29 +2788,29 @@ export class DungeonScene extends Phaser.Scene {
         x: slash.x + (pt.x - slash.x) * 1.12,
         y: slash.y + (pt.y - slash.y) * 1.12,
       }));
-      g.fillStyle(pal.glow, fade * (slash.hitCount > 0 ? 0.5 : 0.32));
+      g.fillStyle(pal.glow, fade * (slash.hitCount > 0 ? 0.4 : 0.24));
       this.tracePolygon(g, [...glowPts, ...[...innerPts].reverse()], true);
       g.fillPath();
       g.fillStyle(outerCol, fade * 0.92);
       this.tracePolygon(g, outerPoly, true);
       g.fillPath();
-      g.lineStyle(3, 0x120d14, fade * 0.9);
+      g.lineStyle(3, 0x14131a, fade * 0.9);
       this.tracePolygon(g, outerPoly, true);
       g.strokePath();
 
       const corePoly = [...outerPts, ...[...coreInnerPts].reverse()];
-      g.fillStyle(0xffffff, fade);
+      g.fillStyle(0xf2efe4, fade);
       this.tracePolygon(g, corePoly, true);
       g.fillPath();
 
-      g.lineStyle(2.5, 0xffffff, fade);
+      g.lineStyle(2.5, 0xf2efe4, fade);
       this.tracePolygon(g, outerPts, false);
       g.strokePath();
 
       const headPt = outerPts[outerPts.length - 1];
       if (headPt && t < 0.45) {
         const arm = 7 * (1 - t / 0.45);
-        g.lineStyle(2, 0xffffff, fade);
+        g.lineStyle(2, 0xf2efe4, fade);
         g.lineBetween(headPt.x - arm, headPt.y, headPt.x + arm, headPt.y);
         g.lineBetween(headPt.x, headPt.y - arm, headPt.x, headPt.y + arm);
       }
@@ -2748,10 +2819,10 @@ export class DungeonScene extends Phaser.Scene {
         const ix = slash.x + Math.cos(slash.angle) * slash.radius * 0.58;
         const iy = slash.y + Math.sin(slash.angle) * slash.radius * 0.58;
         const crossLen = 10 * (1 - (t / 0.42) * 0.4);
-        g.lineStyle(4, 0x120d14, fade);
+        g.lineStyle(4, 0x14131a, fade);
         g.lineBetween(ix - crossLen, iy - crossLen, ix + crossLen, iy + crossLen);
         g.lineBetween(ix + crossLen, iy - crossLen, ix - crossLen, iy + crossLen);
-        g.lineStyle(2, pal.sparks[0] ?? 0xfff7e8, fade);
+        g.lineStyle(2, pal.sparks[0] ?? 0xf2efe4, fade);
         g.lineBetween(ix - crossLen, iy - crossLen, ix + crossLen, iy + crossLen);
         g.lineBetween(ix + crossLen, iy - crossLen, ix - crossLen, iy + crossLen);
       }
@@ -2766,7 +2837,7 @@ export class DungeonScene extends Phaser.Scene {
     for (const bolt of state.lightnings) {
       if (bolt.points.length < 2) continue;
       const alpha = Math.max(0, bolt.ttl / bolt.maxTtl);
-      g.lineStyle(3, 0x7dd3fc, alpha);
+      g.lineStyle(3, 0x9edbf7, alpha);
       this.tracePolygon(g, bolt.points, false);
       g.strokePath();
     }
@@ -2794,9 +2865,9 @@ export class DungeonScene extends Phaser.Scene {
     const bx = Math.max(PLAY_MIN_X + 8, Math.min(PLAY_MAX_X - boxW - 8, p.x - boxW / 2));
     const by = Math.min(PLAY_MAX_Y - 38, p.y + 26);
 
-    g.fillStyle(0x1d1520, 0.94 * alpha);
+    g.fillStyle(0x14131a, 0.94 * alpha);
     g.fillRect(bx, by, boxW, boxH);
-    g.lineStyle(2, 0x5b485e, alpha);
+    g.lineStyle(2, 0x43495e, alpha);
     g.strokeRect(bx, by, boxW, boxH);
 
     this.onboardingText
@@ -2813,12 +2884,12 @@ export class DungeonScene extends Phaser.Scene {
     const knob = this.screenToArena(joy.knobX, joy.knobY);
     const invZoom = 1 / Math.max(0.1, this.cameras.main.zoom);
 
-    g.fillStyle(0x94a3b8, 0.16);
+    g.fillStyle(0x6a738c, 0.16);
     g.fillCircle(origin.x, origin.y, joy.maxRadius * invZoom);
-    g.lineStyle(2 * invZoom, 0xf8fafc, 0.35);
+    g.lineStyle(2 * invZoom, 0xf2efe4, 0.35);
     g.strokeCircle(origin.x, origin.y, joy.maxRadius * invZoom);
 
-    g.fillStyle(0x38bdf8, 0.75);
+    g.fillStyle(0x45a2e5, 0.75);
     g.fillCircle(knob.x, knob.y, 20 * invZoom);
   }
 
@@ -2831,12 +2902,12 @@ export class DungeonScene extends Phaser.Scene {
     const biome = getFloorBiome(state.floor, state.utcDate);
     const moteColor =
       biome.id === 'snow'
-        ? 0xe0f2fe
-        : biome.id === 'farm' || biome.id === 'town'
-          ? 0xfef08a
-          : biome.id === 'battle'
-            ? 0xfca5a5
-            : 0xfb923c;
+        ? 0x9edbf7
+        : biome.id === 'farm'
+          ? 0x96db6e
+          : biome.id === 'town'
+            ? 0xf7df86
+            : 0xf0853a;
     const minY = PLAY_MIN_Y + 6;
     const maxY = PLAY_MAX_Y - 6;
     const minX = PLAY_MIN_X + 6;
@@ -2852,7 +2923,7 @@ export class DungeonScene extends Phaser.Scene {
         if (m.x < minX) m.x = maxX;
         if (m.x > maxX) m.x = minX;
       }
-      const alpha = 0.14 + 0.16 * (0.5 + 0.5 * Math.sin(state.elapsedTime * 3.1 + m.phase));
+      const alpha = 0.08 + 0.08 * (0.5 + 0.5 * Math.sin(state.elapsedTime * 2.6 + m.phase));
       g.fillStyle(moteColor, alpha);
       g.fillRect(snapPx(m.x), snapPx(m.y), PIXEL_SCALE, PIXEL_SCALE);
     }
@@ -2866,33 +2937,21 @@ export class DungeonScene extends Phaser.Scene {
     const theme = this.bridge.theme;
     const boss = state.enemies.find((e) => e.archetype === 'boss');
 
-    // Bright, saturated looks per biome; vignettes are tinted, never near-black.
+    // Calm Hearth & Slate atmosphere: neutral grade, subtle ink vignette, high readability.
+    atmo.grade = [1.02, 1.02, 1.0, 0.0];
+    atmo.vignetteColor = [0.078, 0.075, 0.102];
+    atmo.vignetteStrength = boss ? 0.22 : 0.16;
+
     if (biome.id === 'dungeon') {
       atmo.ambientColor = [...theme.shaderAmbient];
-      atmo.vignetteColor = boss ? [0.42, 0.04, 0.14] : [...theme.shaderVignette];
-      atmo.vignetteStrength = boss ? 0.46 : 0.32;
-      // The dungeon tiles are dark, so lift brightness more than outdoors.
-      atmo.grade = [1.45, 1.1, 1.16, 0.45];
     } else if (biome.id === 'snow') {
-      atmo.ambientColor = [0.98, 1.02, 1.1];
-      atmo.vignetteColor = [0.18, 0.36, 0.7];
-      atmo.vignetteStrength = 0.28;
-      atmo.grade = [1.3, 1.06, 1.02, 0.45];
+      atmo.ambientColor = [0.95, 0.97, 1.0];
     } else if (biome.id === 'town') {
-      atmo.ambientColor = [1.04, 0.98, 0.94];
-      atmo.vignetteColor = [0.34, 0.12, 0.3];
-      atmo.vignetteStrength = 0.3;
-      atmo.grade = [1.38, 1.08, 1.04, 0.4];
+      atmo.ambientColor = [0.99, 0.97, 0.95];
     } else if (biome.id === 'battle') {
-      atmo.ambientColor = [1.04, 1.0, 0.9];
-      atmo.vignetteColor = [0.3, 0.2, 0.06];
-      atmo.vignetteStrength = 0.3;
-      atmo.grade = [1.42, 1.1, 1.04, 0.45];
+      atmo.ambientColor = [0.99, 0.96, 0.95];
     } else {
-      atmo.ambientColor = [1.06, 1.02, 0.9];
-      atmo.vignetteColor = [0.36, 0.22, 0.06];
-      atmo.vignetteStrength = 0.26;
-      atmo.grade = [1.42, 1.06, 1.05, 0.4];
+      atmo.ambientColor = [0.95, 0.98, 0.96];
     }
 
     atmo.flashColor = [...this.shaderFlashColor];
@@ -2905,51 +2964,50 @@ export class DungeonScene extends Phaser.Scene {
       if (!torch) {
         atmo.setLight(i, null);
       } else {
-        const flicker = Math.sin(state.elapsedTime * 10 + i * 2.1) * 0.015;
+        const flicker = Math.sin(state.elapsedTime * 10 + i * 2.1) * 0.012;
         atmo.setLight(
           i,
           {
             x: torch.x / ARENA_W,
             y: (torch.y + 20) / ARENA_H,
-            radius: 0.36 + flicker,
+            radius: 0.34 + flicker,
             r: 1.0,
-            g: 0.5,
-            b: 0.12,
+            g: 0.68,
+            b: 0.32,
           },
-          0.8,
+          0.38,
         );
       }
     }
 
-    // Light 4: Hero lantern / arcane weapon aura
+    // Light 4: Soft hero lantern
     if (state.phase === 'start' || sliding) {
       atmo.setLight(4, null);
     } else {
       const px = this.heroTransitionPos ? this.heroTransitionPos.x : state.player.x;
       const py = this.heroTransitionPos ? this.heroTransitionPos.y : state.player.y;
       const wid = state.player.weaponId;
-      const swingBoost = state.player.attackAnimTimer > 0 ? 0.04 : 0;
       const lightRgb: [number, number, number] =
         wid === 'arcane_lance'
-          ? [0.42, 0.78, 0.96]
+          ? [0.62, 0.86, 0.97]
           : wid === 'scatter_staff'
-            ? [0.76, 0.45, 0.96]
-            : [0.84, 0.72, 0.56];
+            ? [0.68, 0.48, 0.84]
+            : [0.92, 0.84, 0.72];
       atmo.setLight(
         4,
         {
           x: px / ARENA_W,
           y: py / ARENA_H,
-          radius: 0.25 + swingBoost,
+          radius: 0.24,
           r: lightRgb[0],
           g: lightRgb[1],
           b: lightRgb[2],
         },
-        0.58,
+        0.26,
       );
     }
 
-    // Light 5: Boss furnace aura, active Portal beacon, or Healing Fountain shimmer
+    // Light 5: Restrained boss hearth aura, portal beacon, or healing fountain shimmer
     const portal = state.portals[0];
     if (boss && !sliding) {
       atmo.setLight(
@@ -2957,12 +3015,12 @@ export class DungeonScene extends Phaser.Scene {
         {
           x: boss.x / ARENA_W,
           y: (boss.y - boss.leapZ * 0.4) / ARENA_H,
-          radius: 0.28 + Math.sin(state.elapsedTime * 6) * 0.02,
-          r: 0.96,
-          g: 0.28,
-          b: 0.16,
+          radius: 0.26 + Math.sin(state.elapsedTime * 5) * 0.015,
+          r: 0.88,
+          g: 0.34,
+          b: 0.26,
         },
-        0.72,
+        0.34,
       );
     } else if (portal && !sliding) {
       atmo.setLight(
@@ -2970,12 +3028,12 @@ export class DungeonScene extends Phaser.Scene {
         {
           x: portal.x / ARENA_W,
           y: portal.y / ARENA_H,
-          radius: 0.24 + Math.sin(state.elapsedTime * 5) * 0.015,
-          r: 0.96,
-          g: 0.78,
+          radius: 0.22 + Math.sin(state.elapsedTime * 4) * 0.012,
+          r: 0.9,
+          g: 0.7,
           b: 0.24,
         },
-        0.7,
+        0.34,
       );
     } else if (state.fountain && !state.fountain.used && !sliding) {
       atmo.setLight(
@@ -2983,12 +3041,12 @@ export class DungeonScene extends Phaser.Scene {
         {
           x: state.fountain.x / ARENA_W,
           y: state.fountain.y / ARENA_H,
-          radius: 0.22,
-          r: 0.24,
-          g: 0.92,
-          b: 0.56,
+          radius: 0.2,
+          r: 0.36,
+          g: 0.78,
+          b: 0.46,
         },
-        0.55,
+        0.28,
       );
     } else {
       atmo.setLight(5, null);

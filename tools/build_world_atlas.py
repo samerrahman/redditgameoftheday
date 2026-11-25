@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
-Builds the complete original "Obsidian Torchlight & Forged Gold" 16x16 world,
-weapon, relic, prop, hero, enemy, and 32x32 boss atlas for Dungeonle.
+Builds the unified "Hearth & Slate" 16x16 world, weapon, relic, prop, hero,
+legacy creature, and 32x32 boss atlas for Dungeonle.
 
 All sprites share:
-  - Unified obsidian-plum ink outline: #1c1221
-  - Exact 1:1 native pixel grid (rendered at uniform 3.0x on a 768x480 / 256x160 arena)
-  - Larger monsters use larger native canvases (24x24, 26x26, 32x32) rather than zoom mixels.
+  - Unified charcoal-slate ink outline: #14131a (zero pure #000000 anywhere)
+  - Calm low-contrast Stone Crypt flagstones (L 15-22%) so actors & hazards pop in 50ms
+  - Crisp binary 2-state spikes (spikes_0 = flat recessed plate OFF, spikes_1/2 = bright steel+crimson ON)
+  - Warm oak & forged gold interactive props; cool sky/bone/steel hero separation
+  - Exact 1:1 native pixel grid (512x236 atlas preserving every frame rect for shopView/atlasIcon/tests)
 
 Outputs:
-  - public/assets/dungeon/dungeon_atlas.png  (512px wide; 28-col x 18px tile grid + packed anims)
+  - public/assets/dungeon/dungeon_atlas.png  (512x236; 28-col x 18px tile grid + packed anims)
   - public/assets/dungeon/dungeon_atlas.json
   - public/assets/dungeon/{stone_tile,hero_icon,torch_icon,sword_icon,chest_icon,coin_icon,shield_icon,potion_icon}.png
-  - /Users/Samer/.gemini/antigravity/brain/.../scratch/world_atlas_preview.png (4x inspection grid)
+  - <scratch>/world_atlas_preview.png (3x/6x visual QA sheet)
 """
 
 from __future__ import annotations
 
+import colorsys
 import json
 from pathlib import Path
 from PIL import Image
@@ -27,76 +30,90 @@ OUT_PNG = DUNGEON_DIR / "dungeon_atlas.png"
 OUT_JSON = DUNGEON_DIR / "dungeon_atlas.json"
 
 SCRATCH_PREVIEW = Path(
-    "/Users/Samer/.gemini/antigravity/brain/681e0dd1-392e-45a9-b08c-5ca9e857fe94/scratch/world_atlas_preview.png"
+    "/Users/Samer/.gemini/antigravity/brain/87768f31-ab3d-4ad5-8dc5-75bcc8d7a41d/scratch/world_atlas_preview.png"
 )
 
-# Unified Obsidian Torchlight & Forged Gold palette
-INK = (28, 18, 33, 255)       # #1c1221 unified outline
-MORTAR = (22, 16, 32, 255)    # #161020 deep stone crease
+# ---------------------------------------------------------------------------
+# Hearth & Slate canonical palette (zero pure #000000, zero pure #ffffff)
+# ---------------------------------------------------------------------------
+INK = (20, 19, 26, 255)        # #14131a  L=9%   Unified outline, deep shadow, mortar pit
+SLATE_0 = (33, 35, 46, 255)    # #21232e  L=15%  Floor dark, dark iron, recesses
+FLOOR_1 = (40, 43, 56, 255)    # #282b38  L=19%  Stone Crypt floor mid
+FLOOR_2 = (46, 50, 64, 255)    # #2e3240  L=22%  Stone Crypt floor subtle bevel
+SLATE_1 = (44, 48, 62, 255)    # #2c303e  L=21%  Wall dark, dark armor/stone
+WALL_1 = (62, 68, 88, 255)     # #3e4458  L=29%  Wall masonry mid
+SLATE_2 = (67, 73, 94, 255)    # #43495e  L=32%  Iron shadow, monolith mid
+WALL_2 = (86, 94, 118, 255)    # #565e76  L=40%  Wall lit bevel masonry
+SLATE_3 = (106, 115, 140, 255) # #6a738c  L=48%  Wall rim highlight, mid steel, plate
+SLATE_4 = (169, 182, 204, 255) # #a9b6cc  L=73%  Bright steel blade, light armor
+
+OAK_0 = (77, 46, 36, 255)      # #4d2e24  L=22%  Dark umber, leather, boots, chest shadow
+OAK_1 = (140, 82, 54, 255)     # #8c5236  L=38%  Oak crate/chest/door, hair
+OAK_2 = (212, 149, 98, 255)    # #d49562  L=61%  Warm skin, light oak, tan leather
+GOLD_1 = (230, 168, 46, 255)   # #e6a82e  L=54%  Forged gold, coins, clasps, trim
+GOLD_2 = (247, 223, 134, 255)  # #f7df86  L=75%  Gold glint, warm eyes, flame core
+
+BONE = (242, 239, 228, 255)    # #f2efe4  L=92%  Warm ivory highlight, speculars
+SKY_1 = (69, 162, 229, 255)    # #45a2e5  L=58%  Hero tunic/cloak, shield, friendly orb
+SKY_2 = (158, 219, 247, 255)   # #9edbf7  L=79%  Sky-ice glint, blade/lance core
+
+CRIM_0 = (122, 34, 46, 255)    # #7a222e  L=31%  Deep crimson shadow, boss cape, heart shade
+CRIM_1 = (224, 79, 68, 255)    # #e04f44  L=57%  Danger red: spikes ON tip, TNT, hearts
+EMBER = (240, 133, 58, 255)    # #f0853a  L=58%  Hearth fire, torches, enemy orb, fuse
+
+MOSS_0 = (38, 92, 66, 255)     # #265c42  L=25%  Deep pine-moss shadow, slime base
+MOSS_1 = (78, 171, 91, 255)    # #4eab5b  L=49%  Slime, healing fountain/flask
+MOSS_2 = (150, 219, 110, 255)  # #96db6e  L=65%  Slime gel glint, heal foam highlight
+
+PLUM_0 = (75, 53, 110, 255)    # #4b356e  L=32%  Dusk indigo robe, mage/shade body
+PLUM_1 = (167, 112, 214, 255)  # #a770d6  L=64%  Amethyst hex magic, gems, shade core
 
 PAL: dict[str, tuple[int, int, int, int]] = {
     ".": (0, 0, 0, 0),
     "#": INK,
-    "_": MORTAR,
-    "k": (26, 20, 44, 255),
-    # Obsidian / slate stones (floor & gothic masonry)
-    "0": (31, 24, 43, 255),     # darkest obsidian flagstone
-    "1": (41, 32, 56, 255),     # mid-dark floor stone
-    "2": (53, 43, 73, 255),     # mid obsidian slate
-    "3": (72, 60, 96, 255),     # wall base stone
-    "4": (96, 82, 126, 255),    # wall lit bevel stone
-    "5": (124, 108, 156, 255),  # crisp upper rim highlight
-    # Cold steel / silver blades
-    "w": (245, 247, 255, 255),
-    "W": (255, 255, 255, 255),
-    "c": (196, 210, 232, 255),
-    "C": (132, 149, 178, 255),
-    "S": (78, 92, 122, 255),
-    # Forged gold / warm brass
-    "y": (254, 240, 138, 255),
-    "g": (245, 194, 52, 255),
-    "G": (198, 125, 24, 255),
-    "o": (124, 65, 16, 255),
-    # Warm timber / oak / chestnut hair / leather
-    "t": (198, 132, 82, 255),
-    "b": (150, 86, 48, 255),
-    "B": (98, 50, 32, 255),
-    # Skin tones
-    "s": (248, 198, 140, 255),
-    "m": (222, 156, 102, 255),
-    "d": (178, 112, 74, 255),
-    # Crimson / ember red / demon glow
-    "h": (254, 180, 162, 255),
-    "r": (232, 64, 58, 255),
-    "R": (176, 32, 36, 255),
-    "X": (110, 18, 30, 255),
-    # Fire / ember oranges
-    "v": (255, 237, 196, 255),
-    "U": (251, 146, 60, 255),
-    "u": (234, 88, 22, 255),
-    # Toxic emerald / ooze / healing greens
-    "e": (167, 243, 208, 255),
-    "l": (74, 222, 128, 255),
-    "L": (34, 197, 94, 255),
-    "f": (20, 128, 68, 255),
-    "F": (14, 76, 46, 255),
-    # Arcane cyan / ice
-    "q": (224, 247, 255, 255),
-    "z": (103, 232, 249, 255),
-    "Z": (34, 211, 238, 255),
-    "a": (8, 145, 178, 255),
-    "A": (56, 189, 248, 255),
-    "n": (14, 96, 156, 255),
-    # Amethyst / hex violet / shadow indigo
-    "p": (245, 208, 254, 255),
-    "P": (217, 70, 239, 255),
-    "V": (147, 51, 234, 255),
-    "M": (94, 30, 148, 255),
-    "N": (54, 20, 88, 255),
+    "_": INK,
+    "k": INK,
+    # Calm slate floor & masonry walls
+    "q": SLATE_0,   # floor mortar / recess (#21232e)
+    "d": FLOOR_1,   # floor body (#282b38)
+    "h": FLOOR_2,   # floor subtle bevel (#2e3240)
+    "0": SLATE_0,   # dark iron / floor shadow (#21232e)
+    "1": SLATE_1,   # dark wall / dark steel (#2c303e)
+    "m": WALL_1,    # wall mid stone (#3e4458)
+    "2": SLATE_2,   # iron shadow / monolith mid (#43495e)
+    "M": WALL_2,    # wall lit stone (#565e76)
+    "3": SLATE_3,   # wall top rim / mid steel (#6a738c)
+    "4": SLATE_4,   # bright steel / frost armor (#a9b6cc)
+    # Warm oak & forged gold
+    "u": OAK_0,
+    "b": OAK_1,
+    "t": OAK_2,
+    "g": GOLD_1,
+    "y": GOLD_2,
+    # Bone ivory & hero/friendly sky
+    "w": BONE,
+    "a": SKY_1,
+    "z": SKY_2,
+    # Danger crimson & hearth ember
+    "R": CRIM_0,
+    "r": CRIM_1,
+    "o": EMBER,
+    # Moss / healing emerald
+    "F": MOSS_0,
+    "e": MOSS_1,
+    "l": MOSS_2,
+    # Dusk plum / amethyst
+    "V": PLUM_0,
+    "p": PLUM_1,
 }
 
 
-def paint(w: int, h: int, rows: list[str], extra: dict[str, tuple[int, int, int, int]] | None = None) -> Image.Image:
+def paint(
+    w: int,
+    h: int,
+    rows: list[str],
+    extra: dict[str, tuple[int, int, int, int]] | None = None,
+) -> Image.Image:
     assert len(rows) == h, f"Height mismatch: expected {h}, got {len(rows)}"
     pal = dict(PAL)
     if extra:
@@ -129,7 +146,7 @@ def pad_to_cell(img: Image.Image, target_w: int, target_h: int, dx: int = 0, dy:
 
 
 def shift_upper_breath(cell: Image.Image, foot_rows: int = 3) -> Image.Image:
-    """Clean 1px idle/squash dip that preserves face/eye pixel rows cleanly."""
+    """Clean 1px idle squash dip preserving feet grounding and eye rows."""
     w, h = cell.size
     out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     src = cell.load()
@@ -147,13 +164,12 @@ def shift_upper_breath(cell: Image.Image, foot_rows: int = 3) -> Image.Image:
 
 
 def lift_foot_walk(cell: Image.Image, side: str) -> Image.Image:
-    """Lift one foot 1px for crisp walk stride frames."""
+    """Lift one foot 1px for crisp grounded walk stride frames."""
     w, h = cell.size
     out = cell.copy()
     px = out.load()
     mid = w // 2
     x0, x1 = (2, mid) if side == "left" else (mid, w - 2)
-    # Find bottommost opaque row
     bot = h - 1
     while bot > 0 and all(px[x, bot][3] < 128 for x in range(w)):
         bot -= 1
@@ -192,6 +208,7 @@ def build_creature_cycle(
     prefix: str,
     pose3: str = "charge",
     alt_run_b: Image.Image | None = None,
+    charge_rim_col: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Image.Image]:
     """Build standard 10/12 frame cycle on a uniform w x h native grid."""
     idle0 = pad_to_cell(base, w, h, 0, 0)
@@ -222,10 +239,11 @@ def build_creature_cycle(
         f"{prefix}_run_3": run3,
     }
     if prefix == "hero":
+        chg_col = charge_rim_col or GOLD_1
         out["hero_dash_0"] = c0
         out["hero_dash_1"] = c1
-        out["hero_charge_0"] = shift_upper_breath(add_rim(idle0, rim_col))
-        out["hero_charge_1"] = add_rim(pad_to_cell(glint, w, h, 0, -1), rim_col)
+        out["hero_charge_0"] = shift_upper_breath(add_rim(idle0, chg_col))
+        out["hero_charge_1"] = add_rim(pad_to_cell(glint, w, h, 0, -1), chg_col)
     else:
         out[f"{prefix}_{pose3}_0"] = c0
         out[f"{prefix}_{pose3}_1"] = c1
@@ -233,80 +251,82 @@ def build_creature_cycle(
 
 
 def build_tiles() -> dict[int, Image.Image]:
-    """Create all dark-fantasy 16x16 tiles mapped to tile_000..tile_131."""
+    """Create all Hearth & Slate 16x16 tiles mapped to tile_000..tile_131."""
     tiles: dict[int, Image.Image] = {}
 
-    # --- Obsidian dungeon floor tiles (48..53 + 42 subtle carved inlay) ---
+    # --- Calm Stone Crypt flagstones (48..53 + 42 subtle carved inlay, strictly L 15-22%) ---
     base_floor = paint(
         16,
         16,
         [
-            "2222222222222210",
-            "2111111111111110",
-            "2111111111111110",
-            "2111211111111110",
-            "2111111111111110",
-            "2111111111111110",
-            "2111111111111110",
-            "2111111111111110",
-            "2111111111111110",
-            "2111111111101110",
-            "2111111111111110",
-            "2111111111111110",
-            "2111111111111110",
-            "2111111111111110",
-            "1111111111111110",
-            "0000000000000000",
+            "dhhhhhhhhhhhhhdq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "hddddddddddddddq",
+            "dddddddddddddddq",
+            "qdddddddddddddqq",
         ],
     )
     tiles[48] = base_floor
-    tiles[49] = set_px(base_floor, [(4, 4, "0"), (5, 4, "0"), (11, 10, "2")])
-    tiles[50] = set_px(base_floor, [(9, 3, "2"), (10, 3, "2"), (5, 11, "0")])
-    tiles[51] = set_px(base_floor, [(2, 11, "0"), (3, 12, "0"), (12, 4, "2")])
-    tiles[52] = set_px(base_floor, [(7, 7, "0"), (8, 7, "2"), (3, 3, "2")])
-    tiles[53] = set_px(base_floor, [(12, 12, "0"), (13, 12, "0"), (1, 14, "0")])
+    tiles[49] = set_px(base_floor, [(4, 4, "q"), (5, 4, "q"), (11, 10, "h")])
+    tiles[50] = set_px(base_floor, [(9, 3, "h"), (10, 3, "h"), (5, 11, "q")])
+    tiles[51] = set_px(base_floor, [(2, 11, "q"), (3, 12, "q"), (12, 4, "h")])
+    tiles[52] = set_px(base_floor, [(7, 7, "q"), (8, 7, "h"), (3, 3, "h")])
+    tiles[53] = set_px(base_floor, [(11, 12, "q"), (12, 12, "q"), (2, 13, "q")])
+    # Subtle carved flagstone medallion strictly inside floor L 15-22% band
     tiles[42] = paint(
         16,
         16,
         [
-            "2222222222222210",
-            "2111111111111110",
-            "2111000000011110",
-            "2110112221101110",
-            "2101122222110110",
-            "2101223223221010",
-            "2101222112221010",
-            "2101221001221010",
-            "2101221001221010",
-            "2101222112221010",
-            "2101223223221010",
-            "2101122222110110",
-            "2110111111101110",
-            "2111000000011110",
-            "1111111111111110",
-            "0000000000000000",
+            "dhhhhhhhhhhhhhdq",
+            "hddddddddddddddq",
+            "hdddqqqqqqqddddq",
+            "hddqddhhhddqdddq",
+            "hdqddhdddhddqddq",
+            "hdqdhddqddhdqddq",
+            "hdqdddqdqdddqddq",
+            "hdqddqqdqqddqddq",
+            "hdqddqqdqqddqddq",
+            "hdqdddqdqdddqddq",
+            "hdqdhddqddhdqddq",
+            "hdqddhdddhddqddq",
+            "hddqdddddddqdddq",
+            "hdddqqqqqqqddddq",
+            "dddddddddddddddq",
+            "qdddddddddddddqq",
         ],
     )
 
-    # --- North gothic fortress wall (14) + crypt grate (28) + royal crimson-gold banner (29) + corners (1, 3) ---
+    # --- Clean Slate Masonry Walls (neutral cool slate so biome wallTints harmonize cleanly) ---
+    # 14 = north wall, 28 = crypt iron grate, 29 = restrained crimson-gold banner, 1/3 = NW/NE corners
     tiles[14] = paint(
         16,
         16,
         [
             "################",
-            "5555555555555555",
-            "4444444344444443",
-            "3333333_3333333_",
-            "3332233_3332233_",
-            "2222222_2222222_",
+            "3333333333333333",
+            "MMMMMMM2MMMMMMM2",
+            "mmmmmmm_mmmmmmm_",
+            "mmmmmmm_mmmmmmm_",
+            "1111111_1111111_",
             "________________",
-            "444_44444444_444",
-            "332_33333332_333",
+            "MMM_MMMMMMMM_MMM",
+            "mmm_mmmmmmmm_mmm",
             "222_22222222_222",
-            "211_11122111_111",
+            "111_11111111_111",
             "________________",
-            "3333333_3333333_",
-            "2221222_2221222_",
+            "mmmmmmm_mmmmmmm_",
+            "2222222_2222222_",
             "1111111_1111111_",
             "################",
         ],
@@ -316,19 +336,19 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             "################",
-            "5555555555555555",
-            "4444444444444444",
-            "333#########3333",
-            "33#kCkkCkkCk#33_",
-            "22#kCkkCkkCk#22_",
-            "__#kSkkSkkSk#___",
-            "44#kCkkCkkCk#444",
-            "33#kCkkCkkCk#333",
-            "22#kSkkSkkSk#222",
-            "21#kkkkkkkkk#111",
+            "3333333333333333",
+            "MMMMMMMMMMMMMMMM",
+            "mmm#########mmmm",
+            "mm#k3kk3kk3k#mm_",
+            "11#k2kk2kk2k#11_",
+            "__#k2kk2kk2k#___",
+            "MM#k3kk3kk3k#MMM",
+            "mm#k2kk2kk2k#mmm",
+            "22#k1kk1kk1k#222",
+            "11#kkkkkkkkk#111",
             "__###########___",
-            "3333333_3333333_",
-            "2221222_2221222_",
+            "mmmmmmm_mmmmmmm_",
+            "2222222_2222222_",
             "1111111_1111111_",
             "################",
         ],
@@ -338,19 +358,19 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             "################",
-            "555g55555555g555",
-            "444#GGGGGGGG#443",
-            "333#rrrrrrrr#33_",
-            "332#rrRggRrr#23_",
-            "222#rRgyygRr#22_",
-            "___#rRgYYgRr#___".replace("Y", "y"),
-            "444#rRRggRRr#444",
-            "332#RRRRRRRR#333",
-            "222#RRXXXXRR#222",
-            "211.#RXXXXR#.111",
-            "____.#XXXX#.____",
-            "33333.#RR#.3333_",
-            "222122.##.22122_",
+            "333g33333333g333",
+            "MMM#gggggggg#MM2",
+            "mmm#RRRRRRRR#mm_",
+            "mmm#RrrggRrR#mm_",
+            "111#RrgyygRR#11_",
+            "___#RrgyygRR#___",
+            "MMM#RRrggRRR#MMM",
+            "mmm#RRRRRRRR#mmm",
+            "222#RRRRRRRR#222",
+            "1111#RRRRRR#1111",
+            "_____#RRRR#_____",
+            "mmmmmm#RR#mmmmm_",
+            "2222222##222222_",
             "1111111_1111111_",
             "################",
         ],
@@ -360,46 +380,46 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             "################",
-            "#555555555555555",
-            "#544444434444443",
-            "#4333333_333333_",
-            "#4322222_222222_",
-            "#4321111_111111_",
-            "#4321___________",
-            "#4321444_4444444",
-            "#4321332_3333333",
-            "#4321222_2222222",
-            "#4321211_1111111",
-            "#4321___________",
-            "#432133333333333",
-            "#432122222222222",
-            "#432111111111111",
-            "#4321###########",
+            "#333333333333333",
+            "#3MMMMMM2MMMMMM2",
+            "#Mmmmmmm_mmmmmm_",
+            "#Mmmmmmm_mmmmmm_",
+            "#m111111_111111_",
+            "#m11____________",
+            "#m11MMM_MMMMMMMM",
+            "#m11mmm_mmmmmmmm",
+            "#m11222_22222222",
+            "#m11111_11111111",
+            "#m11____________",
+            "#m11mmmmmmmmmmmm",
+            "#m11222222222222",
+            "#m11111111111111",
+            "#m11############",
         ],
     )
     tiles[3] = tiles[1].transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
-    # --- Side walls (57 west, 59 east) + south parapet wall (26) + south corners (25, 27) ---
+    # Side walls (57 west, 59 east) + south parapet wall (26) + south corners (25, 27)
     tiles[57] = paint(
         16,
         16,
         [
-            "#432_2222222222_",
-            "#543_2111111111_",
-            "#543_1111111110_",
-            "#543_1111111110_",
-            "#432_1111111110_",
-            "#432____________",
-            "#432_222_222222_",
-            "#543_211_211110_",
-            "#543_111_111110_",
-            "#432_111_111110_",
-            "#432_100_110000_",
-            "#432____________",
-            "#543_2222222_22_",
-            "#543_2111111_21_",
-            "#432_1111110_11_",
-            "#432_0000000_00_",
+            "#M21_2222222222_",
+            "#3M2_1111111111_",
+            "#3M2_1111111110_",
+            "#3M2_1111111110_",
+            "#M21_1111111110_",
+            "#M21____________",
+            "#M21_222_222222_",
+            "#3M2_111_111110_",
+            "#3M2_111_111110_",
+            "#M21_111_111110_",
+            "#M21_000_000000_",
+            "#M21____________",
+            "#3M2_2222222_22_",
+            "#3M2_1111111_11_",
+            "#M21_1111110_10_",
+            "#M21_0000000_00_",
         ],
     )
     tiles[59] = tiles[57].transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -409,11 +429,11 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             "################",
-            "5555555555555555",
-            "4444444444444444",
             "3333333333333333",
+            "MMMMMMMMMMMMMMMM",
+            "mmmmmmmmmmmmmmmm",
             "################",
-            "333_33333333_333",
+            "mmm_mmmmmmmm_mmm",
             "222_22222222_222",
             "111_11111111_111",
             "________________",
@@ -430,207 +450,210 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         16,
         [
-            "#4321###########",
-            "#543155555555555",
-            "#543144444444444",
-            "#432133333333333",
-            "#4321###########",
-            "#432_33333333333",
-            "#432_22222222222",
-            "#432_11111111111",
-            "#432____________",
-            "#432_2222222_222",
-            "#432_1111111_111",
-            "#321_0000000_000",
-            "#321____________",
-            "#321_11111111111",
-            "#210_00000000000",
+            "#M21############",
+            "#3M2333333333333",
+            "#3M2MMMMMMMMMMMM",
+            "#M21mmmmmmmmmmmm",
+            "#M21############",
+            "#M21_mmmmmmmmmmm",
+            "#M21_22222222222",
+            "#M21_11111111111",
+            "#M21____________",
+            "#M21_2222222_222",
+            "#M21_1111111_111",
+            "#210_0000000_000",
+            "#210____________",
+            "#210_11111111111",
+            "#100_00000000000",
             "################",
         ],
     )
     tiles[27] = tiles[25].transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
-    # --- Vaulted Doors: open dark stone arch (22, 23) + closed iron-studded oak gate (46, 47) ---
+    # --- Vaulted Doors: open dark arch (22, 23) + closed warm oak & gold gate (46, 47) ---
     tiles[22] = paint(
         16,
         16,
         [
             "################",
-            "55555555########",
-            "444444##55555555",
-            "3333##4444444444",
-            "33##433########.",
-            "2#433##kkkkkkkk.",
-            "_#32#k0kkkkkkkk.",
-            "4#32#kkkkkkkkkk.",
-            "3#32#kkkkkkkkkk.",
-            "2#21#k1kkkkkkkk.",
-            "2#21#kkkkkkkkkk.",
-            "_#21#kkkkkkkkkk.",
-            "3#21#kkkkkkkkkk.",
-            "2#10#kkkk0kkkkk.",
-            "1#10#kkkkkkkkkk.",
+            "33333333########",
+            "MMMMMM##33333333",
+            "mmmm##MMMMMMMMMM",
+            "mm##Mmmmm#######",
+            "1#Mmm##kkkkkkkkk",
+            "_#m2#k0kkkkkkkkk",
+            "M#m2#kkkkkkkkkkk",
+            "m#m2#kkkkkkkkkkk",
+            "2#21#k0kkkkkkkkk",
+            "1#21#kkkkkkkkkkk",
+            "_#21#kkkkkkkkkkk",
+            "m#21#kkkkkkkkkkk",
+            "2#10#kkkk0kkkkkk",
+            "1#10#kkkkkkkkkkk",
             "################",
         ],
     )
     tiles[23] = tiles[22].transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-    tiles[22] = set_px(tiles[22], [(15, y, "k") for y in range(4, 15)] + [(14, 4, "#"), (15, 4, "#")])
-    tiles[23] = set_px(tiles[23], [(0, y, "k") for y in range(4, 15)] + [(0, 4, "#"), (1, 4, "#")])
 
     tiles[46] = paint(
         16,
         16,
         [
             "################",
-            "55555555########",
-            "444444##55555555",
-            "3333##4444444444",
-            "33##433########.",
-            "2#433##CCCCCCCC#",
-            "_#32#tBbbbbbbBS#",
-            "4#32#tbBBBBbbBS#",
-            "3#32#tbbbbbbbBS#",
-            "2#21#CCCCgCCCcS#",
-            "2#21#tbBBybbbBS#",
-            "_#21#tbbbBbbbBS#",
-            "3#21#tbbbbbbbBS#",
-            "2#10#SSSSSSSSSS#",
-            "1#10#BBbBBBbbBS#",
+            "33333333########",
+            "MMMMMM##33333333",
+            "mmmm##MMMMMMMMMM",
+            "mm##Mmmmm#######",
+            "1#Mmm##33333332#",
+            "_#m2#tubbbbbbu2#",
+            "M#m2#tbuuuubbu2#",
+            "m#m2#tbbbbbbbu2#",
+            "2#21#3333g3333g#",
+            "1#21#tbuubbbbuy#",
+            "_#21#tbbbubbbu2#",
+            "m#21#tbbbbbbbu2#",
+            "2#10#2222222222#",
+            "1#10#uubuuubbu2#",
             "################",
         ],
     )
     tiles[47] = tiles[46].transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-    # Keep gold lock centered across 46+47
     tiles[46] = set_px(tiles[46], [(15, 9, "g"), (15, 10, "y")])
     tiles[47] = set_px(tiles[47], [(0, 9, "g"), (0, 10, "y")])
 
-    # --- Dungeon monolith block (64), crate (63), altar column (65), chest (91), stairs (56), fountains (19, 31, 32) ---
+    # --- Architectural Props: Monolith Block (64), Oak Crate (63), Column (65), Chest (91), Stairs (56), Fountain (19,31,32) ---
+    # 64: Carved Stone Crypt Monolith (calm slate + subtle gold corner studs, zero distracting cyan!)
     tiles[64] = paint(
         16,
         16,
         [
             "################",
-            "#55555555555554#",
-            "#44444444444443#",
-            "#433333gg333332#",
-            "#43222gZZg22232#",
-            "#3322gZqqZg2232#",
-            "#3322gZqqZg2221#",
-            "#32222gZZg22221#",
-            "#222_22gg22_221#",
-            "#221_112211_110#",
-            "#211111__111110#",
-            "#11110111101110#",
-            "#10000111100000#",
+            "#3333333333333M#",
+            "#MgMMMMMMMMMMgM#",
+            "#Mmmmmmmmmmmmm2#",
+            "#Mmm22211222mm2#",
+            "#mm2211001122m1#",
+            "#m22100gg001221#",
+            "#m2210gyyg01221#",
+            "#m22100gg001221#",
+            "#m2211000011221#",
+            "#22111222211120#",
+            "#21111111111110#",
+            "#11000000000000#",
+            "#10000000000000#",
             "#00000000000000#",
-            "#______________#",
             "################",
         ],
     )
 
+    # 63: Breakable Oak Crate (crisp framed oak planks + clean diagonal brace + iron corners)
     tiles[63] = paint(
         16,
         16,
         [
             "................",
             ".##############.",
-            ".#ccCCCCCCCCcS#.",
-            ".#c#tttttttt#S#.",
-            ".#C#ttBBBBtb#S#.",
-            ".#C#tbBttbbB#S#.",
-            ".#C#tBBBBbbt#S#.",
-            ".#C#bBttbbbb#S#.",
-            ".#C#bbbbtBbb#S#.",
-            ".#C#bbBtBBBB#S#.",
-            ".#C#BBBBBBBB#S#.",
-            ".#SS########SS#.",
-            ".#SSSSSSSSSSSS#.",
-            ".#BBBBBBBBBBBB#.",
+            ".#33#tttttt#32#.",
+            ".#32#bbbbbb#22#.",
+            ".####uuuuuu####.",
+            ".#tt#tbbbbb#bb#.",
+            ".#tb#btbbbb#bu#.",
+            ".#tb#ubtbbb#bu#.",
+            ".#tb#bubtbb#bu#.",
+            ".#tb#bbubtb#bu#.",
+            ".#bu#bbbbub#uu#.",
+            ".####uuuuuu####.",
+            ".#22#bbbbbb#21#.",
+            ".#21#uuuuuu#11#.",
             ".##############.",
             "................",
         ],
     )
 
+    # 65: Carved Slate Pedestal / Pillar (quiet stone + subtle gold inlay)
     tiles[65] = paint(
         16,
         16,
         [
             "..############..",
-            ".#555555555554#.",
-            ".#4444g44g4443#.",
-            ".#333333333332#.",
-            "..##43322334##..",
-            "...#332ZZ223#...",
-            "...#322qq222#...",
-            "...#222ZZ221#...",
-            "...#22222211#...",
+            ".#33333333333M#.",
+            ".#MMMMgMMgMMMM#.",
+            ".#mmmmmmmmmmmm#.",
+            "..##Mmmm22mm##..",
+            "...#mmm22mm2#...",
+            "...#mm2gg2m2#...",
+            "...#m22yy221#...",
+            "...#222gg211#...",
             "...#22111110#...",
             "..##11111110##..",
-            ".#433333333332#.",
-            ".#322222222221#.",
+            ".#Mmmmmmmmmmm2#.",
+            ".#m22222222221#.",
             ".#111111111110#.",
             ".##############.",
             "................",
         ],
     )
 
+    # 91: Hearth & Slate Treasure Chest (warm oak + forged gold straps & lock)
     tiles[91] = paint(
         16,
         16,
         [
             "................",
             "..############..",
-            ".#ggggGGGGgggg#.",
-            ".#gRRRRrrRRRRg#.",
-            ".#grrrRrrRrrrg#.",
+            ".#gggggggggggg#.",
+            ".#gttttttbbbbg#.",
+            ".#gbbbbbbbbbbg#.",
             ".#gggg####gggg#.",
-            ".#gBB#gyyg#BBg#.",
-            ".#gBB#grrg#BBg#.",
-            ".#GGGG####GGGG#.",
-            ".#gBBBBBBBBBBg#.",
-            ".#gBBBBBBBBBBg#.",
-            ".#gXXXXXXXXXXg#.",
-            ".#GGGGGGGGGGGG#.",
+            ".#guu#gyyg#uug#.",
+            ".#guu#gbbg#uug#.",
+            ".#gggg####gggg#.",
+            ".#gbbbbbbbbbbg#.",
+            ".#gbuuuuuuuubg#.",
+            ".#guuuuuuuuuug#.",
+            ".#gggggggggggg#.",
             ".##############.",
             "................",
             "................",
         ],
     )
 
+    # 56: Descending Stone Stairs (crisp stepped stone treads descending into darkness)
     tiles[56] = paint(
         16,
         16,
         [
             ".##############.",
-            "#55555555555554#",
-            "#4g##########g3#",
-            "#3#5444444444#2#",
-            "#3#33333333##k2#",
-            "#3#2222222##kk2#",
-            "#2#111111##kkk2#",
-            "#2#00000##kkkk1#",
-            "#2#____##kkkkk1#",
-            "#2#kkk##kkkkkk1#",
-            "#2#kk##kkkkkkk1#",
-            "#1#k##kkkkkkkk0#",
-            "#1###########k0#",
-            "#4g3333222222g0#",
+            "#3333333333333M#",
+            "#Mg##########g2#",
+            "#m#3333333333#2#",
+            "#m#MMMMMMMMMM#2#",
+            "#m############2#",
+            "#m#mmmmmmmm##k2#",
+            "#m#22222222#kk2#",
+            "#2##########kk1#",
+            "#2#222222##kkk1#",
+            "#2#111111#kkkk1#",
+            "#1########kkkk0#",
+            "#1#0000##kkkkk0#",
+            "#Mgmmmm222222g0#",
             ".##############.",
             "................",
         ],
     )
 
+    # 19/31/32: Healing Fountain (empty gargoyle, empty basin, emerald-filled basin)
     tiles[19] = paint(
         16,
         16,
         [
             "................",
             "..############..",
-            ".#555555555554#.",
-            ".#433#4334#332#.",
-            ".#322#3223#221#.",
-            ".#32###22###21#.",
-            ".#3#44#11#44#1#.",
+            ".#33333333333M#.",
+            ".#Mmm#M44M#mm2#.",
+            ".#m22#m33m#221#.",
+            ".#m2###22###21#.",
+            ".#m#MM#11#MM#1#.",
             ".#2####00####1#.",
             ".#2111#kk#1110#.",
             ".#1100#kk#0000#.",
@@ -648,13 +671,13 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "................",
             ".##############.",
-            "#55555555555554#",
-            "#4##11111111##3#",
-            "#3#1000000001#2#",
-            "#3#0000000000#2#",
-            "#3#0000000000#2#",
-            "#3#0000000000#2#",
-            "#3#0000000000#2#",
+            "#3333333333333M#",
+            "#M##11111111##2#",
+            "#m#1000000001#2#",
+            "#m#0000000000#2#",
+            "#m#0000000000#2#",
+            "#m#0000000000#2#",
+            "#m#0000000000#2#",
             "#2#0000000000#1#",
             "#2##00000000##1#",
             "#111########111#",
@@ -670,15 +693,15 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "................",
             ".##############.",
-            "#55555555555554#",
-            "#4##llllllll##3#",
-            "#3#leeeeLLLLl#2#",
-            "#3#lLLWWLLLfL#2#",
-            "#3#lLLLLLLLff#2#",
-            "#3#LllLLllLff#2#",
-            "#3#LLllllLfff#2#",
-            "#2#fLLffLLffF#1#",
-            "#2##ffffffff##1#",
+            "#3333333333333M#",
+            "#M##llllllll##2#",
+            "#m#lwwlleeell#2#",
+            "#m#leellleeeF#2#",
+            "#m#leeeeeeeFF#2#",
+            "#m#elleelleFF#2#",
+            "#m#eelllleFFF#2#",
+            "#2#FeFFeeFFFF#1#",
+            "#2##FFFFFFFF##1#",
             "#111########111#",
             "#00000000000000#",
             ".##############.",
@@ -693,20 +716,20 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             ".......##.......",
-            "......#Ww#......",
-            "......#wc#......",
-            "......#wc#......",
-            "......#wc#......",
-            "......#wc#......",
-            "......#wc#......",
-            "......#wZ#......",
-            "......#wc#......",
-            "......#cC#......",
+            "......#w4#......",
+            "......#w4#......",
+            "......#w4#......",
+            "......#w4#......",
+            "......#w4#......",
+            "......#w4#......",
+            "......#wz#......",
+            "......#43#......",
+            "......#43#......",
             "...#########....",
-            "...#ygGGGGg#....",
+            "...#ygggggg#....",
             "....###R###.....",
-            "......#B#.......",
-            "......#Z#.......",
+            "......#u#.......",
+            "......#a#.......",
             "......###.......",
         ],
     )
@@ -716,15 +739,15 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "................",
             "........###.....",
-            ".......#WWl#....",
-            "......#WwcL#....",
-            ".....#WwcCS#....",
-            "....#WwcCS#.....",
-            "....#wcCS#......",
-            ".....#cCS#......",
-            "......#S#.......",
+            ".......#wwl#....",
+            "......#w44e#....",
+            ".....#w4432#....",
+            "....#w4432#.....",
+            "....#4432#......",
+            ".....#432#......",
+            "......#2#.......",
             "...#########....",
-            "...#CgyyygC#....",
+            "...#3gyyyg3#....",
             "....###R###.....",
             "......#r#.......",
             "......#g#.......",
@@ -738,19 +761,19 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "................",
             "..############..",
-            ".#g4444444444g#.",
-            ".#y43gUyyUg33g#.",
-            ".#g33UyyyyU22G#.",
-            ".#g222gUUg222G#.",
-            ".#G2222222211o#.",
+            ".#gMMMMMMMMMMg#.",
+            ".#yMmgoyyogmmg#.",
+            ".#gmmoyyyyomm2#.",
+            ".#g222gooo222g#.",
+            ".#g2222222211u#.",
             "..############..",
-            "......#gG#......",
-            "......#bB#......",
-            "......#bB#......",
-            "......#bB#......",
-            "......#gG#......",
-            "......#bB#......",
-            "......#gG#......",
+            "......#gb#......",
+            "......#bu#......",
+            "......#bu#......",
+            "......#bu#......",
+            "......#gb#......",
+            "......#bu#......",
+            "......#gb#......",
             "......###.......",
         ],
     )
@@ -760,18 +783,18 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "...##......##...",
             "..#gp#....#pg#..",
-            "..#gP#.##.#Pg#..",
+            "..#gp#.##.#pg#..",
             "...##.#pw#.##...",
-            "....##pWWP##....",
-            "....#gPppVg#....",
-            ".....#gVVG#.....",
-            "......#gG#......",
+            "....##pwwp##....",
+            "....#gpppVg#....",
+            ".....#gVVg#.....",
+            "......#gb#......",
             "......#tb#......",
-            ".....#tB#.......",
-            "......#bB#......",
+            ".....#tu#.......",
+            "......#bu#......",
             "......#tb#......",
-            ".......#bB#.....",
-            "......#bB#......",
+            ".......#bu#.....",
+            "......#bu#......",
             "......#g#.......",
             "......###.......",
         ],
@@ -781,25 +804,25 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             ".......##.......",
-            "......#Wq#......",
-            ".....#qZZz#.....",
-            ".....#zWWZ#.....",
-            "....#gZqqZg#....",
-            "...#g.ZaaZ.g#...",
+            "......#wz#......",
+            ".....#zwwz#.....",
+            ".....#zwaa#.....",
+            "....#gazzag#....",
+            "...#g.zaaz.g#...",
             "...##.#gg#.##...",
-            "......#gG#......",
-            "......#gG#......",
-            "......#3S#......",
-            "......#gG#......",
-            "......#3S#......",
-            "......#3S#......",
-            "......#3S#......",
+            "......#g3#......",
+            "......#g3#......",
+            "......#32#......",
+            "......#g3#......",
+            "......#32#......",
+            "......#32#......",
+            "......#32#......",
             "......#g#.......",
             "......###.......",
         ],
     )
 
-    # --- Relic icons (102, 105, 107, 114, 115, 116, 118, 119) ---
+    # --- 8 Relic Icons (102, 105, 107, 114, 115, 116, 118, 119) ---
     tiles[102] = paint(
         16,
         16,
@@ -807,16 +830,16 @@ def build_tiles() -> dict[int, Image.Image]:
             "................",
             "..############..",
             ".#gggggggggggg#.",
-            ".#gqqZqqqqZqqg#.",
-            ".#gZWWZZZZWWZg#.",
-            ".#gZZZZccZZZZg#.",
-            ".#gZZcZWWZcZZg#.",
-            ".#gaaZZccZZaag#.",
-            "..#GaaZZZZaaG#..",
-            "..#GaaaaaaaaG#..",
-            "...#GaaaaaaG#...",
-            "....#GGaaGG#....",
-            ".....#GggG#.....",
+            ".#gzzazzzzazzg#.",
+            ".#gawwaaaawaag#.",
+            ".#gaaa4444aaag#.",
+            ".#gaa4aww4aaag#.",
+            ".#gaaaaaaaa3ag#.",
+            "..#gaaaaaaaag#..",
+            "..#gaaaaa33ag#..",
+            "...#g3aaaa3g#...",
+            "....#ggaa3g#....",
+            ".....#gggg#.....",
             "......####......",
             "................",
             "................",
@@ -828,18 +851,18 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "................",
             ".......###......",
-            "......#Wqq#.....",
-            ".....#qZZZ#.....",
-            ".....#ZqqZ#.....",
-            ".....#ZaaZ#.....",
-            ".....#Zaa#......",
-            "......#Za#......",
-            "......#Za#......",
+            "......#wzz#.....",
+            ".....#zaaa#.....",
+            ".....#azza#.....",
+            ".....#a33a#.....",
+            ".....#a33#......",
+            "......#a3#......",
+            "......#a3#......",
             "....#######.....",
-            "....#CZZZC#.....",
-            ".....##Z##......",
-            "......#a#.......",
-            "......#W#.......",
+            "....#3aaa3#.....",
+            ".....##a##......",
+            "......#3#.......",
+            "......#w#.......",
             "......###.......",
             "................",
         ],
@@ -849,28 +872,28 @@ def build_tiles() -> dict[int, Image.Image]:
         16,
         [
             ".......##.......",
-            "......#Wh#......",
-            ".....#hrrR#.....",
+            "......#wo#......",
+            ".....#orrR#.....",
             ".....#rryR#.....",
-            ".....#rrUR#.....",
+            ".....#rroR#.....",
             ".....#rryR#.....",
-            ".....#rRXR#.....",
-            ".....#rRX#......",
-            "......#RX#......",
+            ".....#rRRR#.....",
+            ".....#rRR#......",
+            "......#RR#......",
             "...#########....",
             "..#gygggggyg#...",
             "...###rRr###....",
-            "......#X#.......",
+            "......#R#.......",
             "......#g#.......",
             "......###.......",
             "................",
         ],
     )
-    # 114 emerald, 115 ember crimson, 116 cobalt frost flasks
+    # 114 emerald moss, 115 ember crimson, 116 sky frost flasks
     for tile_id, hi, mid, lo in [
-        (114, "e", "l", "f"),
-        (115, "v", "U", "r"),
-        (116, "q", "z", "n"),
+        (114, "l", "e", "F"),
+        (115, "y", "o", "r"),
+        (116, "z", "a", "2"),
     ]:
         tiles[tile_id] = paint(
             16,
@@ -880,15 +903,15 @@ def build_tiles() -> dict[int, Image.Image]:
                 "......####......",
                 "......#tb#......",
                 ".....######.....",
-                ".....#cggC#.....",
-                "......#wC#......",
-                ".....#w##C#.....",
-                "....##qWWc##....",
-                "...#c{hi}{hi}{hi}{mid}{mid}{lo}c#...".format(hi=hi, mid=mid, lo=lo),
-                "..#c{hi}W{hi}{hi}{mid}{mid}{lo}{lo}C#..".format(hi=hi, mid=mid, lo=lo),
-                "..#{hi}{hi}{hi}{mid}{mid}{mid}{lo}{lo}{lo}C#..".format(hi=hi, mid=mid, lo=lo),
-                "..#{mid}{mid}{mid}{mid}{lo}{lo}{lo}{lo}{lo}C#..".format(mid=mid, lo=lo),
-                "...#{lo}{lo}{lo}{lo}{lo}{lo}{lo}C#...".format(lo=lo),
+                ".....#4gg3#.....",
+                "......#w3#......",
+                ".....#w##3#.....",
+                "....##zww4##....",
+                f"...#4{hi}{hi}{hi}{mid}{mid}{lo}4#...",
+                f"..#4{hi}w{hi}{hi}{mid}{mid}{lo}{lo}3#..",
+                f"..#{hi}{hi}{hi}{mid}{mid}{mid}{lo}{lo}{lo}3#..",
+                f"..#{mid}{mid}{mid}{mid}{lo}{lo}{lo}{lo}{lo}3#..",
+                f"...#{lo}{lo}{lo}{lo}{lo}{lo}{lo}3#...",
                 "....########....",
                 "................",
                 "................",
@@ -901,17 +924,17 @@ def build_tiles() -> dict[int, Image.Image]:
             "................",
             "..###......###..",
             ".#yyg#.##.#gyy#.",
-            "#yggG##gG##Gggy#",
-            "#gggG#gggg#Gggg#",
-            "#GooG#gggg#GooG#",
-            ".#oo##GggG##oo#.",
-            "..###.#gG#.###..",
-            "......#bB#......",
-            "......#bB#......",
-            "......#bB#......",
-            "......#bB#......",
-            "......#gG#......",
-            "......#bB#......",
+            "#yggu##gb##uggy#",
+            "#gggu#gggg#uggg#",
+            "#guug#gggg#guug#",
+            ".#uu##gggg##uu#.",
+            "..###.#gb#.###..",
+            "......#bu#......",
+            "......#bu#......",
+            "......#bu#......",
+            "......#bu#......",
+            "......#gb#......",
+            "......#bu#......",
             "......#g#.......",
             "......###.......",
         ],
@@ -922,55 +945,51 @@ def build_tiles() -> dict[int, Image.Image]:
         [
             "................",
             ".###.......###..",
-            "#Wcc#..##.#ccS#.",
-            "#wcC###43##CCS#.",
-            "#cCS##3223##CS#.",
-            ".#CS#.#22#.#S#..",
-            "..##..#bB#..##..",
-            "......#bB#......",
-            "......#bB#......",
-            "......#bB#......",
+            "#w44#..##.#442#.",
+            "#w43###Mm##332#.",
+            "#432##m22m##32#.",
+            ".#32#.#22#.#2#..",
+            "..##..#bu#..##..",
+            "......#bu#......",
+            "......#bu#......",
+            "......#bu#......",
             "......#rR#......",
-            "......#bB#......",
-            "......#3S#......",
-            "......#bB#......",
+            "......#bu#......",
+            "......#32#......",
+            "......#bu#......",
             "......#g#.......",
             "......###.......",
         ],
     )
 
     # 98 Hero static icon (used by hero_icon.png)
-    hero16 = set_px(
-        build_hero_16(),
-        [(6, 7, "k"), (6, 8, "k"), (10, 7, "k"), (10, 8, "k"), (6, 6, "s"), (10, 6, "s"), (7, 8, "s"), (8, 8, "m"), (9, 8, "s"), (7, 12, "w"), (8, 12, "c")],
-    )
-    tiles[98] = hero16
+    tiles[98] = build_hero_16_with_eyes()
 
-    # 111 Alley Sapper (bomber, 16x16): hooded outlaw holding a lit iron bomb
+    # 111 Alley Sapper (bomber icon, 16x16)
     tiles[111] = paint(
         16,
         16,
         [
             "......####......",
-            "....##tbbB##....",
-            "...#ttbbbbBB#...",
-            "..#tbb####bbB#..",
-            "..#tb#kkkk#bB#..",
-            "..#Bb#UkkU#BB#..",
-            "..#B##rRRr##B#..",
+            "....##tbbu##....",
+            "...#ttbbbbuu#...",
+            "..#tbb####bbu#..",
+            "..#tb#kkkk#bu#..",
+            "..#ub#okk0#uu#..",
+            "..#u##rRRr##u#..",
             "...##rrRRrr##...",
-            "..#BbbgBBgbb#v..",
-            ".#BbtbBggBbb#U#.",
-            ".#BbbBbbbbB#cS#.",
-            "..##BbbggbB#SS#.",
-            "...#BbbbbBB####.",
-            "...#BB#..#BB#...",
+            "..#ubbgbbgbb#y..",
+            ".#ubtbubgubb#o#.",
+            ".#ubbubbbbu#32#.",
+            "..##ubbgbbu#22#.",
+            "...#ubbbbuu####.",
+            "...#uu#..#uu#...",
             "...#01#..#01#...",
             "...###....###...",
         ],
     )
 
-    # 121 Crypt Shade (shade, 16x16): floating spectral violet wraith with glowing core
+    # 121 Crypt Shade (shade icon, 16x16)
     tiles[121] = paint(
         16,
         16,
@@ -978,18 +997,18 @@ def build_tiles() -> dict[int, Image.Image]:
             ".....######.....",
             "....#pwwwwp#....",
             "...#pwppppwp#...",
-            "..#pw#NNNN#wp#..",
-            "..#pp#NkkN#pp#..",
-            "..#pV#PkkP#Vp#..",
-            "..#pV#NNNN#Vp#..",
-            ".#pVV#NMMN#VVp#.",
+            "..#pw#VVVV#wp#..",
+            "..#pp#VkkV#pp#..",
+            "..#pV#pkkp#Vp#..",
+            "..#pV#VVVV#Vp#..",
+            ".#pVV#V11V#VVp#.",
             ".#pVVVVppVVVVp#.",
-            ".#VVVVpWWpVVVV#.",
-            "..#MMVVppVVMM#..",
-            "..#NMMVVVVMMN#..",
-            "..#NNMMVVMMNN#..",
-            "...#N##NN##N#...",
-            "...#N#.##.#N#...",
+            ".#VVVVpwwpVVVV#.",
+            "..#11VVppVV11#..",
+            "..#011VVVV110#..",
+            "..#0011VV1100#..",
+            "...#0##00##0#...",
+            "...#0#.##.#0#...",
             "....#..##..#....",
         ],
     )
@@ -998,52 +1017,67 @@ def build_tiles() -> dict[int, Image.Image]:
 
 
 def build_hero_16() -> Image.Image:
-    """Dungeon Vanguard (16x16): gleam dark steel & forged gold armor, crimson scarf, head outline y=1, eyes (6,7)&(10,7)."""
+    """
+    Hearth & Slate Vanguard (16x16):
+    Clean steel plate (SLATE_2/3/4), Sky-Blue cloak/scarf (SKY_1/2), Forged Gold clasp/belt (GOLD_1/2),
+    warm oak hair & skin, unified #14131a ink. Zero danger-red on the hero for 50ms figure separation!
+    """
     return paint(
         16,
         16,
         [
             "................",
             "....########....",
-            "...#bbbbbbbb#...",
-            "..##bBbbbbBb##..",
+            "...#bttbbbbu#...",
+            "..##bbtbbbbu##..",
             "..#bbttttttbb#..",
-            "..#btsssssstb#..",
-            "..#tsssssssss#..",
-            "..##ssssssss##..",
-            "..##dmmddmmd##..",
-            "...#rrrrrrrr#...",
-            "..##RrrggrrR##..",
-            ".#SSgCCCCCCgSS#.",
-            "#CCSCCCCCCCCSCC#",
-            "#SS#CCggggCC#SS#",
-            "#####SS##SS#####",
-            ".####BB##BB####.",
+            "..#bttttttttb#..",
+            "..#tttttttttt#..",
+            "..##tttttttt##..",
+            "..##bttttttb##..",
+            "...#zaaaaaaz#...",
+            "..##aazggzaa##..",
+            ".#22g344443g22#.",
+            "#34234444443243#",
+            "#22#33gggg33#22#",
+            "#####22##22#####",
+            ".####uu##uu####.",
+        ],
+    )
+
+
+def build_hero_16_with_eyes() -> Image.Image:
+    base = build_hero_16()
+    return set_px(
+        base,
+        [
+            (6, 7, "k"), (6, 8, "k"),
+            (10, 7, "k"), (10, 8, "k"),
+            (7, 12, "w"), (8, 12, "4"),
         ],
     )
 
 
 def build_hero_frames() -> dict[str, Image.Image]:
-    base = build_hero_16()
-    base = set_px(
+    base = build_hero_16_with_eyes()
+    blink = set_px(base, [(6, 7, "t"), (6, 8, "k"), (10, 7, "t"), (10, 8, "k")])
+    glint = set_px(base, [(5, 9, "w"), (6, 12, "w"), (7, 13, "y"), (8, 13, "y")])
+    return build_creature_cycle(
         base,
-        [
-            (6, 7, "k"), (6, 8, "k"),
-            (10, 7, "k"), (10, 8, "k"),
-            (6, 6, "s"), (10, 6, "s"),
-            (7, 8, "s"), (8, 8, "m"), (9, 8, "s"),
-            (7, 12, "w"), (8, 12, "c"),
-        ],
+        blink,
+        glint,
+        SKY_2,
+        20,
+        20,
+        "hero",
+        charge_rim_col=GOLD_2,
     )
-    blink = set_px(base, [(6, 7, "m"), (6, 8, "k"), (10, 7, "m"), (10, 8, "k")])
-    glint = set_px(base, [(1, 10, "r"), (0, 11, "R"), (5, 11, "W"), (7, 13, "y")])
-    return build_creature_cycle(base, blink, glint, PAL["g"], 20, 20, "hero")
 
 
 def build_enemy_frames() -> dict[str, Image.Image]:
+    """Legacy creature frames preserved for exact 512x236 atlas compatibility, unified onto Hearth & Slate."""
     frames: dict[str, Image.Image] = {}
 
-    # 1. Abyssal Acid Ooze (20x20, base 16x16 luminous toxic emerald slime)
     ooze0 = paint(
         16,
         16,
@@ -1051,154 +1085,150 @@ def build_enemy_frames() -> dict[str, Image.Image]:
             "................",
             ".....######.....",
             "...##llllll##...",
-            "..#llWWWWllll#..",
-            ".#lllleellllll#.",
-            ".#lLLLLLLLLLLf#.",
-            "#lLL#kk##kk#LLf#",
-            "#LL##yg##gy##Lf#",
-            "#LLL########LLf#",
-            "#LLfffllllffffF#",
-            "#LffLLLLLLLLffF#",
-            "#ffLLLLeeLLLLFF#",
-            "#ffLLLLLLLfLLFF#",
+            "..#llwwwwllll#..",
+            ".#llllleelllll#.",
+            ".#leeeeeeeeeeF#.",
+            "#lee#kk##kk#eeF#",
+            "#ee##yg##gy##eF#",
+            "#eee########eeF#",
+            "#eeFFFllllFFFFF#",
+            "#eFFeeeeeeeeFFF#",
+            "#FFeeeelleeeeFF#",
+            "#FFeeeeeeeFeeFF#",
             ".#FFFFFFFFFFFF#.",
             "..############..",
             "................",
         ],
     )
-    ooze_glint = set_px(ooze0, [(4, 4, "W"), (6, 7, "W"), (9, 7, "W"), (11, 10, "e")])
-    ooze_blink = set_px(ooze0, [(5, 7, "L"), (6, 7, "L"), (9, 7, "L"), (10, 7, "L")])
-    frames.update(build_creature_cycle(ooze0, ooze_blink, ooze_glint, PAL["e"], 20, 20, "slime", "telegraph"))
+    ooze_glint = set_px(ooze0, [(4, 4, "w"), (6, 7, "w"), (9, 7, "w"), (11, 10, "l")])
+    ooze_blink = set_px(ooze0, [(5, 7, "e"), (6, 7, "e"), (9, 7, "e"), (10, 7, "e")])
+    frames.update(build_creature_cycle(ooze0, ooze_blink, ooze_glint, MOSS_2, 20, 20, "slime", "telegraph"))
 
-    # 2. Cultist Hexmancer (20x20, base 16x16 horned crimson-purple cultist)
     cult0 = paint(
         16,
         16,
         [
             "................",
             "...##..##..##...",
-            "..#3C######C3#..",
+            "..#34######43#..",
             "...##rRRRRr##...",
             "..##RRRRRRRR##..",
             "..#RR######RR#..",
             "..#R#kkkkkk#R#..",
-            "..#R#kPkkPk#R#..",
-            "..#X#kkkkkk#X#..",
-            "...##gGGGGg##...",
-            "..##XRRRRRRX##..",
-            ".#MMXRggggRXMM#.",
-            "#NNMXXRPPXXMNNN#",
-            "#XX#XXXXXXXX#XX#",
-            ".###XXXXXXX####.",
-            "..#XX##..##XX#..",
+            "..#R#kpkkpk#R#..",
+            "..#R#kkkkkk#R#..",
+            "...##gggggg##...",
+            "..##RRRRRRRR##..",
+            ".#VVRRggggRRVV#.",
+            "#11VRRRppRRV111#",
+            "#VV#RRRRRRRR#VV#",
+            ".###RRRRRRR####.",
+            "..#VV##..##VV#..",
         ],
     )
-    cult_glint = set_px(cult0, [(6, 7, "p"), (9, 7, "p"), (7, 12, "p"), (8, 12, "P")])
+    cult_glint = set_px(cult0, [(6, 7, "w"), (9, 7, "w"), (7, 12, "w"), (8, 12, "p")])
     cult_blink = set_px(cult0, [(6, 7, "k"), (9, 7, "k")])
-    frames.update(build_creature_cycle(cult0, cult_blink, cult_glint, PAL["P"], 20, 20, "wizard", "cast"))
+    frames.update(build_creature_cycle(cult0, cult_blink, cult_glint, PLUM_1, 20, 20, "wizard", "cast"))
 
-    # 3. Obsidian Minotaur (24x24, hulking horned beast with gleaming brass nose ring & muscular torso!)
     mino0 = paint(
         24,
         24,
         [
             "........................",
             "..##................##..",
-            ".#wW#..............#Ww#.",
-            ".#wc#..##########..#cw#.",
-            ".#cC#.##33444433##.#Cc#.",
-            "..###3344cccccc4433###..",
-            "...#333##CCCCCC##333#...",
-            "...#33#tbbbbbbbbt#33#...",
+            ".#ww#..............#ww#.",
+            ".#w4#..##########..#4w#.",
+            ".#43#.##mMMMMMMm##.#34#.",
+            "..###mMM44444444MMm###..",
+            "...#mmm##333333##mmm#...",
+            "...#mm#tbbbbbbbbt#mm#...",
             "....##bbkkkkkkkkbb##....",
             "....#bbkrrkbbkrrkbb#....",
             "....#b#kkkkkkkkkk#b#....",
-            "....#B#bb#gyyg#bb#B#....",
-            "...##BBB#g#bb#g#BBB##...",
-            "..#54#BBB######BBB#45#..",
-            ".#432#tttBBBBBBttt#234#.",
-            ".#321#ttbBBBBBBbtt#123#.",
-            "#C32#bBBBgRggRgBBBb#23C#",
-            "#S##BBBBggggggggBBBB##S#",
-            "....#BBBBBBBBBBBBBB#....",
-            "....#XBBBBBBBBBBBBX#....",
-            "....####BB####BB####....",
-            "....#SS####..####SS#....",
+            "....#u#bb#gyyg#bb#u#....",
+            "...##uuu#g#bb#g#uuu##...",
+            "..#3M#uuu######uuu#M3#..",
+            ".#Mm2#tttuuuuuuttt#2mM#.",
+            ".#m21#ttbuuuuuubtt#12m#.",
+            "#3m2#buuugRggRgbbub#2m3#",
+            "#2##uuuugggggggguuuu##2#",
+            "....#uuuuuuuuuuuuuu#....",
+            "....#RuuuuuuuuuuuuR#....",
+            "....####uu####uu####....",
+            "....#22####..####22#....",
             "....######....######....",
             "........................",
         ],
     )
-    mino_glint = set_px(mino0, [(8, 9, "y"), (9, 9, "W"), (14, 9, "W"), (15, 9, "y"), (11, 11, "W"), (12, 11, "W")])
+    mino_glint = set_px(mino0, [(8, 9, "y"), (9, 9, "w"), (14, 9, "w"), (15, 9, "y"), (11, 11, "w"), (12, 11, "w")])
     mino_blink = set_px(mino0, [(8, 9, "k"), (9, 9, "k"), (14, 9, "k"), (15, 9, "k")])
-    frames.update(build_creature_cycle(mino0, mino_blink, mino_glint, PAL["r"], 24, 24, "cyclops", "charge"))
+    frames.update(build_creature_cycle(mino0, mino_blink, mino_glint, CRIM_1, 24, 24, "cyclops", "charge"))
 
-    # 4. Dread Templar Juggernaut (26x26, towering spiked obsidian & gold knight!)
     ward0 = paint(
         26,
         26,
         [
             "..........................",
             "....##......##......##....",
-            "...#g4#....#yg#....#4g#...",
-            "...#43#..########..#34#...",
-            "....##.##55444455##.##....",
-            ".....##44g333333g44##.....",
-            "....#44333gGGGGg33344#....",
-            "....#33##############3#...",
-            "....#3#kUUUkkkkUUUk#33#...",
-            "....#3#kUyykkkkUyyk#33#...",
-            "....#32##kkkkkkkk##233#...",
-            "...##3223########3223##...",
-            "..#gg4333g223322g3334gg#..",
-            ".#g44333322gggg22333344g#.",
-            "#g4332222gGrrrrGg2222334g#",
-            "#S33#222gGgrrrrGg222#333S#",
-            "#S2##22222gggggg22222##2S#",
+            "...#gM#....#yg#....#Mg#...",
+            "...#Mm#..########..#mM#...",
+            "....##.##33MMMM33##.##....",
+            ".....##MMgmmmmmmgMM##.....",
+            "....#MMmmmgGGGGgmmmMM#....".replace("G", "g"),
+            "....#mm##############m#...",
+            "....#m#koookkkkoook#mm#...",
+            "....#m#koyykkkkoyyk#mm#...",
+            "....#m2##kkkkkkkk##2mm#...",
+            "...##m22m########m22m##...",
+            "..#ggMmmmggggggggmmmMgg#..",
+            ".#gMMmmmm22gggg22mmmmMMg#.",
+            "#gMmm2222ggrrrrgg2222mmMg#",
+            "#2mm#222gggrrrrggg222#mm2#",
+            "#22##22222gggggg22222##22#",
             "....#2222222222222222#....",
             "....#11gggggggggggg11#....",
             "....#111#111gg111#111#....",
             "....####111####111####....",
-            ".....#4333#....#3334#.....",
-            ".....#3222#....#2223#.....",
-            ".....#SSSS#....#SSSS#.....",
+            ".....#Mmmm#....#mmmM#.....",
+            ".....#m222#....#222m#.....",
+            ".....#2222#....#2222#.....",
             "......####......####......",
             "..........................",
         ],
     )
-    ward_glint = set_px(ward0, [(9, 9, "W"), (17, 9, "W"), (12, 13, "y"), (13, 13, "y"), (3, 13, "W"), (22, 13, "W")])
-    ward_blink = set_px(ward0, [(8, 9, "u"), (9, 9, "u"), (10, 9, "u"), (15, 9, "u"), (16, 9, "u"), (17, 9, "u")])
-    frames.update(build_creature_cycle(ward0, ward_blink, ward_glint, PAL["g"], 26, 26, "warden", "charge"))
+    ward_glint = set_px(ward0, [(9, 9, "w"), (17, 9, "w"), (12, 13, "y"), (13, 13, "y"), (3, 13, "w"), (22, 13, "w")])
+    ward_blink = set_px(ward0, [(8, 9, "r"), (9, 9, "r"), (10, 9, "r"), (15, 9, "r"), (16, 9, "r"), (17, 9, "r")])
+    frames.update(build_creature_cycle(ward0, ward_blink, ward_glint, GOLD_1, 26, 26, "warden", "charge"))
 
-    # 5. The Crimson Overlord Boss (32x32 massive Demon King!)
     boss_rows = [
         "......##................##......",
-        ".....#54#..##..##..##..#45#.....",
-        "....#43#..#yg##yy##gy#..#34#....",
-        "....#32#..#gggggggggg#..#23#....",
-        "....#32####gggrrrgggg####23#....",
-        ".....#3223gggggggggggg3223#.....",
-        "......##32#RRRRRRRRRR#23##......",
+        ".....#3M#..##..##..##..#M3#.....",
+        "....#Mm#..#yg##yy##gy#..#mM#....",
+        "....#m2#..#gggggggggg#..#2m#....",
+        "....#m2####gggrrrgggg####2m#....",
+        ".....#m22mggggggggggggm22m#.....",
+        "......##m2#RRRRRRRRRR#2m##......",
         ".......#22#RRRRrrRRRR#22#.......",
         "........##RR#kkkkkk#RR##........",
-        "........#RR#kUUkkkUUk#R#........",
-        "........#RR#kUyk#kUyk#R#........",
-        "........#XR#kkkkkkkkk#RX#.......",
-        "........#XX##kwkkwkk##XX#.......",
-        ".......##XXX#w#ww#w#XXX##.......",
-        ".....##rRXXXX#######XXXXRr##....",
-        "...##rRRRRXXXXXXXXXXXXXRRRRr##..",
-        "..#rRRRgg43333XXXX33334ggRRRRr#.",
-        ".#rRR#g43322ggUUUUgg22334g#RRRr#",
-        ".#RR##3322ggUyyyyyyUgg2233##RRR#",
-        "#rX#.#3222gUyWWWWWWyUg2223#.#Xr#",
-        "#X#..#2222gUyWyyyyWyUg2222#..#X#",
-        ".....#22111ggUyyyyUgg11122#.....",
-        ".....#111111ggUUUUgg111111#.....",
+        "........#RR#kookkkook#R#........",
+        "........#RR#koyk#koyk#R#........",
+        "........#RR#kkkkkkkkk#RR#.......",
+        "........#RR##kwkkwkk##RR#.......",
+        ".......##RRR#w#ww#w#RRR##.......",
+        ".....##rRRRRR#######RRRRRr##....",
+        "...##rRRRRRRRRRRRRRRRRRRRRRr##..",
+        "..#rRRRggMmmmmRRRRmmmmMggRRRRr#.",
+        ".#rRR#gMmm22ggoooogg22mmMg#RRRr#",
+        ".#RR##mm22ggoyyyyyyogg22mm##RRR#",
+        "#rR#.#m222goywwwwwwyog222m#.#Rr#",
+        "#R#..#2222goywyyyywyog2222#..#R#",
+        ".....#22111ggoyyyyogg11122#.....",
+        ".....#111111ggoooogg111111#.....",
         ".....##111gggggggggggg111##.....",
-        ".....#X#111##111111##111#X#.....",
-        "....#XX#000#.#0000#.#000#XX#....",
-        "....#X##000#..####..#000##X#....",
-        "......#3222#........#2223#......",
+        ".....#R#111##111111##111#R#.....",
+        "....#RR#000#.#0000#.#000#RR#....",
+        "....#R##000#..####..#000##R#....",
+        "......#m222#........#222m#......",
         "......#2111#........#1112#......",
         "......#gggg#........#gggg#......",
         ".......####..........####.......",
@@ -1207,19 +1237,19 @@ def build_enemy_frames() -> dict[str, Image.Image]:
     boss0 = paint(32, 32, boss_rows)
     boss_glint = set_px(
         boss0,
-        [(13, 19, "W"), (18, 19, "W"), (15, 2, "W"), (16, 2, "W"), (13, 10, "W"), (18, 10, "W")],
+        [(13, 19, "w"), (18, 19, "w"), (15, 2, "w"), (16, 2, "w"), (13, 10, "w"), (18, 10, "w")],
     )
     boss_blink = set_px(boss0, [(13, 9, "r"), (14, 9, "r"), (13, 10, "R"), (14, 10, "R"), (18, 9, "r"), (19, 9, "r")])
-    frames.update(build_creature_cycle(boss0, boss_blink, boss_glint, PAL["U"], 32, 32, "boss", "attack"))
+    frames.update(build_creature_cycle(boss0, boss_blink, boss_glint, EMBER, 32, 32, "boss", "attack"))
 
     return frames
 
 
 def build_prop_anims() -> dict[str, Image.Image]:
-    """Coins, gems, hearts, torches, fire, spikes, fountain, barrels, orbs, booms, shadows."""
+    """Coins, gems, hearts, torches, fire, binary spikes, fountain, barrels, orbs, booms, shadows."""
     frames: dict[str, Image.Image] = {}
 
-    # Coins (16x16 centered)
+    # Coins (16x16 forged gold)
     coin_a = paint(
         16,
         16,
@@ -1228,15 +1258,15 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "................",
             ".....######.....",
             "...##yyyygg##...",
-            "..#yyggggggGG#..",
-            "..#yggyyyyGGg#..",
-            ".#ygGyWWWWyGGg#.",
-            ".#ygGyWggGyGGg#.",
-            ".#ygGyWWWWyGGg#.",
-            ".#ygGyyyyyyGGg#.",
-            "..#ggGGGGGGoo#..",
-            "..#GGooooooGG#..",
-            "...##GGGGoo##...",
+            "..#yygggggggb#..",
+            "..#yggyyyyggb#..",
+            ".#ygbywwwwyggb#.",
+            ".#ygbywggbyggb#.",
+            ".#ygbywwwwyggb#.",
+            ".#ygbyyyyyyggb#.",
+            "..#gggggggguu#..",
+            "..#gbuuuuuugg#..",
+            "...##gggguu##...",
             ".....######.....",
             "................",
             "................",
@@ -1250,14 +1280,14 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "................",
             "......####......",
             "....##yygg##....",
-            "...#yygggGGG#...",
-            "...#ygyyyGGg#...",
-            "...#ygyWygGg#...",
-            "...#ygyWygGg#...",
-            "...#ygyWygGg#...",
-            "...#ygyyyGGg#...",
-            "...#ggGGGooo#...",
-            "....##oooo##....",
+            "...#yygggggb#...",
+            "...#ygyyyggb#...",
+            "...#ygywygbb#...",
+            "...#ygywygbb#...",
+            "...#ygywygbb#...",
+            "...#ygyyyggb#...",
+            "...#ggggguuu#...",
+            "....##uuuu##....",
             "......####......",
             "................",
             "................",
@@ -1273,12 +1303,12 @@ def build_prop_anims() -> dict[str, Image.Image]:
             ".......##.......",
             "......#yg#......",
             "......#yg#......",
-            "......#Wg#......",
-            "......#Wg#......",
+            "......#wg#......",
+            "......#wg#......",
             "......#yg#......",
             "......#gg#......",
-            "......#Go#......",
-            "......#Go#......",
+            "......#gu#......",
+            "......#gu#......",
             ".......##.......",
             "................",
             "................",
@@ -1291,23 +1321,23 @@ def build_prop_anims() -> dict[str, Image.Image]:
     frames["coin_2"] = coin_c
     frames["coin_3"] = coin_b.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
-    # Gems (16x16 faceted violet crystal)
+    # Gems (16x16 faceted dusk-amethyst crystal)
     gem0 = paint(
         16,
         16,
         [
             "................",
             "......####......",
-            ".....#ppPP#.....",
-            "....#pWWWWP#....",
-            "...#ppWPPPpV#...",
-            "..#pPppPPPPVV#..",
-            "..#PPpPPPPVVV#..",
-            "..#VVPPPVVVVM#..",
-            "...#VVVVVVVM#...",
-            "....#VVVVMM#....",
-            ".....#VVMM#.....",
-            "......#MN#......",
+            ".....#ppVV#.....",
+            "....#pwwwwp#....",
+            "...#ppwppppV#...",
+            "..#ppppppppVV#..",
+            "..#pppppppVVV#..",
+            "..#VVpppVVVVV#..",
+            "...#VVVVVVVV#...",
+            "....#VVVV11#....",
+            ".....#VV11#.....",
+            "......#10#......",
             ".......##.......",
             "................",
             "................",
@@ -1315,11 +1345,11 @@ def build_prop_anims() -> dict[str, Image.Image]:
         ],
     )
     frames["gem_0"] = gem0
-    frames["gem_1"] = set_px(gem0, [(4, 5, "W"), (5, 5, "p"), (9, 7, "p")])
-    frames["gem_2"] = set_px(gem0, [(5, 4, "W"), (10, 6, "W")])
-    frames["gem_3"] = set_px(gem0, [(8, 3, "p"), (7, 8, "P")])
+    frames["gem_1"] = set_px(gem0, [(4, 5, "w"), (5, 5, "w"), (9, 7, "p")])
+    frames["gem_2"] = set_px(gem0, [(5, 4, "w"), (10, 6, "w")])
+    frames["gem_3"] = set_px(gem0, [(8, 3, "p"), (7, 8, "p")])
 
-    # Hearts (compact 9x7 ruby heart centered in 16x16 frame -> 27x21px at 3x)
+    # Hearts (clean 9x7 crimson heart centered in 16x16)
     heart0 = paint(
         16,
         16,
@@ -1330,8 +1360,8 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "................",
             "................",
             "....###.###.....",
-            "...#hrr#rrR#....",
-            "...#WrrrrRR#....",
+            "...#orr#rrR#....",
+            "...#wrrrrRR#....",
             "....#rrrRR#.....",
             ".....#rrR#......",
             "......#r#.......",
@@ -1342,55 +1372,55 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "................",
         ],
     )
-    heart1 = set_px(heart0, [(4, 6, "W"), (5, 6, "h"), (4, 7, "h"), (9, 6, "h")])
+    heart1 = set_px(heart0, [(4, 6, "w"), (5, 6, "o"), (4, 7, "o"), (9, 6, "o")])
     frames["heart_0"] = heart0
     frames["heart_1"] = heart1
 
-    # Torches (16x16 wrought-iron sconce + 4-frame crackling flame)
+    # Torches (16x16 wrought-iron sconce + warm hearth ember flame)
     torch_base = paint(
         16,
         16,
         [
             ".......##.......",
-            "......#yv#......",
-            ".....#vyyu#.....",
-            ".....#uyyu#.....",
-            "....#rUyyUr#....",
-            "....#rUWWUr#....",
-            ".....#uuuu#.....",
+            "......#yo#......",
+            ".....#yyyo#.....",
+            ".....#oyyo#.....",
+            "....#royyor#....",
+            "....#rowwor#....",
+            ".....#oooo#.....",
             ".....######.....",
-            ".....#gSSg#.....",
-            "......#CS#......",
-            "......#3S#......",
-            "......#SS#......",
-            ".....#432S#.....",
+            ".....#g22g#.....",
+            "......#32#......",
+            "......#m2#......",
+            "......#22#......",
+            ".....#Mm22#.....",
             "......####......",
             ".......##.......",
             "................",
         ],
     )
     frames["torch_0"] = torch_base
-    frames["torch_1"] = set_px(torch_base, [(7, 0, "u"), (6, 2, "W"), (9, 3, "U"), (8, 4, "W")])
-    frames["torch_2"] = set_px(torch_base, [(8, 0, "U"), (7, 1, "W"), (5, 4, "y"), (10, 4, "r")])
-    frames["torch_3"] = set_px(torch_base, [(7, 1, "r"), (8, 2, "W"), (6, 4, "y"), (8, 5, "y")])
+    frames["torch_1"] = set_px(torch_base, [(7, 0, "o"), (6, 2, "w"), (9, 3, "o"), (8, 4, "w")])
+    frames["torch_2"] = set_px(torch_base, [(8, 0, "o"), (7, 1, "w"), (5, 4, "y"), (10, 4, "r")])
+    frames["torch_3"] = set_px(torch_base, [(7, 1, "r"), (8, 2, "w"), (6, 4, "y"), (8, 5, "y")])
 
-    # Fire patches (16x16 roaring floor flames)
+    # Fire patches (16x16 warm danger hearth flames)
     fire0 = paint(
         16,
         16,
         [
             ".......##.......",
-            "......#rU#......",
-            ".....#rUy#......",
-            "...##uUyy#..##..",
-            "..#rUUyyyU##rU#.",
-            "..#rUyyWyyUrUy#.",
-            ".#rUUyWWWyUUyy#.",
-            ".#uUyyWWWyyyyU#.",
-            ".#uUyyyyyyyyUr#.",
-            ".#rrUyyyyyyUUu#.",
-            "..#rUUyyyyUUu#..",
-            "..#XXUUUUUUrr#..",
+            "......#ro#......",
+            ".....#roy#......",
+            "...##ooyy#..##..",
+            "..#rooyyyo##ro#.",
+            "..#royywyyoroy#.",
+            ".#rooywwwyooyy#.",
+            ".#ooyywwwyyyyo#.",
+            ".#ooyyyyyyyyor#.",
+            ".#rrooyyyyyooo#.",
+            "..#rooyyyyooo#..",
+            "..#RRooooooor#..",
             "...##rrrrrr##...",
             ".....######.....",
             "................",
@@ -1399,127 +1429,114 @@ def build_prop_anims() -> dict[str, Image.Image]:
     )
     frames["fire_0"] = fire0
     frames["fire_1"] = fire0.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-    frames["fire_2"] = set_px(fire0, [(7, 4, "W"), (8, 5, "W"), (12, 2, "y")])
-    frames["fire_3"] = set_px(fire0.transpose(Image.Transpose.FLIP_LEFT_RIGHT), [(6, 6, "y"), (9, 4, "W")])
+    frames["fire_2"] = set_px(fire0, [(7, 4, "w"), (8, 5, "w"), (12, 2, "y")])
+    frames["fire_3"] = set_px(fire0.transpose(Image.Transpose.FLIP_LEFT_RIGHT), [(6, 6, "y"), (9, 4, "w")])
 
-    # Spikes (16x16 dark iron floor grate -> warning gleams -> bloody spikes)
-    frames["spikes_0"] = paint(
+    # -----------------------------------------------------------------------
+    # BINARY 2-STATE SPIKES (ZERO ambiguous warning half-state!)
+    # spikes_0: flat recessed dark slate iron plate with 4 crisp dark sockets (UNMISTAKABLY OFF / SAFE)
+    # spikes_2 (& spikes_1 identical copy): 4 tall razor-sharp triangular steel spears erupting out of
+    #           crimson-armed danger sockets (UNMISTAKABLY ON / LETHAL, zero candle illusion!)
+    # -----------------------------------------------------------------------
+    spikes_off = paint(
         16,
         16,
         [
-            "################",
-            "#11111111111111#",
-            "#1#kk#11#kk#111#",
-            "#1#SS#11#SS#111#",
-            "#1####11####111#",
-            "#11111111111111#",
-            "#111#kk#11#kk#1#",
-            "#111#SS#11#SS#1#",
-            "#111####11####1#",
-            "#11111111111111#",
-            "#1#kk#11#kk#111#",
-            "#1#SS#11#SS#111#",
-            "#1####11####111#",
-            "#00000000000000#",
-            "################",
+            "................",
+            "..############..",
+            ".#111111111111#.",
+            ".#100000000001#.",
+            ".#10###00###01#.",
+            ".#10###00###01#.",
+            ".#101110011101#.",
+            ".#100000000001#.",
+            ".#100000000001#.",
+            ".#100000000001#.",
+            ".#10###00###01#.",
+            ".#10###00###01#.",
+            ".#101110011101#.",
+            ".#000000000000#.",
+            "..############..",
             "................",
         ],
     )
-    frames["spikes_1"] = paint(
+    spikes_on = paint(
         16,
         16,
         [
-            "################",
-            "#1#W##11#W##111#",
-            "#1#gC#11#gC#111#",
-            "#1#CS#11#CS#111#",
-            "#1####11####111#",
-            "#111#W##11#W##1#",
-            "#111#gC#11#gC#1#",
-            "#111#CS#11#CS#1#",
-            "#111####11####1#",
-            "#1#W##11#W##111#",
-            "#1#gC#11#gC#111#",
-            "#1#CS#11#CS#111#",
-            "#1####11####111#",
-            "#00000000000000#",
-            "################",
+            "....#......#....",
+            "...#w#....#w#...",
+            "..#w43#..#w43#..",
+            "..#w43#..#w43#..",
+            ".#r432#rr#432r#.",
+            ".#r###0RR0###r#.",
+            ".#R0#000000#0R#.",
+            ".#R#w#0000#w#R#.",
+            ".##w43#00#w43##.",
+            ".##w43#00#w43##.",
+            ".#r432#RR#432r#.",
+            ".#r###0rr0###r#.",
+            ".#R0rrrRRrrr0R#.",
+            ".#RR00000000RR#.",
+            "..############..",
             "................",
         ],
     )
-    frames["spikes_2"] = paint(
-        16,
-        16,
-        [
-            "################",
-            "#11##111111##11#",
-            "#1#rW#1111#Wr#1#",
-            "#1#cCS#11#SCc#1#",
-            "#1####1111####1#",
-            "#1111#1##1#1111#",
-            "#111#1#rW#1#111#",
-            "#11##1#cCS#1111#",
-            "#1#rW####1#1111#",
-            "#1#cCS#11##1##1#",
-            "#1####111#Wr##1#",
-            "#11111111#cCS#1#",
-            "#11111111#####1#",
-            "#00000000000000#",
-            "################",
-            "................",
-        ],
-    )
+    frames["spikes_0"] = spikes_off
+    frames["spikes_1"] = spikes_on.copy()
+    frames["spikes_2"] = spikes_on
 
-    # Fountain anim frames (gargoyle stone mouth pouring emerald magic)
+    # Fountain anim frames (slate gargoyle pouring moss-emerald healing water)
     frames["fountain_0"] = paint(
         16,
         16,
         [
             "................",
             "..############..",
-            ".#555555555554#.",
-            ".#433#4334#332#.",
-            ".#322#3223#221#.",
-            ".#32###22###21#.",
-            ".#3#44#ee#44#1#.",
-            ".#2####ll####1#.",
-            ".#211#eLLl#110#.",
-            ".#110#lWLe#000#.",
-            ".#100#LLfl#000#.",
-            ".#111#elLf#111#.",
-            ".#000#lLLf#000#.",
-            ".#####LLLf#####.",
-            ".....#elLf#.....",
+            ".#33333333333M#.",
+            ".#Mmm#M44M#mm2#.",
+            ".#m22#m33m#221#.",
+            ".#m2###22###21#.",
+            ".#m#MM#ll#MM#1#.",
+            ".#2####ee####1#.",
+            ".#211#leel#110#.",
+            ".#110#eweF#000#.",
+            ".#100#eeFe#000#.",
+            ".#111#leeF#111#.",
+            ".#000#eeeF#000#.",
+            ".#####eeeF#####.",
+            ".....#leeF#.....",
             "......####......",
         ],
     )
-    frames["fountain_1"] = set_px(frames["fountain_0"], [(6, 9, "e"), (8, 10, "W"), (7, 13, "W"), (8, 14, "l")])
+    frames["fountain_1"] = set_px(frames["fountain_0"], [(6, 9, "l"), (8, 10, "w"), (7, 13, "w"), (8, 14, "l")])
 
-    # TNT Barrel (16x16 crimson iron-hooped powder keg with sparking fuse)
+    # TNT Barrel (16x16 crimson iron-hooped powder keg with sparking ember fuse)
     frames["barrel_tnt"] = paint(
         16,
         16,
         [
             "........##......",
-            ".......#yy#.....",
-            "......#b###.....",
+            ".......#yo#.....",
+            "......#t###.....",
             "....#######.....",
-            "...#ggCCCgg#....",
-            "..#RRRRRRRRR#...",
-            "..#rRRRRRRRX#...",
-            "..#CSSSSSSSC#...",
-            "..#rRRygyRRX#...",
-            "..#RRRygyRRX#...",
-            "..#CSSSSSSSC#...",
-            "..#RRRRRRRRX#...",
-            "...#CXXXXXSC#...",
+            "...#gg333gg#....",
+            "..#rrrrrrrrR#...",
+            "..#orrrrrrrR#...",
+            "..#322222223#...",
+            "..#rrrygyrrR#...",
+            "..#rrrygyrrR#...",
+            "..#322222223#...",
+            "..#rrrrrrrrR#...",
+            "...#2RRRRR2#....",
             "....########....",
             "................",
             "................",
         ],
     )
 
-    # Projectiles: enemy crimson-violet hex orb + friendly cyan arcane orb
+    # Projectiles: 50ms semantic separation!
+    # Enemy orb = warm danger (CRIM_0 / CRIM_1 / EMBER / GOLD_2 / BONE)
     orb_e = paint(
         16,
         16,
@@ -1527,15 +1544,15 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "................",
             "................",
             ".....######.....",
-            "...##rPPPPX##...",
-            "..#rPyyyyyPRX#..",
-            "..#PyWWWWWyPR#..",
-            ".#rPyWWWWWwPRX#.",
-            ".#PPyWWWWWwPRX#.",
-            ".#PPyyyyyyyPRX#.",
-            ".#XPPrrrrrPPRX#.",
-            "..#XPPPRRRRXX#..",
-            "..##XXXXXXXX##..",
+            "...##rooRR##....",
+            "..#royyyyyoRR#..",
+            "..#oywwwwyyor#..",
+            ".#roywwwwwyorR#.",
+            ".#ooywwwwwyorR#.",
+            ".#ooyyyyyyyorR#.",
+            ".#RoorrrrroorR#.",
+            "..#RroorrrrRR#..",
+            "..##RRRRRRRR##..",
             "....########....",
             "................",
             "................",
@@ -1547,6 +1564,7 @@ def build_prop_anims() -> dict[str, Image.Image]:
     frames["orb_enemy_2"] = orb_e.transpose(Image.Transpose.ROTATE_180)
     frames["orb_enemy_3"] = orb_e.transpose(Image.Transpose.ROTATE_270)
 
+    # Friendly orb = cool sky-ice (SKY_1 / SKY_2 / BONE / SLATE_2)
     orb_f = paint(
         16,
         16,
@@ -1554,15 +1572,15 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "................",
             "................",
             ".....######.....",
-            "...##zZZZZa##...",
-            "..#zqqqqqqZaa#..",
-            "..#qWWWWWWqZa#..",
-            ".#zqqWWWWWWqZa#.",
-            ".#ZqqWWWWWWqZa#.",
-            ".#ZqqqqqqqqZaa#.",
-            ".#aZZZaaaaZZaa#.",
-            "..#aaZZZZaaaA#..",
-            "..##AAAAAAAA##..",
+            "...##zaaaa2##...",
+            "..#zzzzzzzaa2#..",
+            "..#zwwwwwwza2#..",
+            ".#zzzwwwwwwza2#.",
+            ".#azzwwwwwwza2#.",
+            ".#azzzzzzzzaa2#.",
+            ".#2aaaaaaa2aa2#.",
+            "..#22aaaa2222#..",
+            "..##22222222##..",
             "....########....",
             "................",
             "................",
@@ -1574,7 +1592,7 @@ def build_prop_anims() -> dict[str, Image.Image]:
     frames["orb_friendly_2"] = orb_f.transpose(Image.Transpose.ROTATE_180)
     frames["orb_friendly_3"] = orb_f.transpose(Image.Transpose.ROTATE_270)
 
-    # Boom burst (24x24 punchy pixel cloud!)
+    # Boom burst (24x24 punchy ember & slate smoke puff)
     frames["boom_0"] = paint(
         24,
         24,
@@ -1586,14 +1604,14 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "........................",
             ".........######.........",
             ".......##yyyyyy##.......",
-            "......#yyWWWWWWyy#......",
-            ".....#yWWWWWWWWWWy#.....",
-            ".....#yWWWWWWWWWWy#.....",
-            ".....#yWWWWWWWWWWy#.....",
-            ".....#yWWWWWWWWWWy#.....",
-            "......#yyWWWWWWyy#......",
-            ".......#UUyyyyUU#.......",
-            "........#UUUUUU#........",
+            "......#yywwwwwwyy#......",
+            ".....#ywwwwwwwwwwy#.....",
+            ".....#ywwwwwwwwwwy#.....",
+            ".....#ywwwwwwwwwwy#.....",
+            ".....#ywwwwwwwwwwy#.....",
+            "......#yywwwwwwyy#......",
+            ".......#ooyyyyoo#.......",
+            "........#oooooo#........",
             ".........######.........",
             "........................",
             "........................",
@@ -1613,19 +1631,19 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "........................",
             ".......##......##.......",
             "......#yy#....#yy#......",
-            "....##UUUU####UUUU##....",
-            "...#UUyyyyyyyyyyyyUU#...",
-            "..#UyWWWWWWWWWWWWWWyU#..",
-            "..#UyWWWWWWWWWWWWWWyU#..",
-            ".#UyWWWWWWWWWWWWWWWWyU#.",
-            ".#UyWWWWWWWWWWWWWWWWyU#.",
-            ".#UUyWWWWWWWWWWWWWWyUU#.",
-            ".#rUUyyyyyWWWWyyyyyUUr#.",
-            "..#rrUUUUyyyyyyUUUUrr#..",
-            "..#XrrUUUUUUUUUUUUrrX#..",
-            "...#XrrrUUUUUUUUrrrX#...",
-            "....##XXrrrrrrrrXX##....",
-            "......###XXXXXX###......",
+            "....##oooo####oooo##....",
+            "...#ooyyyyyyyyyyyyoo#...",
+            "..#oywwwwwwwwwwwwwwyo#..",
+            "..#oywwwwwwwwwwwwwwyo#..",
+            ".#oywwwwwwwwwwwwwwwwyo#.",
+            ".#oywwwwwwwwwwwwwwwwyo#.",
+            ".#ooywwwwwwwwwwwwwwyoo#.",
+            ".#rooyyyyywwwwyyyyyoor#.",
+            "..#rrooooyyyyyyoooorr#..",
+            "..#RrroooooooooooorrR#..",
+            "...#RrrroooooooorrrR#...",
+            "....##RRrrrrrrrrRR##....",
+            "......###RRRRRR###......",
             "........########........",
             "........................",
             "........................",
@@ -1642,22 +1660,22 @@ def build_prop_anims() -> dict[str, Image.Image]:
             "........................",
             "....##............##....",
             "...#rr#...####...#rr#...",
-            "..#rUU#..#UUUU#..#UUr#..",
+            "..#roo#..#oooo#..#oor#..",
             "...###.##yyyyyy##.###...",
-            "....##UyyUU##UUyyU##....",
-            "..##rrUyU#2332#UyUrr##..",
-            ".#rUUUrU#344443#UrUUUr#.",
-            ".#rUyyU#34322343#UyyUr#.",
-            "..#UUU#3321111233#UUU#..",
+            "....##oyyoo##ooyyo##....",
+            "..##rroyo#2mm2#oyorr##..",
+            ".#roooro#mMMMMm#oroooor#".replace("oooor#", "ooor#."),
+            ".#royyo#mMm22mMm#oyyor#.",
+            "..#ooo#mm211112mm#ooo#..",
             "...###221100001122###...",
-            "..#UUU#2110000112#UUU#..",
-            ".#rUyy#3211001123#yyUr#.",
-            ".#rUUrr#32211223#rrUUr#.",
-            "..##XXrr##3223##rrXX##..",
-            "....##XX##3223##XX##....",
+            "..#ooo#2110000112#ooo#..",
+            ".#royy#m21100112m#yyor#.",
+            ".#roorr#m221122m#rroor#.",
+            "..##RRrr##m22m##rrRR##..",
+            "....##RR##m22m##RR##....",
             "......###.####.###......",
             "....##............##....",
-            "...#XX#..........#XX#...",
+            "...#RR#..........#RR#...",
             "....##............##....",
             "........................",
             "........................",
@@ -1671,10 +1689,10 @@ def build_prop_anims() -> dict[str, Image.Image]:
         [
             "........................",
             "..##................##..",
-            ".#32#..............#23#.",
+            ".#m2#..............#2m#.",
             "..##................##..",
             ".......##......##.......",
-            "......#32#....#23#......",
+            "......#m2#....#2m#......",
             "......#21#....#12#......",
             "...##..##......##..##...",
             "..#21#............#12#..",
@@ -1696,7 +1714,7 @@ def build_prop_anims() -> dict[str, Image.Image]:
         ],
     )
 
-    # Pixel shadows
+    # Pixel contact shadows (unified #14131a ink, translucent)
     for name, rx, ry in [("shadow_sm", 5, 2), ("shadow_md", 6, 3), ("shadow_lg", 7, 3)]:
         im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
         px = im.load()
@@ -1705,7 +1723,7 @@ def build_prop_anims() -> dict[str, Image.Image]:
                 dx = (x - 7.5) / rx
                 dy = (y - 7.5) / ry
                 if dx * dx + dy * dy <= 1.0:
-                    px[x, y] = (14, 9, 20, 120)
+                    px[x, y] = (20, 19, 26, 110)
         frames[name] = im
 
     return frames
@@ -1718,7 +1736,7 @@ def pack_atlas(
 ) -> tuple[Image.Image, dict]:
     """
     Pack tile_000..tile_131 into exact 28-col x 18px-stride top band (512px wide),
-    matching shopView.ts CSS weapon layout, then pack all animation/entity frames cleanly below.
+    matching shopView.ts / atlasIcon.ts / dungeonle.test.ts, then row-pack all frames below.
     """
     atlas_w = 512
     cols = 28
@@ -1731,7 +1749,6 @@ def pack_atlas(
 
     placed: list[tuple[str, int, int, Image.Image]] = []
 
-    # Place tile_000..tile_131 at deterministic slots; unused decorative slots get stone filler or stay clean
     for idx in range(max_tile + 1):
         img = tiles.get(idx)
         if img is not None:
@@ -1739,7 +1756,6 @@ def pack_atlas(
             ty = pad + (idx // cols) * stride
             placed.append((f"tile_{idx:03d}", tx, ty, img))
 
-    # Row-pack creatures and props below grid_bottom
     cur_x = pad
     cur_y = grid_bottom
     row_h = 0
@@ -1772,7 +1788,7 @@ def pack_atlas(
         "frames": frames_meta,
         "meta": {
             "app": "dungeonle-world-builder",
-            "version": "2.0",
+            "version": "3.0-hearth-slate",
             "image": "dungeon_atlas.png",
             "format": "RGBA8888",
             "size": {"w": atlas_w, "h": total_h},
@@ -1782,20 +1798,56 @@ def pack_atlas(
     return atlas_img, atlas_json
 
 
+def audit_atlas(atlas_img: Image.Image, atlas_json: dict, tiles: dict[int, Image.Image], props: dict[str, Image.Image]) -> None:
+    """Enforce exact layout invariants, zero pure #000000, calm floor luminance, and binary spikes."""
+    assert atlas_img.size == (512, 236), f"Expected 512x236 atlas, got {atlas_img.size}"
+    assert len(atlas_json["frames"]) == 146, f"Expected 146 frames, got {len(atlas_json['frames'])}"
+    assert atlas_json["frames"]["barrel_tnt"]["frame"] == {"x": 20, "y": 210, "w": 16, "h": 16}, (
+        f"barrel_tnt moved: {atlas_json['frames']['barrel_tnt']['frame']}"
+    )
+
+    # Zero pure #000000 or pure #ffffff opaque pixels
+    px = atlas_img.load()
+    for y in range(atlas_img.height):
+        for x in range(atlas_img.width):
+            r, g, b, a = px[x, y]
+            if a > 0:
+                assert (r, g, b) != (0, 0, 0), f"Pure #000000 found at ({x},{y})"
+                assert (r, g, b) != (255, 255, 255), f"Pure #ffffff found at ({x},{y})"
+
+    # Floor tiles must stay in calm L 14-23% band
+    def flat_pixels(im: Image.Image) -> list[tuple[int, int, int, int]]:
+        fn = getattr(im, "get_flattened_data", im.getdata)
+        return list(fn())
+
+    for fid in (42, 48, 49, 50, 51, 52, 53):
+        im = tiles[fid]
+        ls = []
+        for r, g, b, a in flat_pixels(im):
+            if a > 0:
+                _, l, _ = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+                ls.append(l * 100)
+        assert 14.0 <= min(ls) and max(ls) <= 23.0, f"Floor tile {fid} L range {min(ls):.1f}-{max(ls):.1f}% outside 14-23%"
+
+    # Binary spikes check: spikes_1 == spikes_2, spikes_0 != spikes_2
+    assert flat_pixels(props["spikes_1"]) == flat_pixels(props["spikes_2"]), "spikes_1 must match spikes_2 (binary ON)"
+    assert flat_pixels(props["spikes_0"]) != flat_pixels(props["spikes_2"]), "spikes_0 must differ from spikes_2"
+
+
 def write_standalone_icons(tiles: dict[int, Image.Image], props: dict[str, Image.Image]) -> None:
-    """Export crisp integer nearest-neighbor UI icons matching the new world art."""
+    """Export crisp integer nearest-neighbor UI icons matching Hearth & Slate."""
     def export(img: Image.Image, scale: int, filename: str) -> None:
         scaled = img.resize((img.width * scale, img.height * scale), Image.Resampling.NEAREST)
         scaled.save(DUNGEON_DIR / filename)
 
-    export(tiles[48], 4, "stone_tile.png")     # 64x64 seamless obsidian flagstone CSS backdrop
-    export(tiles[98], 3, "hero_icon.png")      # 48x48
-    export(props["torch_0"], 2, "torch_icon.png")   # 32x32
-    export(tiles[106], 2, "sword_icon.png")    # 32x32
-    export(tiles[91], 2, "chest_icon.png")     # 32x32
-    export(props["coin_0"], 2, "coin_icon.png")     # 32x32
-    export(tiles[102], 2, "shield_icon.png")   # 32x32
-    export(tiles[115], 2, "potion_icon.png")   # 32x32
+    export(tiles[48], 4, "stone_tile.png")        # 64x64 seamless calm slate flagstone CSS backdrop
+    export(tiles[98], 3, "hero_icon.png")         # 48x48
+    export(props["torch_0"], 2, "torch_icon.png") # 32x32
+    export(tiles[106], 2, "sword_icon.png")       # 32x32
+    export(tiles[91], 2, "chest_icon.png")        # 32x32
+    export(props["coin_0"], 2, "coin_icon.png")   # 32x32
+    export(tiles[102], 2, "shield_icon.png")      # 32x32
+    export(tiles[115], 2, "potion_icon.png")      # 32x32
 
 
 def make_preview_sheet(
@@ -1803,11 +1855,11 @@ def make_preview_sheet(
     creatures: dict[str, Image.Image],
     props: dict[str, Image.Image],
 ) -> Image.Image:
-    """Render a 4x zoomed visual QA sheet showing every room tile, weapon, relic, enemy, and 32x32 boss."""
-    w, h = 420, 220
-    canvas = Image.new("RGBA", (w, h), (22, 16, 32, 255))
+    """Render a crisp 3x zoomed visual QA sheet showing room mock, binary spikes, weapons/relics, hero & props."""
+    w, h = 420, 224
+    canvas = Image.new("RGBA", (w, h), INK)
 
-    # Draw a 6x5 mock dungeon corner showing floor, walls, door, torch, chest, crate, monolith, fountain
+    # 7x5 mock Stone Crypt room corner
     for r in range(5):
         for c in range(7):
             t_id = 42 if (r == 2 and c == 3) else 48 + ((r + c) % 6)
@@ -1823,49 +1875,66 @@ def make_preview_sheet(
     canvas.alpha_composite(tiles[56], (8 + 5 * 16, 8 + 3 * 16))
     canvas.alpha_composite(props["fountain_0"], (8 + 2 * 16, 8 + 2 * 16))
     canvas.alpha_composite(tiles[32], (8 + 2 * 16, 8 + 3 * 16))
-    canvas.alpha_composite(props["spikes_2"], (8 + 1 * 16, 8 + 3 * 16))
+    # Binary spikes OFF (left) and ON (right) directly on Stone Crypt floor!
+    canvas.alpha_composite(props["spikes_0"], (8 + 1 * 16, 8 + 3 * 16))
+    canvas.alpha_composite(props["spikes_2"], (8 + 1 * 16, 8 + 4 * 16))
     canvas.alpha_composite(props["barrel_tnt"], (8 + 4 * 16, 8 + 3 * 16))
+    canvas.alpha_composite(creatures["hero_idle_0"], (8 + 3 * 16 - 2, 8 + 3 * 16 - 2))
 
-    # Row of 5 weapons & relics on right top
+    # Row of 5 weapons, 8 relics, pickups & orbs on top right
     weapons = [106, 103, 117, 129, 130]
     for i, wid in enumerate(weapons):
-        canvas.alpha_composite(tiles[wid], (136 + i * 20, 14))
+        canvas.alpha_composite(tiles[wid], (136 + i * 20, 12))
     relics = [102, 105, 107, 114, 115, 116, 118, 119]
     for i, rid in enumerate(relics):
-        canvas.alpha_composite(tiles[rid], (136 + i * 20, 38))
-    # Pickups & anims row
-    extras = [props["coin_0"], props["gem_0"], props["heart_0"], props["fire_0"], props["orb_enemy_0"], props["orb_friendly_0"]]
+        canvas.alpha_composite(tiles[rid], (136 + i * 20, 36))
+    extras = [
+        props["coin_0"], props["gem_0"], props["heart_0"],
+        props["fire_0"], props["orb_enemy_0"], props["orb_friendly_0"],
+        props["spikes_0"], props["spikes_1"], props["spikes_2"],
+    ]
     for i, im in enumerate(extras):
-        canvas.alpha_composite(im, (136 + i * 20, 64))
+        # Put dark floor under spikes for realistic contrast inspection
+        if i >= 6:
+            canvas.alpha_composite(tiles[48], (136 + i * 20, 62))
+        canvas.alpha_composite(im, (136 + i * 20, 62))
 
-    # Monsters & Hero lineup along bottom (uniform 1:1 native pixel resolution!)
+    # Big 2x inset callout of spikes OFF vs ON on floor (32x32 each) at top far right!
+    for idx, sp_key in enumerate(["spikes_0", "spikes_2"]):
+        tile_bg = tiles[48].copy()
+        tile_bg.alpha_composite(props[sp_key], (0, 0))
+        big = tile_bg.resize((32, 32), Image.Resampling.NEAREST)
+        canvas.alpha_composite(big, (332 + idx * 40, 14))
+
+    # Hero & legacy creature lineup along middle
     lineup = [
-        ("hero", creatures["hero_idle_0"]),
-        ("slime", creatures["slime_idle_0"]),
-        ("wizard", creatures["wizard_idle_0"]),
-        ("cyclops", creatures["cyclops_idle_0"]),
-        ("warden", creatures["warden_idle_0"]),
-        ("boss", creatures["boss_idle_0"]),
-        ("boss_atk", creatures["boss_attack_0"]),
-        ("boom1", props["boom_1"]),
-        ("boom2", props["boom_2"]),
+        creatures["hero_idle_0"],
+        creatures["hero_dash_0"],
+        creatures["hero_charge_0"],
+        creatures["slime_idle_0"],
+        creatures["wizard_idle_0"],
+        creatures["cyclops_idle_0"],
+        creatures["warden_idle_0"],
+        creatures["boss_idle_0"],
+        props["boom_1"],
+        props["boom_2"],
     ]
     cx = 12
-    for _, spr in lineup:
-        by = 160 - spr.height
+    for spr in lineup:
+        by = 158 - spr.height
         canvas.alpha_composite(spr, (cx, by))
         cx += spr.width + 8
 
-    # Closed door + monolith + hero walking frames along bottom right
-    canvas.alpha_composite(tiles[46], (12, 176))
-    canvas.alpha_composite(tiles[47], (28, 176))
-    canvas.alpha_composite(tiles[65], (56, 176))
-    canvas.alpha_composite(tiles[19], (80, 176))
-    canvas.alpha_composite(tiles[31], (80, 192))
+    # Closed door + pillar + empty fountain + hero walk cycle + boss idle along bottom
+    canvas.alpha_composite(tiles[46], (12, 178))
+    canvas.alpha_composite(tiles[47], (28, 178))
+    canvas.alpha_composite(tiles[65], (54, 178))
+    canvas.alpha_composite(tiles[19], (78, 178))
+    canvas.alpha_composite(tiles[31], (78, 194))
     for i in range(4):
-        canvas.alpha_composite(creatures[f"hero_run_{i}"], (120 + i * 24, 180))
+        canvas.alpha_composite(creatures[f"hero_run_{i}"], (112 + i * 24, 180))
     for i in range(4):
-        canvas.alpha_composite(creatures[f"boss_idle_{i}"], (230 + i * 36, 176))
+        canvas.alpha_composite(creatures[f"boss_idle_{i}"], (224 + i * 38, 176))
 
     return canvas.resize((w * 3, h * 3), Image.Resampling.NEAREST)
 
@@ -1878,10 +1947,12 @@ def main() -> None:
     props = build_prop_anims()
 
     atlas_img, atlas_json = pack_atlas(tiles, creatures, props)
+    audit_atlas(atlas_img, atlas_json, tiles, props)
+
     atlas_img.save(OUT_PNG)
     OUT_JSON.write_text(json.dumps(atlas_json, indent=2) + "\n")
     write_standalone_icons(tiles, props)
-    print(f"Wrote {OUT_PNG} {atlas_img.size} and {OUT_JSON} ({len(atlas_json['frames'])} frames)")
+    print(f"Wrote {OUT_PNG} {atlas_img.size} and {OUT_JSON} ({len(atlas_json['frames'])} frames) [audit PASS]")
 
     try:
         SCRATCH_PREVIEW.parent.mkdir(parents=True, exist_ok=True)

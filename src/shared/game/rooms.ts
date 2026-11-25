@@ -506,9 +506,9 @@ export function getFloorScaling(floor: number): FloorScaling {
 
 function enemyPoolForFloor(floor: number, utcDate?: string): EnemyArchetype[] {
   const sig = getFloorSignatureEnemy(floor, utcDate);
-  if (floor <= 1) return ['chaser', 'chaser', 'shooter'];
-  if (floor <= 3) return [sig, sig, 'chaser', 'shooter', 'charger'];
-  return [sig, sig, 'chaser', 'shooter', 'charger', 'elite_charger'];
+  if (floor <= 1) return ['chaser', 'myconid', 'imp', 'shooter', 'archer'];
+  if (floor <= 3) return [sig, sig, 'chaser', 'myconid', 'imp', 'shooter', 'archer', 'charger'];
+  return [sig, sig, 'chaser', 'myconid', 'imp', 'shooter', 'archer', 'charger', 'elite_charger'];
 }
 
 function withExtras(
@@ -697,8 +697,18 @@ export function buildDailyDungeonMap(
         roomType: 'warmup',
         waves:
           f === 1
-            ? [wave(['chaser', 'chaser']), wave(['chaser', 'shooter'])]
-            : [wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra, utcDate))],
+            ? [wave(['chaser', 'myconid']), wave(['imp', 'archer'])]
+            : [
+                wave(
+                  withExtras(
+                    roomRng,
+                    [sig, roomRng.pick(['chaser', 'myconid', 'imp'] as const), roomRng.pick(['shooter', 'archer'] as const)],
+                    f,
+                    extra,
+                    utcDate,
+                  ),
+                ),
+              ],
         hazards: [],
         breakables: buildBreakables(node.roomIndex, 'crate', crateCount(4), occupiedCells),
         obstacles,
@@ -727,8 +737,8 @@ export function buildDailyDungeonMap(
         roomIndex: node.roomIndex,
         roomType: 'gauntlet',
         waves: [
-          wave(withExtras(roomRng, [sig, 'chaser', 'shooter'], f, extra, utcDate)),
-          wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'chaser'], f, extra, utcDate)),
+          wave(withExtras(roomRng, [sig, 'imp', 'archer'], f, extra, utcDate)),
+          wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'myconid'], f, extra, utcDate)),
         ],
         hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
         breakables: buildBreakables(node.roomIndex, 'crate', crateCount(3), occupiedCells),
@@ -759,8 +769,20 @@ export function buildDailyDungeonMap(
     } else {
       const rewardType: RoomRewardType = roomRng.next() < 0.55 ? 'relics' : 'coin_cache';
       const pool = enemyPoolForFloor(f, utcDate);
-      const waveA = withExtras(roomRng, [sig, roomRng.pick(pool), 'chaser'], f, extra, utcDate);
-      const waveB = withExtras(roomRng, ['shooter', roomRng.pick(pool), sig], f, extra, utcDate);
+      const waveA = withExtras(
+        roomRng,
+        [sig, roomRng.pick(pool), roomRng.pick(['chaser', 'myconid', 'imp'] as const)],
+        f,
+        extra,
+        utcDate,
+      );
+      const waveB = withExtras(
+        roomRng,
+        [roomRng.pick(['shooter', 'archer'] as const), roomRng.pick(pool), sig],
+        f,
+        extra,
+        utcDate,
+      );
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'escalation',

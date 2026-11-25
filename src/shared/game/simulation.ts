@@ -79,6 +79,8 @@ export type DungeonMapRoomView = {
   doors: DoorDirection[];
 };
 
+export type ProjectileKind = 'orb' | 'rift_wave' | 'bolt' | 'lance' | 'arrow' | 'ember';
+
 export type ProjectileEntity = {
   id: number;
   friendly: boolean;
@@ -91,7 +93,7 @@ export type ProjectileEntity = {
   ttl: number;
   pierce: boolean;
   hitEnemyIds: number[];
-  kind: 'orb' | 'rift_wave' | 'bolt' | 'lance';
+  kind: ProjectileKind;
   /** Weapon projectiles proc on-hit relics; relic/reflected projectiles do not. */
   weaponShot?: boolean | undefined;
   stripsArmor?: boolean | undefined;
@@ -109,6 +111,8 @@ export type HazardEntity = {
   dirX: number;
   dirY: number;
   timer: number;
+  /** Binary ON/OFF state for spike plates (true = extended/lethal, false = recessed/safe). */
+  active: boolean;
   hp: number;
   destroyed: boolean;
 };
@@ -184,6 +188,16 @@ export type FirePatchEffect = {
   ttl: number;
   dps: number;
   tickTimer: number;
+};
+
+export type SporeCloudEffect = {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  ttl: number;
+  maxTtl: number;
+  damage: number;
 };
 
 export type DelayedBlastEffect = {
@@ -370,6 +384,7 @@ export type GameState = {
   fountain: FountainEntity | null;
   portals: PortalEntity[];
   firePatches: FirePatchEffect[];
+  sporeClouds: SporeCloudEffect[];
   delayedBlasts: DelayedBlastEffect[];
   slashes: SlashEffect[];
   rings: RingEffect[];
@@ -605,6 +620,7 @@ export class GameSimulation {
     this.updateHazards(dt);
     this.updateDelayedBlasts(dt);
     this.updateFirePatches(dt);
+    this.updateSporeClouds(dt);
     this.updateEnemies(dt);
     for (const enemy of s.enemies) {
       if (enemy.leapZ <= 24) {
@@ -725,6 +741,7 @@ export class GameSimulation {
       fountain: null,
       portals: [],
       firePatches: [],
+      sporeClouds: [],
       delayedBlasts: [],
       slashes: [],
       rings: [],
@@ -843,6 +860,7 @@ export class GameSimulation {
     s.fountain = null;
     s.portals = [];
     s.firePatches = [];
+    s.sporeClouds = [];
     s.delayedBlasts = [];
     s.rings = [];
     s.debris = [];
@@ -885,6 +903,7 @@ export class GameSimulation {
       s.hazards = node.blueprint.hazards.map((h) => ({
         ...h,
         timer: h.phaseOffset,
+        active: h.type === 'spikes' ? isSpikeActive(h.phaseOffset) : false,
         hp: 20,
         destroyed: false,
       }));
@@ -1342,6 +1361,7 @@ export class GameSimulation {
           const speed = Math.hypot(proj.vx, proj.vy) * 2.2;
           proj.vx = Math.cos(angle) * speed;
           proj.vy = Math.sin(angle) * speed;
+          proj.angle = angle;
           proj.damage = Math.round(proj.damage * dmgMult);
           proj.ttl = 1.6;
           this.spawnParticles(proj.x, proj.y, '#38bdf8', 5, 110);
@@ -1588,9 +1608,10 @@ export class GameSimulation {
       if (haz.destroyed) continue;
 
       if (haz.type === 'spikes') {
-        haz.timer = (haz.timer + dt) % 3.2;
-        const active = haz.timer >= 2.55;
-        if (active) {
+        const prevTimer = haz.timer;
+        haz.timer = (haz.timer + dt) % SPIKE_CYCLE_SEC;
+        haz.active = isSpikeActive(haz.timer);
+        if (haz.active) {
           const halfW = haz.w / 2;
           const halfH = haz.h / 2;
           if (
@@ -1605,7 +1626,7 @@ export class GameSimulation {
               Math.abs(enemy.x - haz.x) <= halfW + enemy.radius * 0.4 &&
               Math.abs(enemy.y - haz.y) <= halfH + enemy.radius * 0.4
             ) {
-              if (Math.floor((haz.timer - dt) * 4) !== Math.floor(haz.timer * 4)) {
+              if (!isSpikeActive(prevTimer) || Math.floor(prevTimer * 4) !== Math.floor(haz.timer * 4)) {
                 this.damageEnemy(enemy, 14, 0, 0, false, '#f43f5e');
               }
             }
@@ -1774,6 +1795,26 @@ export class GameSimulation {
     s.firePatches = next;
   }
 
+  private updateSporeClouds(dt: number): void {
+    const s = this.state;
+    const p = s.player;
+    const next: SporeCloudEffect[] = [];
+
+    for (const cloud of s.sporeClouds) {
+      cloud.ttl -= dt;
+      if (cloud.ttl <= 0) continue;
+      if (
+        s.phase === 'playing' &&
+        Math.hypot(p.x - cloud.x, p.y - cloud.y) <= cloud.radius + p.radius * 0.55
+      ) {
+        this.damagePlayer(cloud.damage);
+      }
+      next.push(cloud);
+    }
+
+    s.sporeClouds = next;
+  }
+
   private updateEnemies(dt: number): void {
     const s = this.state;
     const p = s.player;
@@ -1842,24 +1883,44 @@ export class GameSimulation {
       const dirY = dist > 0 ? dy / dist : 1;
       const nav = this.getNavDirection(enemy, flowField, dirX, dirY);
 
-      if (enemy.archetype === 'chaser') {
-        this.stepChaserAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else if (enemy.archetype === 'shooter') {
-        this.stepShooterAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
-      } else if (enemy.archetype === 'charger' || enemy.archetype === 'elite_charger') {
-        this.stepChargerAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else if (enemy.archetype === 'shade') {
-        this.stepShadeAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
-      } else if (enemy.archetype === 'yeti') {
-        this.stepYetiAI(enemy, dist, nav.dirX, nav.dirY, dt);
-      } else if (enemy.archetype === 'bomber') {
-        this.stepBomberAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else if (enemy.archetype === 'mortar_tank') {
-        this.stepMortarTankAI(enemy, dist, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
-      } else if (enemy.archetype === 'stampede') {
-        this.stepStampedeAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else {
-        this.stepBossAI(enemy, nav.dirX, nav.dirY, dt);
+      switch (enemy.archetype) {
+        case 'chaser':
+          this.stepChaserAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'shooter':
+          this.stepShooterAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'charger':
+        case 'elite_charger':
+          this.stepChargerAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'shade':
+          this.stepShadeAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'yeti':
+          this.stepYetiAI(enemy, dist, nav.dirX, nav.dirY, dt);
+          break;
+        case 'bomber':
+          this.stepBomberAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'mortar_tank':
+          this.stepMortarTankAI(enemy, dist, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'stampede':
+          this.stepStampedeAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'myconid':
+          this.stepMyconidAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'imp':
+          this.stepImpAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'archer':
+          this.stepArcherAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'boss':
+          this.stepBossAI(enemy, nav.dirX, nav.dirY, dt);
+          break;
       }
 
       if (enemy.leapZ <= 24) {
@@ -2502,6 +2563,355 @@ export class GameSimulation {
     }
   }
 
+  private stepMyconidAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasMoveLOS: boolean,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      enemy.aimAngle = Math.atan2(navDirY, navDirX);
+      if (enemy.stateTimer <= 0 && dist <= 118 && hasMoveLOS) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'spore_burst';
+        enemy.telegraphDuration = 0.56;
+        enemy.stateTimer = 0.56;
+        enemy.targetX = enemy.x;
+        enemy.targetY = enemy.y;
+        enemy.attackFired = false;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'attack';
+        enemy.stateTimer = 0.28;
+        enemy.attackFired = true;
+        s.sporeClouds.push({
+          id: this.nextEntityId++,
+          x: enemy.x,
+          y: enemy.y,
+          radius: 66,
+          ttl: 2.6,
+          maxTtl: 2.6,
+          damage: enemy.damage,
+        });
+        s.rings.push({
+          x: enemy.x,
+          y: enemy.y,
+          radius: 16,
+          maxRadius: 68,
+          ttl: 0.28,
+          maxTtl: 0.28,
+          color: '#4eab5b',
+        });
+        this.spawnParticles(enemy.x, enemy.y, '#96db6e', 8, 120);
+      }
+    } else if (enemy.state === 'attack') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'recover';
+        enemy.stateTimer = 0.85;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      this.moveWithSlide(enemy, -dirX * enemy.speed * 0.45 * dt, -dirY * enemy.speed * 0.45 * dt);
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.8;
+      }
+    }
+  }
+
+  private stepImpAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.bouncesLeft === 0) {
+      enemy.bouncesLeft = enemy.id % 2 === 0 ? 1 : -1;
+    }
+    const flankDir = enemy.bouncesLeft >= 0 ? 1 : -1;
+
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      const prevX = enemy.x;
+      const prevY = enemy.y;
+      if (!hasShotLOS || dist > 235) {
+        const vx = navDirX * 0.84 + -navDirY * flankDir * 0.54;
+        const vy = navDirY * 0.84 + navDirX * flankDir * 0.54;
+        const mag = Math.max(0.001, Math.hypot(vx, vy));
+        this.moveWithSlide(enemy, (vx / mag) * enemy.speed * dt, (vy / mag) * enemy.speed * dt);
+      } else if (dist < 115) {
+        const vx = -dirX * 0.72 + -dirY * flankDir * 0.68;
+        const vy = -dirY * 0.72 + dirX * flankDir * 0.68;
+        const mag = Math.max(0.001, Math.hypot(vx, vy));
+        this.moveWithSlide(enemy, (vx / mag) * enemy.speed * 0.95 * dt, (vy / mag) * enemy.speed * 0.95 * dt);
+      } else {
+        this.moveWithSlide(
+          enemy,
+          -dirY * flankDir * enemy.speed * 0.92 * dt,
+          dirX * flankDir * enemy.speed * 0.92 * dt,
+        );
+      }
+      if (
+        dt > 0 &&
+        enemy.speed > 0 &&
+        Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
+      ) {
+        enemy.bouncesLeft = -flankDir;
+      }
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 310 && hasShotLOS) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'imp_dart';
+        enemy.telegraphDuration = 0.42;
+        enemy.stateTimer = 0.42;
+        enemy.telegraphLocked = false;
+        enemy.attackFired = false;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer > 0.14) {
+        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+      } else {
+        enemy.telegraphLocked = true;
+      }
+      if (enemy.stateTimer <= 0) {
+        const spread = s.floor >= 3 ? [-0.1, 0.1] : [0];
+        for (const offset of spread) {
+          const ang = enemy.aimAngle + offset;
+          s.projectiles.push({
+            id: this.nextEntityId++,
+            friendly: false,
+            x: enemy.x + Math.cos(ang) * (enemy.radius + 6),
+            y: enemy.y + Math.sin(ang) * (enemy.radius + 6),
+            vx: Math.cos(ang) * 420,
+            vy: Math.sin(ang) * 420,
+            radius: 6,
+            damage: enemy.damage,
+            ttl: 1.8,
+            pierce: false,
+            hitEnemyIds: [],
+            kind: 'ember',
+            angle: ang,
+          });
+        }
+        this.spawnParticles(
+          enemy.x + Math.cos(enemy.aimAngle) * enemy.radius,
+          enemy.y + Math.sin(enemy.aimAngle) * enemy.radius,
+          '#f0853a',
+          4,
+          110,
+        );
+
+        // Pick diagonal flank hop direction; reverse side if blocked by wall/obstacle.
+        const ax = Math.cos(enemy.aimAngle);
+        const ay = Math.sin(enemy.aimAngle);
+        const radialBias = dist < 175 ? -0.45 : 0.35;
+        let hopSide = flankDir;
+        const makeHopDir = (side: number): { hx: number; hy: number } => {
+          const rx = -ay * side * 0.84 + ax * radialBias;
+          const ry = ax * side * 0.84 + ay * radialBias;
+          const len = Math.max(0.001, Math.hypot(rx, ry));
+          return { hx: rx / len, hy: ry / len };
+        };
+        let hop = makeHopDir(hopSide);
+        const probeX = enemy.x + hop.hx * 32;
+        const probeY = enemy.y + hop.hy * 32;
+        if (
+          probeX - enemy.radius < PLAY_MIN_X ||
+          probeX + enemy.radius > PLAY_MAX_X ||
+          probeY - enemy.radius < PLAY_MIN_Y ||
+          probeY + enemy.radius > PLAY_MAX_Y ||
+          this.pointInObstacle(probeX, probeY, enemy.radius)
+        ) {
+          hopSide = -hopSide;
+          hop = makeHopDir(hopSide);
+        }
+        enemy.targetX = enemy.x + hop.hx * 84;
+        enemy.targetY = enemy.y + hop.hy * 84;
+        enemy.bouncesLeft = -hopSide;
+        enemy.attackFired = true;
+        enemy.state = 'attack';
+        enemy.stateTimer = 0.24;
+      }
+    } else if (enemy.state === 'attack') {
+      const hdx = enemy.targetX - enemy.x;
+      const hdy = enemy.targetY - enemy.y;
+      const hDist = Math.hypot(hdx, hdy);
+      if (hDist > 2) {
+        const hopSpeed = 295 * s.modifier.enemySpeedMult;
+        const step = Math.min(hDist, hopSpeed * dt);
+        this.moveWithSlide(enemy, (hdx / hDist) * step, (hdy / hDist) * step);
+      }
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'recover';
+        enemy.stateTimer = 0.52;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.55;
+      }
+    }
+  }
+
+  private fireEnemyArrow(enemy: EnemyEntity): void {
+    const ang = enemy.aimAngle;
+    this.state.projectiles.push({
+      id: this.nextEntityId++,
+      friendly: false,
+      x: enemy.x + Math.cos(ang) * (enemy.radius + 6),
+      y: enemy.y + Math.sin(ang) * (enemy.radius + 6),
+      vx: Math.cos(ang) * 500,
+      vy: Math.sin(ang) * 500,
+      radius: 5,
+      damage: enemy.damage,
+      ttl: 2.2,
+      pierce: false,
+      hitEnemyIds: [],
+      kind: 'arrow',
+      angle: ang,
+    });
+  }
+
+  private stepArcherAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
+    dt: number,
+  ): void {
+    const s = this.state;
+    if (enemy.bouncesLeft === 0) {
+      enemy.bouncesLeft = enemy.id % 2 === 0 ? 1 : -1;
+    }
+    const strafeDir = enemy.bouncesLeft >= 0 ? 1 : -1;
+
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      const prevX = enemy.x;
+      const prevY = enemy.y;
+      if (!hasShotLOS || dist > 360) {
+        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      } else if (dist < 200) {
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.9 * dt, -dirY * enemy.speed * 0.9 * dt);
+        if (
+          dt > 0 &&
+          enemy.speed > 0 &&
+          Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
+        ) {
+          enemy.bouncesLeft = -strafeDir;
+          this.moveWithSlide(
+            enemy,
+            -dirY * -strafeDir * enemy.speed * 0.6 * dt,
+            dirX * -strafeDir * enemy.speed * 0.6 * dt,
+          );
+        }
+      } else {
+        this.moveWithSlide(
+          enemy,
+          -dirY * strafeDir * enemy.speed * 0.58 * dt,
+          dirX * strafeDir * enemy.speed * 0.58 * dt,
+        );
+        if (
+          dt > 0 &&
+          enemy.speed > 0 &&
+          Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
+        ) {
+          enemy.bouncesLeft = -strafeDir;
+          this.moveWithSlide(
+            enemy,
+            -dirY * -strafeDir * enemy.speed * 0.58 * dt,
+            dirX * -strafeDir * enemy.speed * 0.58 * dt,
+          );
+        }
+      }
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 500 && hasShotLOS) {
+        enemy.state = 'telegraph';
+        enemy.attackKind = 'shoot_arrow';
+        enemy.telegraphDuration = 0.52;
+        enemy.stateTimer = 0.52;
+        enemy.telegraphLocked = false;
+        enemy.attackFired = false;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer > 0.18) {
+        const rawLeadX = s.player.vx * 0.14;
+        const rawLeadY = s.player.vy * 0.14;
+        const rawLeadMag = Math.hypot(rawLeadX, rawLeadY);
+        const leadScale = rawLeadMag > 28 ? 28 / rawLeadMag : 1;
+        enemy.aimAngle = Math.atan2(
+          s.player.y + rawLeadY * leadScale - enemy.y,
+          s.player.x + rawLeadX * leadScale - enemy.x,
+        );
+        enemy.targetX = enemy.x + Math.cos(enemy.aimAngle) * 320;
+        enemy.targetY = enemy.y + Math.sin(enemy.aimAngle) * 320;
+      } else {
+        enemy.telegraphLocked = true;
+      }
+      if (enemy.stateTimer <= 0) {
+        this.fireEnemyArrow(enemy);
+        enemy.attackFired = true;
+        enemy.state = 'attack';
+        if (s.floor >= 4) {
+          enemy.burstLeft = 1;
+          enemy.burstCooldown = 0.18;
+          enemy.stateTimer = 0.28;
+        } else {
+          enemy.burstLeft = 0;
+          enemy.burstCooldown = 0;
+          enemy.stateTimer = 0.16;
+        }
+      }
+    } else if (enemy.state === 'attack') {
+      enemy.stateTimer -= dt;
+      if (enemy.burstLeft > 0) {
+        enemy.burstCooldown -= dt;
+        if (enemy.burstCooldown <= 0) {
+          const targetAng = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+          const delta = Math.max(-0.16, Math.min(0.16, normalizeAngle(targetAng - enemy.aimAngle)));
+          enemy.aimAngle = normalizeAngle(enemy.aimAngle + delta);
+          this.fireEnemyArrow(enemy);
+          enemy.burstLeft -= 1;
+        }
+      }
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'recover';
+        enemy.stateTimer = 0.72;
+        enemy.attackKind = 'none';
+      }
+    } else if (enemy.state === 'recover') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        enemy.state = 'chase';
+        enemy.stateTimer = 0.68;
+      }
+    }
+  }
+
   private stepBossAI(
     boss: EnemyEntity,
     navDirX: number,
@@ -2688,19 +3098,27 @@ export class GameSimulation {
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
 
+      const hitColor = proj.friendly
+        ? '#fbbf24'
+        : proj.kind === 'arrow'
+          ? '#d49562'
+          : proj.kind === 'ember'
+            ? '#f0853a'
+            : '#f97316';
+
       if (
         proj.x - proj.radius < PLAY_MIN_X ||
         proj.x + proj.radius > PLAY_MAX_X ||
         proj.y - proj.radius < PLAY_MIN_Y ||
         proj.y + proj.radius > PLAY_MAX_Y
       ) {
-        this.spawnParticles(proj.x, proj.y, proj.friendly ? '#fbbf24' : '#f97316', 4, 80);
+        this.spawnParticles(proj.x, proj.y, hitColor, 4, 80);
         continue;
       }
 
       // Blocks stop every projectile (cover from shooters, and no shooting through walls).
       if (this.pointInObstacle(proj.x, proj.y, Math.min(proj.radius, 10) * 0.5)) {
-        this.spawnParticles(proj.x, proj.y, proj.friendly ? '#fbbf24' : '#f97316', 4, 80);
+        this.spawnParticles(proj.x, proj.y, hitColor, 4, 80);
         continue;
       }
 
@@ -3047,6 +3465,7 @@ export class GameSimulation {
     const s = this.state;
     s.projectiles = s.projectiles.filter((proj) => proj.friendly);
     s.delayedBlasts = s.delayedBlasts.filter((blast) => blast.friendly && !blast.hurtPlayerToo);
+    s.sporeClouds = [];
     s.coins.forEach((c) => {
       c.magnetized = true;
     });
@@ -3789,6 +4208,13 @@ const HEART_CRATE_CHANCE = 0.35;
 const HEART_HEAL = 15;
 const BOSS_LEAP_DURATION = 0.78;
 const BOSS_LEAP_MAX_Z = 135;
+
+export const SPIKE_CYCLE_SEC = 3.2;
+export const SPIKE_ACTIVE_THRESHOLD = 2.55;
+
+export function isSpikeActive(timer: number): boolean {
+  return timer >= SPIKE_ACTIVE_THRESHOLD;
+}
 
 /**
  * Monster attacks where the body itself rams things (and can bump barrels).
