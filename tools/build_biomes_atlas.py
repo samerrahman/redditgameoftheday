@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = ROOT / "public" / "assets"
 DUNGEON_ATLAS_PNG = ASSETS_DIR / "dungeon" / "dungeon_atlas.png"
 SCRATCH_PREVIEW = Path(
-    "/Users/Samer/.gemini/antigravity/brain/87768f31-ab3d-4ad5-8dc5-75bcc8d7a41d/scratch/biomes_preview.png"
+    "/Users/Samer/.gemini/antigravity/brain/681e0dd1-392e-45a9-b08c-5ca9e857fe94/scratch/biomes_preview.png"
 )
 
 
@@ -1184,7 +1184,578 @@ def build_mossy_cellar() -> tuple[Image.Image, dict[int, Image.Image], list[int]
 
 
 # ===========================================================================
-# Visual QA Preview: renders ALL 5 biomes side-by-side WITH exact wallTint,
+# 5. CINDER VAULT (ember -> public/assets/ember/tilemap_packed.png, 12x11 = 192x176)
+# ===========================================================================
+def build_cinder_vault() -> tuple[Image.Image, dict[int, Image.Image], list[int]]:
+    pal = {
+        "#": INK,
+        # Calm charcoal-basalt slabs L = 14.9-21.0%
+        "0": hex_rgba("#292225"),
+        "1": hex_rgba("#32292d"),
+        "2": hex_rgba("#3b3035"),
+        "e": EMBER,
+        "r": CRIM_1,
+        "R": CRIM_0,
+        "b": hex_rgba("#2d2226"),
+        "B": hex_rgba("#4d353b"),
+        "I": hex_rgba("#7a555d"),
+        "g": GOLD_1,
+        "y": GOLD_2,
+        "s": SLATE_1,
+        "S": SLATE_2,
+    }
+    tiles: dict[int, Image.Image] = {}
+
+    f0 = paint(
+        [
+            "1222222222222210",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "1111111111111110",
+            "0000000000000000",
+        ],
+        pal,
+    )
+    tiles[0] = f0
+    tiles[1] = set_px(f0, [(4, 5, "2"), (5, 5, "2"), (11, 10, "0"), (12, 10, "0")], pal)
+    tiles[2] = set_px(f0, [(8, 0, "0"), (8, 1, "0"), (8, 2, "0"), (8, 3, "0"), (2, 11, "2")], pal)
+    tiles[3] = set_px(f0, [(0, 8, "0"), (1, 8, "0"), (2, 8, "0"), (12, 4, "2"), (13, 4, "2")], pal)
+    tiles[4] = set_px(f0, [(6, 6, "0"), (7, 6, "2"), (7, 7, "0"), (8, 7, "0"), (8, 8, "2")], pal)
+    tiles[5] = set_px(f0, [(10, 4, "2"), (11, 4, "0"), (4, 10, "0"), (5, 11, "2")], pal)
+    tiles[6] = paint(
+        [
+            "1222222012222210",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "0000000000000000",
+            "1222222012222210",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "2111111021111110",
+            "1111111011111110",
+            "0000000000000000",
+        ],
+        pal,
+    )
+    tiles[7] = set_px(tiles[6], [(4, 3, "0"), (5, 4, "0"), (11, 11, "2"), (12, 11, "0")], pal)
+
+    # Solid cinder blocks (81, 82)
+    tiles[81] = paint(
+        [
+            "................",
+            ".##############.",
+            ".#IIIIIIIIIIII#.",
+            ".#IBBBBBBBBBB #.".replace(" ", "B"),
+            ".#IBBbbbbbbBBI#.",
+            ".#IBbrrrrrbbBI#.",
+            ".#IBbreeeebbbI#.",
+            ".#IBbrryyrbbbI#.",
+            ".#IBbbreeebbBI#.",
+            ".#IBbbbRRbbbBI#.",
+            ".#IBbbbbbbbbBI#.",
+            ".#IBBBBBBBBBBI#.",
+            ".#bbbbbbbbbbbb#.",
+            ".#bbbbbbbbbbbb#.",
+            ".##############.",
+            "................",
+        ],
+        pal,
+    )
+    tiles[82] = paint(
+        [
+            "................",
+            ".##############.",
+            ".#SSIIIIIIIIIS#.",
+            ".#SBBBBBBBBBBs#.",
+            ".#SBbbbbbbbbBs#.",
+            ".#SbbRRRRRRbbs#.",
+            ".#SbReeeeeeRbs#.",
+            ".#SbReeggeeRbs#.",
+            ".#SbbRRRRRRbbs#.",
+            ".#Sbbbbbbbbbbs#.",
+            ".#SBBBBBBBBBBs#.",
+            ".#SssssssssssS#.",
+            ".#bbbbbbbbbbbb#.",
+            ".#bbbbbbbbbbbb#.",
+            ".##############.",
+            "................",
+        ],
+        pal,
+    )
+
+    # Sparse low-profile floor decor (30, 31, 32)
+    tiles[30] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".....11111......",
+            "....12222210....",
+            "....01211100....",
+            ".....000000.....",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+    tiles[31] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "....###.........",
+            "...#B2b#..##....",
+            "...#bbb#.#2b#...",
+            "....###...##....",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+    tiles[32] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "......##........",
+            ".....#Rr#..##...",
+            ".....#eR#.#R2#..",
+            "......##...##...",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+
+    floor_ids = [0, 1, 2, 3, 4, 5, 6, 7]
+    sheet = pack_sheet(12, 11, tiles)
+    audit_sheet("Cinder Vault (ember)", sheet, (192, 176), [tiles[i] for i in floor_ids])
+    return sheet, tiles, floor_ids
+
+
+# ===========================================================================
+# 6. SUNKEN MIRE (mire -> public/assets/mire/tilemap_packed.png, 12x11 = 192x176)
+# ===========================================================================
+def build_sunken_mire() -> tuple[Image.Image, dict[int, Image.Image], list[int]]:
+    pal = {
+        "#": INK,
+        # Calm deep teal-bog slate slabs L = 14.3-21.2%
+        "0": hex_rgba("#1d2c2b"),
+        "1": hex_rgba("#243634"),
+        "2": hex_rgba("#2b413e"),
+        "m": MOSS_0,
+        "M": MOSS_1,
+        "g": MOSS_2,
+        "b": hex_rgba("#223836"),
+        "B": hex_rgba("#355956"),
+        "I": hex_rgba("#5b8a85"),
+        "w": BONE,
+    }
+    tiles: dict[int, Image.Image] = {}
+
+    f0 = paint(
+        [
+            "1222222222222210",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "1111111111111110",
+            "0000000000000000",
+        ],
+        pal,
+    )
+    tiles[0] = f0
+    tiles[1] = set_px(f0, [(3, 4, "2"), (4, 4, "2"), (11, 11, "0"), (12, 11, "0")], pal)
+    tiles[2] = set_px(f0, [(7, 1, "0"), (7, 2, "0"), (7, 3, "0"), (3, 10, "2"), (4, 10, "2")], pal)
+    tiles[3] = set_px(f0, [(1, 8, "0"), (2, 8, "0"), (10, 4, "2"), (11, 4, "2")], pal)
+    tiles[4] = set_px(f0, [(6, 6, "0"), (7, 6, "2"), (8, 7, "0"), (9, 7, "0")], pal)
+    tiles[5] = set_px(f0, [(11, 3, "0"), (11, 4, "2"), (4, 11, "2"), (5, 11, "0")], pal)
+
+    # Sunken runner strip tiles (48..51, 60..63)
+    for pid, top_fill, bot_fill in [
+        (48, "2", "1"),
+        (49, "2", "1"),
+        (50, "2", "1"),
+        (51, "2", "1"),
+        (60, "1", "0"),
+        (61, "1", "0"),
+        (62, "1", "0"),
+        (63, "1", "0"),
+    ]:
+        tiles[pid] = paint(
+            [
+                "0000000000000000",
+                top_fill * 16,
+                "1111111111111110",
+                "1111112111111110",
+                "1111111111111110",
+                "1111111112111110",
+                "1111111111111110",
+                "1111111111111110",
+                "1111111111111110",
+                "1111111111111110",
+                "1111111111111110",
+                "1111111111111110",
+                "1111111111111110",
+                bot_fill * 15 + "0",
+                "0000000000000000",
+                "0000000000000000",
+            ],
+            pal,
+        )
+
+    # Solid mire blocks (96, 97)
+    tiles[96] = paint(
+        [
+            "................",
+            ".##############.",
+            ".#IIIIIIIIIIII#.",
+            ".#IMggMBBBBBBI#.",
+            ".#IMmMBbbbbbbI#.",
+            ".#IBmBBBBBBBBb#.",
+            ".#IBbbbbbbbbbb#.",
+            ".#IBbbbmMBbbbb#.",
+            ".#IBbbbmMMbbbb#.",
+            ".#IBbbbbbbmbbb#.",
+            ".#IBBBBBBBBmBb#.",
+            ".#Ibbbbbbbbbbb#.",
+            ".#bbbbbbbbbbbb#.",
+            ".#bbbbbbbbbbbb#.",
+            ".##############.",
+            "................",
+        ],
+        pal,
+    )
+    tiles[97] = paint(
+        [
+            "................",
+            "..############..",
+            "..#IIIIIIIIII#..",
+            "..#IBBMggMBBI#..",
+            "..#IBbmMMmbBI#..",
+            "..#IBbmmmmbBI#..",
+            "..#IBbbbbbbBI#..",
+            "..#IBbbBBbbBI#..",
+            "..#IBbbbbbbBI#..",
+            "..#IBbbbbbbBI#..",
+            "..#IBBBBBBBBI#..",
+            "..#bbbbbbbbbb#..",
+            ".#BBBBBBBBBBBB#.",
+            ".#bbbbbbbbbbbb#.",
+            ".##############.",
+            "................",
+        ],
+        pal,
+    )
+
+    # Sparse floor decor (39, 40, 41)
+    tiles[39] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "....mmMm........",
+            "...mMMMm2.......",
+            "...1mm210.......",
+            "....0000........",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+    tiles[40] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "....###.........",
+            "...#I2b#..##....",
+            "...#bbb#.#2b#...",
+            "....###...##....",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+    tiles[41] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".....##.........",
+            "....#wg#..##....",
+            "....#bM#.#wg#...",
+            ".....##...##....",
+            "................",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+
+    floor_ids = [0, 1, 2, 3, 4, 5, 48, 49, 50, 51, 60, 61, 62, 63]
+    sheet = pack_sheet(12, 11, tiles)
+    audit_sheet("Sunken Mire (mire)", sheet, (192, 176), [tiles[i] for i in floor_ids])
+    return sheet, tiles, floor_ids
+
+
+# ===========================================================================
+# 7. DUNE CATACOMB (sand -> public/assets/sand/tilemap_packed.png, 12x11 = 192x176)
+# ===========================================================================
+def build_dune_catacomb() -> tuple[Image.Image, dict[int, Image.Image], list[int]]:
+    pal = {
+        "#": INK,
+        # Calm muted umber-sandstone slabs L = 15.1-21.8%
+        "0": hex_rgba("#2b241d"),
+        "1": hex_rgba("#352c24"),
+        "2": hex_rgba("#40352b"),
+        "b": hex_rgba("#362b21"),
+        "B": hex_rgba("#5c4936"),
+        "I": hex_rgba("#8a7055"),
+        "g": GOLD_1,
+        "y": GOLD_2,
+        "w": BONE,
+        "s": SLATE_1,
+    }
+    tiles: dict[int, Image.Image] = {}
+
+    f0 = paint(
+        [
+            "1222222222222210",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "2111111111111110",
+            "1111111111111110",
+            "0000000000000000",
+        ],
+        pal,
+    )
+    tiles[109] = f0
+    tiles[110] = set_px(f0, [(4, 5, "2"), (5, 5, "2"), (11, 10, "0"), (12, 10, "0")], pal)
+    tiles[111] = set_px(f0, [(8, 0, "0"), (8, 1, "0"), (8, 2, "0"), (3, 11, "2")], pal)
+    tiles[112] = set_px(f0, [(0, 8, "0"), (1, 8, "0"), (11, 4, "2"), (12, 4, "2")], pal)
+    tiles[113] = set_px(f0, [(6, 6, "0"), (7, 6, "2"), (8, 7, "0"), (8, 8, "2")], pal)
+
+    # Inlaid tomb border patches (0, 1, 2)
+    tiles[0] = paint(
+        [
+            "0000000000000000",
+            "0222222222222200",
+            "0211111111111200",
+            "0211111111111200",
+            "0211112222111200",
+            "0211112112111200",
+            "0211112112111200",
+            "0211112222111200",
+            "0211111111111200",
+            "0211111111111200",
+            "0211111111111200",
+            "0211111111111200",
+            "0211111111111200",
+            "0222222222222200",
+            "0000000000000000",
+            "0000000000000000",
+        ],
+        pal,
+    )
+    tiles[1] = set_px(tiles[0], [(3, 3, "0"), (10, 11, "0")], pal)
+    tiles[2] = set_px(tiles[0], [(6, 5, "2"), (9, 6, "2")], pal)
+
+    # Solid tomb blocks (106, 107)
+    tiles[106] = paint(
+        [
+            "................",
+            ".##############.",
+            ".#IIIIIIIIIIII#.",
+            ".#IBBBBBBBBBBI#.",
+            ".#IBbbbbbbbbBI#.",
+            ".#IBbIIIIIIbBI#.",
+            ".#IBbIbbbbIbBI#.",
+            ".#IBbIbggbIbBI#.",
+            ".#IBbIbggbIbBI#.",
+            ".#IBbIbbbbIbBI#.",
+            ".#IBbIIIIIIbBI#.",
+            ".#IBbbbbbbbbBI#.",
+            ".#bbbbbbbbbbbb#.",
+            ".#bbbbbbbbbbbb#.",
+            ".##############.",
+            "................",
+        ],
+        pal,
+    )
+    tiles[107] = paint(
+        [
+            "................",
+            "..############..",
+            "..#IIIIIIIIII#..",
+            "..#IBBgyygBBI#..",
+            "..#IBbggggbBI#..",
+            "..#IBbbbbbbBI#..",
+            "..#IBbBIIBbbI#..",
+            "..#IBbbbbbbBI#..",
+            "..#IBbBIIBbbI#..",
+            "..#IBbbbbbbBI#..",
+            "..#IBBBBBBBBI#..",
+            "..#bbbbbbbbbb#..",
+            ".#BBBBBBBBBBBB#.",
+            ".#bbbbbbbbbbbb#.",
+            ".##############.",
+            "................",
+        ],
+        pal,
+    )
+
+    # Sparse floor decor (83, 84, 85)
+    tiles[83] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".....11111......",
+            "....12222210....",
+            "....01211100....",
+            ".....000000.....",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+    tiles[84] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "....###.........",
+            "...#I2b#..##....",
+            "...#bbb#.#2b#...",
+            "....###...##....",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+    tiles[85] = paint(
+        [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".....###........",
+            "....#B2b#.##....",
+            "....#bbg##2b#...",
+            ".....###..##....",
+            "................",
+            "................",
+            "................",
+        ],
+        pal,
+    )
+
+    floor_ids = [109, 110, 111, 112, 113, 0, 1, 2]
+    sheet = pack_sheet(12, 11, tiles)
+    audit_sheet("Dune Catacomb (sand)", sheet, (192, 176), [tiles[i] for i in floor_ids])
+    return sheet, tiles, floor_ids
+
+
+# ===========================================================================
+# Visual QA Preview: renders ALL 8 biomes side-by-side WITH exact wallTint,
 # solid blocks, sparse decor, hero, binary spikes OFF/ON, and sapper bomb!
 # ===========================================================================
 def tint_multiply(im: Image.Image, hex_tint: int) -> Image.Image:
@@ -1208,6 +1779,9 @@ def make_biomes_preview(
     town_tiles: dict[int, Image.Image],
     battle_tiles: dict[int, Image.Image],
     farm_tiles: dict[int, Image.Image],
+    ember_tiles: dict[int, Image.Image],
+    mire_tiles: dict[int, Image.Image],
+    sand_tiles: dict[int, Image.Image],
 ) -> Image.Image:
     import json
 
@@ -1244,17 +1818,23 @@ def make_biomes_preview(
         ("Cobble Keep", 0x171412, 0xFFD29C, True, [town_tiles[i] for i in (109, 110, 111, 112, 113)], [town_tiles[106], town_tiles[107]], [town_tiles[83], town_tiles[84], town_tiles[85]], town_tiles[105]),
         ("Ash Rampart", 0x171315, 0xF0B8A4, True, [battle_tiles[i] for i in (0, 1, 2, 3, 4)], [battle_tiles[25], battle_tiles[23]], [battle_tiles[94], battle_tiles[95], battle_tiles[96]], None),
         ("Mossy Cellar", 0x121715, 0xB8EAB4, False, [farm_tiles[i] for i in (0, 1, 2, 3, 4)], [farm_tiles[96], farm_tiles[97], farm_tiles[85]], [farm_tiles[39], farm_tiles[40], farm_tiles[41]], [farm_tiles[48], farm_tiles[49], farm_tiles[50], farm_tiles[51]]),
+        ("Cinder Vault", 0x171213, 0xF4B698, True, [ember_tiles[i] for i in (0, 1, 2, 3, 4)], [ember_tiles[81], ember_tiles[82]], [ember_tiles[30], ember_tiles[31], ember_tiles[32]], None),
+        ("Sunken Mire", 0x101718, 0x9ED9C8, False, [mire_tiles[i] for i in (0, 1, 2, 3, 4)], [mire_tiles[96], mire_tiles[97]], [mire_tiles[39], mire_tiles[40], mire_tiles[41]], [mire_tiles[48], mire_tiles[49], mire_tiles[50], mire_tiles[51]]),
+        ("Dune Catacomb", 0x181511, 0xEBD0A2, True, [sand_tiles[i] for i in (109, 110, 111, 112, 113)], [sand_tiles[106], sand_tiles[107]], [sand_tiles[83], sand_tiles[84], sand_tiles[85]], None),
     ]
 
     room_w, room_h = 6 * 16, 5 * 16  # 96x80 each
     pad = 12
-    total_w = pad + len(specs) * (room_w + pad)
-    total_h = pad * 2 + room_h + 40
+    cols_n = 4
+    rows_n = 2
+    cell_h = room_h + 40
+    total_w = pad + cols_n * (room_w + pad)
+    total_h = pad + rows_n * (cell_h + pad)
     canvas = Image.new("RGBA", (total_w, total_h), INK)
 
     for idx, (_name, amb_bg, w_tint, has_torch, floors, blocks, decors, extra) in enumerate(specs):
-        ox = pad + idx * (room_w + pad)
-        oy = pad
+        ox = pad + (idx % cols_n) * (room_w + pad)
+        oy = pad + (idx // cols_n) * (cell_h + pad)
         # Ambient backdrop strip under each biome card
         bg_c = ((amb_bg >> 16) & 0xFF, (amb_bg >> 8) & 0xFF, amb_bg & 0xFF, 255)
         card_bg = Image.new("RGBA", (room_w + 4, room_h + 38), bg_c)
@@ -1281,7 +1861,7 @@ def make_biomes_preview(
                     fl = floors[4] if (r == 2 and c == 3) else floors[(r * 3 + c) % 4]
                     canvas.alpha_composite(fl, (tx, ty))
 
-        # Farm 4-tile patch strip demonstration on row 4!
+        # Patch strip demonstration on row 4!
         if isinstance(extra, list):
             for si, st in enumerate(extra):
                 canvas.alpha_composite(st, (ox + (1 + si) * 16, oy + 4 * 16))
@@ -1332,23 +1912,39 @@ def main() -> None:
     town_sheet, town_tiles, _ = build_cobble_keep()
     battle_sheet, battle_tiles, _ = build_ash_rampart()
     farm_sheet, farm_tiles, _ = build_mossy_cellar()
+    ember_sheet, ember_tiles, _ = build_cinder_vault()
+    mire_sheet, mire_tiles, _ = build_sunken_mire()
+    sand_sheet, sand_tiles, _ = build_dune_catacomb()
 
     out_map = [
         ("ski", frost_sheet),
         ("town", town_sheet),
         ("battle", battle_sheet),
         ("farm", farm_sheet),
+        ("ember", ember_sheet),
+        ("mire", mire_sheet),
+        ("sand", sand_sheet),
     ]
     for key, sheet in out_map:
-        out_path = ASSETS_DIR / key / "tilemap_packed.png"
+        out_dir = ASSETS_DIR / key
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "tilemap_packed.png"
         sheet.save(out_path)
         print(f"Wrote {out_path} {sheet.size} [audit PASS]")
 
     try:
         SCRATCH_PREVIEW.parent.mkdir(parents=True, exist_ok=True)
-        preview = make_biomes_preview(frost_tiles, town_tiles, battle_tiles, farm_tiles)
+        preview = make_biomes_preview(
+            frost_tiles,
+            town_tiles,
+            battle_tiles,
+            farm_tiles,
+            ember_tiles,
+            mire_tiles,
+            sand_tiles,
+        )
         preview.save(SCRATCH_PREVIEW)
-        print(f"Wrote 3x 5-biome preview -> {SCRATCH_PREVIEW} {preview.size}")
+        print(f"Wrote 3x 8-biome preview -> {SCRATCH_PREVIEW} {preview.size}")
     except OSError as err:
         print(f"Skipped preview: {err}")
 

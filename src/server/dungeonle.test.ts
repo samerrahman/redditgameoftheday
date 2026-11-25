@@ -15,11 +15,13 @@ import {
 } from '../shared/game/constants.ts';
 import { ALL_ENEMY_ARCHETYPES, createEnemy } from '../shared/game/enemies.ts';
 import {
+  BIOME_ORDER,
   BIOME_SIGNATURE_ENEMY,
   buildDailyDungeonMap,
   CELL_SIZE,
   getBiomeIdForFloor,
   getDailyBiomeOrder,
+  getFloorBossSpec,
   getFloorScaling,
   isNearDoorwayCell,
   isReservedCell,
@@ -28,6 +30,7 @@ import {
   oppositeDirection,
 } from '../shared/game/rooms.ts';
 import {
+  computeRunScore,
   GameSimulation,
   SPIKE_ACTIVE_THRESHOLD,
   SPIKE_CYCLE_SEC,
@@ -64,7 +67,7 @@ import {
   COSMETIC_IDS,
   GACHA_PULL_COST,
 } from '../shared/shop.ts';
-import type { InputFrame, RunSummary } from '../shared/types.ts';
+import type { EnemyArchetype, InputFrame, RunSummary } from '../shared/types.ts';
 import { WEAPONS, WEAPON_IDS } from '../shared/weapons.ts';
 
 function makeSummary(overrides: Partial<RunSummary> = {}): RunSummary {
@@ -1017,9 +1020,12 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
       }
     };
 
-    // Weapons (tile_106, 103, 117, 129, 130), obsidian monolith (tile_064), biome enemies (tile_111, 121),
-    // and 8 relics must align to the 28-col x 18px-stride 16x16 grid expected by shopView.ts.
-    const gridTileIds = [64, 102, 103, 105, 106, 107, 111, 114, 115, 116, 117, 118, 119, 121, 129, 130];
+    // Weapons (tile_106, 103, 117, 129, 130), obsidian monolith (tile_064), 13 Tome relics (68..80),
+    // and existing grid slots must align to the 28-col x 18px-stride 16x16 grid expected by shopView.ts.
+    const gridTileIds = [
+      64, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80,
+      102, 103, 105, 106, 107, 111, 114, 115, 116, 117, 118, 119, 121, 129, 130,
+    ];
     for (const idx of gridTileIds) {
       const key = `tile_${String(idx).padStart(3, '0')}`;
       const col = idx % 28;
@@ -1160,7 +1166,7 @@ void describe('Shop: weapons, relic unlocks, gacha', () => {
   void it('keeps biome solid obstacle sprites strictly separate from walk-through decor', () => {
     const biomesSrc = readFileSync(new URL('../client/config/biomes.ts', import.meta.url), 'utf8');
     const sections = biomesSrc.split(/\bid:\s*'/g).slice(1);
-    assert.equal(sections.length, 5, 'expected all 5 biome entries in biomes.ts');
+    assert.equal(sections.length, 8, 'expected all 8 biome entries in biomes.ts');
     for (const section of sections) {
       const idMatch = /^(\w+)'/.exec(section);
       const biomeId = idMatch?.[1] ?? 'unknown';
@@ -1298,20 +1304,24 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(sim.state.gems.length, 1, 'floor boss kill must drop a gem');
   });
 
-  void it('always starts on the Dungeon, shuffles the other biomes per date, and repeats from floor 6', () => {
+  void it('randomizes the starting biome each day and cycles all 8 biomes before repeating', () => {
     assert.deepEqual(
-      [1, 2, 3, 4, 5, 6, 7].map((f) => getBiomeIdForFloor(f)),
-      ['dungeon', 'snow', 'town', 'battle', 'farm', 'dungeon', 'snow'],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => getBiomeIdForFloor(f)),
+      ['dungeon', 'snow', 'town', 'battle', 'farm', 'ember', 'mire', 'sand', 'dungeon'],
     );
-    const dates = ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'];
-    for (const d of dates) assert.equal(getBiomeIdForFloor(1, d), 'dungeon', `floor 1 on ${d} should be the Dungeon`);
-    const secondFloors = new Set(dates.map((d) => getBiomeIdForFloor(2, d)));
-    assert.ok(secondFloors.size >= 2, `expected the outdoor worlds to shuffle per date, got ${[...secondFloors].join(', ')}`);
+    const dates = ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24', '2026-11-25'];
+    const startingBiomes = new Set(dates.map((d) => getBiomeIdForFloor(1, d)));
+    assert.ok(startingBiomes.size >= 3, `expected varied daily starting biomes, got ${[...startingBiomes].join(', ')}`);
+    for (const d of dates) {
+      const cycle = [1, 2, 3, 4, 5, 6, 7, 8].map((f) => getBiomeIdForFloor(f, d));
+      assert.equal(new Set(cycle).size, BIOME_ORDER.length, `expected 8 unique biomes on ${d}`);
+      assert.equal(getBiomeIdForFloor(9, d), cycle[0], 'floor 9 wraps cleanly to floor 1 biome');
+    }
 
     const date = '2026-11-20';
     const order = getDailyBiomeOrder(date);
-    assert.equal(order.length, 5);
-    assert.equal(getBiomeIdForFloor(6, date), getBiomeIdForFloor(1, date));
+    assert.equal(order.length, 8);
+    assert.equal(getBiomeIdForFloor(9, date), getBiomeIdForFloor(1, date));
 
     const hazard = getDailyHazard(date);
     // Floor 1 uses only classic monsters (plus the boss); biome specials start on floor 2.
@@ -1326,8 +1336,8 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(floor1Types.has('myconid'), true, 'floor 1 should naturally feature myconid');
     assert.equal(floor1Types.has('imp'), true, 'floor 1 should naturally feature imp');
     assert.equal(floor1Types.has('archer'), true, 'floor 1 should naturally feature archer');
-    for (let floor = 2; floor <= 6; floor += 1) {
-      if (getBiomeIdForFloor(floor, date) === 'dungeon') continue; // floor 6 = dungeon again
+    for (let floor = 2; floor <= 8; floor += 1) {
+      if (getBiomeIdForFloor(floor, date) === 'dungeon') continue; // dungeon is the classic starter set
       const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, date)];
       const map = buildDailyDungeonMap(date, floor, hazard);
       const spawnedTypes = new Set(map.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
@@ -1386,15 +1396,17 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     }
     assert.ok(maxYetiShards >= 4, 'ice_mortar should burst into 4 shards');
 
-    // Bomber: drops sapper_bomb and retreats away from the player
+    // Bomber: closes right in, drops sapper_bomb, and retreats away from the player
     const bomberSim = setupWith('bomber', ARENA_W / 2, 230);
-    stepFrames(bomberSim, 30, () => idleInput());
+    for (let f = 0; f < 90 && !bomberSim.state.delayedBlasts.some((b) => b.kind === 'sapper_bomb'); f += 1) {
+      bomberSim.step(idleInput());
+    }
     assert.equal(bomberSim.state.delayedBlasts.some((b) => b.kind === 'sapper_bomb'), true, 'bomber should drop bomb');
     const bombDropDist = Math.hypot(
       bomberSim.state.enemies[0]!.x - bomberSim.state.player.x,
       bomberSim.state.enemies[0]!.y - bomberSim.state.player.y,
     );
-    stepFrames(bomberSim, 30, () => idleInput());
+    stepFrames(bomberSim, 20, () => idleInput());
     const afterRetreatDist = Math.hypot(
       bomberSim.state.enemies[0]!.x - bomberSim.state.player.x,
       bomberSim.state.enemies[0]!.y - bomberSim.state.player.y,
@@ -1955,7 +1967,7 @@ void describe('Explosive barrels react to monster attacks', () => {
 
 void describe('Promoted Archetypes (Myconid, Imp, Archer), Zero Enemy Armor & Binary Spikes', () => {
   const setupArenaWith = (
-    arch: 'myconid' | 'imp' | 'archer',
+    arch: EnemyArchetype,
     x: number,
     y: number,
     playerX = ARENA_W / 2,
@@ -2144,5 +2156,128 @@ void describe('Promoted Archetypes (Myconid, Imp, Archer), Zero Enemy Armor & Bi
     stepFrames(sim, 10, () => idleInput());
     assert.equal(spike.active, false);
     assert.equal(sim.state.player.hp, hpAfterHit, 'wrapped OFF spikes must deal zero damage');
+  });
+
+  void it('Bomber and Myconid close in and hit a completely stationary player', () => {
+    for (const kind of ['bomber', 'myconid'] as const) {
+      const sim = setupArenaWith(kind, 110, 224, 340, 224);
+      sim.state.player.iFramesTimer = 0;
+      sim.state.player.hp = 100;
+      for (let i = 0; i < 240 && sim.state.player.hp === 100; i += 1) {
+        sim.step(idleInput());
+      }
+      assert.ok(
+        sim.state.player.hp < 100,
+        `${kind} must close all the way in and damage a stationary player`,
+      );
+    }
+  });
+
+  void it('Golden Cleave scales attack damage with coins and triggers gilded AoE splash', () => {
+    const profile = createDefaultProfile();
+    const sim = new GameSimulation('2026-11-20', profile);
+    sim.startNewRun('2026-11-20', profile, { ignoreDailyWeaponRule: true });
+    sim.state.obstacles = [];
+    sim.state.hazards = [];
+    sim.state.totalWaves = 5;
+    sim.state.player.relics = { golden_cleave: 2 };
+    sim.state.stats.coinsEarned = 50; // +20% damage bonus at lv2
+    sim.state.player.x = 300;
+    sim.state.player.y = 260;
+
+    const primary = createEnemy(9101, 'charger', 300, 220, 1, 1, 1, 1);
+    const splashTarget = createEnemy(9102, 'charger', 345, 220, 1, 1, 1, 1);
+    primary.spawnShieldTimer = 0;
+    splashTarget.spawnShieldTimer = 0;
+    primary.hp = 200;
+    splashTarget.hp = 200;
+    sim.state.enemies = [primary, splashTarget];
+
+    sim.state.player.attackCooldown = 0;
+    sim.state.player.attackEndlagTimer = 0;
+    sim.step(idleInput({ moveY: -1, actionDown: true, actionJustPressed: true }));
+
+    assert.ok(primary.hp < 200, 'primary enemy should take buffed damage');
+    assert.ok(splashTarget.hp < 200, 'nearby enemy should take Golden Cleave gild-blast damage');
+    assert.ok(sim.state.coins.length >= 1, 'Golden Cleave should burst coins on hit');
+  });
+
+  void it('computes run Score in 1000s-100000s capped at 999999 from floor, coins, time, and HP lost', () => {
+    const shallow = computeRunScore({
+      floorReached: 1,
+      floorsCleared: 0,
+      roomsCleared: 2,
+      coinsEarned: 12,
+      elapsedSec: 65,
+      damageTaken: 40,
+      enemiesKilled: 8,
+    });
+    const deepFast = computeRunScore({
+      floorReached: 5,
+      floorsCleared: 4,
+      roomsCleared: 24,
+      coinsEarned: 180,
+      elapsedSec: 320,
+      damageTaken: 25,
+      enemiesKilled: 95,
+    });
+    const deepSlow = computeRunScore({
+      floorReached: 5,
+      floorsCleared: 4,
+      roomsCleared: 24,
+      coinsEarned: 180,
+      elapsedSec: 1800,
+      damageTaken: 25,
+      enemiesKilled: 95,
+    });
+    const deepHurt = computeRunScore({
+      floorReached: 5,
+      floorsCleared: 4,
+      roomsCleared: 24,
+      coinsEarned: 180,
+      elapsedSec: 320,
+      damageTaken: 250,
+      enemiesKilled: 95,
+    });
+    const capped = computeRunScore({
+      floorReached: 90,
+      floorsCleared: 89,
+      roomsCleared: 600,
+      coinsEarned: 9000,
+      elapsedSec: 120,
+      damageTaken: 0,
+      enemiesKilled: 3000,
+    });
+
+    assert.ok(shallow >= 1000 && shallow < 15000, `expected 1000s range for early run, got ${shallow}`);
+    assert.ok(deepFast >= 40000 && deepFast <= 200000, `expected 10k-100k range, got ${deepFast}`);
+    assert.ok(deepFast > deepSlow, 'faster clear time must earn higher score');
+    assert.ok(deepSlow >= deepFast * 0.72, 'long clear time must not over-punish score');
+    assert.ok(deepFast > deepHurt, 'losing less HP must earn higher score');
+    assert.equal(capped, 999_999, 'score must cap cleanly at 999999');
+  });
+
+  void it('uses scaled-up existing monsters as floor bosses and enforces pixel-only rings in DungeonScene', () => {
+    const map1 = buildDailyDungeonMap('2026-11-24', 1, 'spikes');
+    const bossRoom = map1.rooms.find((r) => r.blueprint.roomType === 'boss');
+    assert.ok(bossRoom);
+    const bossSpawn = bossRoom.blueprint.waves[0]?.find((w) => w.archetype === 'boss');
+    assert.ok(bossSpawn?.bossBase, 'boss wave spawn should specify a base monster');
+    assert.deepEqual(bossSpawn.bossBase, getFloorBossSpec(1, '2026-11-24').bossBase);
+
+    const seenBossForms = new Set(
+      [1, 2, 3, 4, 5].map((f) => {
+        const s = getFloorBossSpec(f, '2026-11-24');
+        return `${s.bossBase}:${s.bossVariant}`;
+      }),
+    );
+    assert.equal(seenBossForms.size, 5, 'different floors should showcase distinct monster boss forms');
+
+    const sceneSrc = readFileSync(new URL('../client/scenes/DungeonScene.ts', import.meta.url), 'utf8');
+    assert.equal(
+      /\b(?:strokeCircle|fillCircle|strokeEllipse|fillEllipse)\b/.test(sceneSrc),
+      false,
+      'DungeonScene must ban vector circle/ellipse primitives in favor of pixel-art rings',
+    );
   });
 });

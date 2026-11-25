@@ -1,5 +1,6 @@
 import { createDailyStream, type SeededRng } from '../rng.ts';
 import type { BiomeId, DoorDirection, EnemyArchetype, HazardType, RoomType } from '../types.ts';
+import type { BossBaseArchetype } from './enemies.ts';
 import {
   ARENA_H,
   ARENA_W,
@@ -15,6 +16,8 @@ export type WaveSpawn = {
   archetype: EnemyArchetype;
   x: number;
   y: number;
+  bossBase?: BossBaseArchetype | undefined;
+  bossVariant?: 0 | 1 | undefined;
 };
 
 export type HazardBlueprint = {
@@ -456,20 +459,28 @@ export type FloorScaling = {
   extraEnemies: number;
 };
 
-export const BIOME_ORDER: readonly BiomeId[] = ['dungeon', 'snow', 'town', 'battle', 'farm'];
+export const BIOME_ORDER: readonly BiomeId[] = [
+  'dungeon',
+  'snow',
+  'town',
+  'battle',
+  'farm',
+  'ember',
+  'mire',
+  'sand',
+];
 
 /**
- * Floor 1 is always the classic Dungeon so every run starts somewhere familiar.
- * Each UTC date shuffles the other four worlds for floors 2-5, then the cycle repeats.
+ * Shuffles all 8 vaults per UTC date so each day starts in a different biome
+ * and cycles through all biomes without repeats before wrapping on Floor 9.
  */
 export function getDailyBiomeOrder(utcDate: string): readonly BiomeId[] {
-  const outdoors = BIOME_ORDER.filter((b) => b !== 'dungeon');
-  return ['dungeon', ...createDailyStream(utcDate, 'biome-order').shuffle(outdoors)];
+  return createDailyStream(utcDate, 'biome-order').shuffle(BIOME_ORDER);
 }
 
 /**
  * The themed "signature" monster for a floor. Floor 1 sticks to classic slimes so
- * the first rooms stay simple; special monsters arrive from floor 2.
+ * the first rooms stay welcoming; biome specialists lead from floor 2 onward.
  */
 export function getFloorSignatureEnemy(floor: number, utcDate?: string): EnemyArchetype {
   if (Math.max(1, Math.floor(floor)) === 1) return 'chaser';
@@ -488,7 +499,36 @@ export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = {
   town: 'bomber',
   battle: 'mortar_tank',
   farm: 'stampede',
+  ember: 'imp',
+  mire: 'myconid',
+  sand: 'archer',
 };
+
+const BOSS_FORM_POOL: ReadonlyArray<{ bossBase: BossBaseArchetype; bossVariant: 0 | 1 }> = [
+  { bossBase: 'chaser', bossVariant: 0 },
+  { bossBase: 'chaser', bossVariant: 1 },
+  { bossBase: 'shooter', bossVariant: 0 },
+  { bossBase: 'charger', bossVariant: 0 },
+  { bossBase: 'charger', bossVariant: 1 },
+  { bossBase: 'elite_charger', bossVariant: 0 },
+  { bossBase: 'shade', bossVariant: 0 },
+  { bossBase: 'yeti', bossVariant: 0 },
+  { bossBase: 'bomber', bossVariant: 0 },
+  { bossBase: 'mortar_tank', bossVariant: 0 },
+  { bossBase: 'stampede', bossVariant: 0 },
+  { bossBase: 'myconid', bossVariant: 0 },
+  { bossBase: 'imp', bossVariant: 0 },
+  { bossBase: 'archer', bossVariant: 0 },
+];
+
+export function getFloorBossSpec(
+  floor: number,
+  utcDate: string,
+): { bossBase: BossBaseArchetype; bossVariant: 0 | 1 } {
+  const f = Math.max(1, Math.floor(floor));
+  const order = createDailyStream(utcDate, 'boss-order').shuffle(BOSS_FORM_POOL);
+  return order[(f - 1) % order.length]!;
+}
 
 export function getFloorScaling(floor: number): FloorScaling {
   const f = Math.max(1, Math.floor(floor));
@@ -718,12 +758,24 @@ export function buildDailyDungeonMap(
         hasHazard: false,
       };
     } else if (node.id === bossRoomId) {
+      const bossSpec = getFloorBossSpec(f, utcDate);
       const escorts: EnemyArchetype[] =
         f >= 3 ? withExtras(roomRng, [], f, Math.min(2, Math.floor((f - 1) / 2)), utcDate) : [];
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'boss',
-        waves: [[{ archetype: 'boss', x: ARENA_W / 2, y: centerSpawnY }, ...wave(escorts)]],
+        waves: [
+          [
+            {
+              archetype: 'boss',
+              x: ARENA_W / 2,
+              y: centerSpawnY,
+              bossBase: bossSpec.bossBase,
+              bossVariant: bossSpec.bossVariant,
+            },
+            ...wave(escorts),
+          ],
+        ],
         hazards: [],
         breakables: buildBreakables(node.roomIndex, 'pillar', 2, occupiedCells),
         obstacles,

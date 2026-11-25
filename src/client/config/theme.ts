@@ -111,19 +111,19 @@ export function hexNum(cssHex: string): number {
 }
 
 export const RELIC_SPRITE_FRAMES: Record<RelicId, string> = {
-  ember_wake: 'tile_115',
-  arc_conduit: 'tile_130',
-  blood_reset: 'tile_103',
-  decoy_mine: 'barrel_tnt',
-  rift_cleave: 'tile_107',
-  vortex_slam: 'tile_129',
-  mirror_guard: 'tile_102',
-  reaper_siphon: 'tile_114',
-  volt_nova: 'tile_116',
-  shatter_quake: 'tile_117',
-  phantom_echo: 'tile_105',
-  golden_cleave: 'tile_118',
-  concussion: 'tile_119',
+  ember_wake: 'tile_068',
+  arc_conduit: 'tile_069',
+  blood_reset: 'tile_070',
+  decoy_mine: 'tile_071',
+  rift_cleave: 'tile_072',
+  vortex_slam: 'tile_073',
+  mirror_guard: 'tile_074',
+  reaper_siphon: 'tile_075',
+  volt_nova: 'tile_076',
+  shatter_quake: 'tile_077',
+  phantom_echo: 'tile_078',
+  golden_cleave: 'tile_079',
+  concussion: 'tile_080',
 };
 
 export const ENTITY_LABELS = {

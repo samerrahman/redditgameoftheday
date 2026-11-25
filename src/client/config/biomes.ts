@@ -12,7 +12,7 @@
 import { getBiomeIdForFloor } from '../../shared/game/rooms.ts';
 import type { BiomeId } from '../../shared/types.ts';
 
-export type BiomeSheet = 'ski' | 'town' | 'battle' | 'farm';
+export type BiomeSheet = 'ski' | 'town' | 'battle' | 'farm' | 'ember' | 'mire' | 'sand';
 
 export type BiomeDecor = {
   sheet: BiomeSheet;
@@ -120,9 +120,60 @@ export const BIOMES: readonly FloorBiome[] = [
     torches: false,
     blocks: { sheet: 'farm', frames: [96, 97, 85] }, // vine monolith, mossy buttress, iron-hooped cask
   },
+  {
+    id: 'ember',
+    name: 'Cinder Vault',
+    floor: { sheet: 'ember', frames: [0, 0, 0, 1, 2, 3], accents: [4, 5] },
+    patches: { sheet: 'ember', frames: [6, 7], count: 2 },
+    floorTint: 0xffffff,
+    wallTint: 0xf4b698,
+    ambientBg: 0x171213,
+    decor: [
+      { sheet: 'ember', frames: [30], weight: 3 }, // settled ash drift
+      { sheet: 'ember', frames: [31], weight: 2 }, // scorched basalt pebbles
+      { sheet: 'ember', frames: [32], weight: 1 }, // faint cooled ember shard
+    ],
+    decorCount: [2, 3],
+    torches: true,
+    blocks: { sheet: 'ember', frames: [81, 82] }, // obsidian cinder monolith & brazier buttress
+  },
+  {
+    id: 'mire',
+    name: 'Sunken Mire',
+    floor: { sheet: 'mire', frames: [0, 0, 0, 1, 2, 3], accents: [4, 5] },
+    patches: { sheet: 'mire', frames: [48, 49, 50, 51, 60, 61, 62, 63], count: 2 },
+    floorTint: 0xffffff,
+    wallTint: 0x9ed9c8,
+    ambientBg: 0x101718,
+    decor: [
+      { sheet: 'mire', frames: [39], weight: 3 }, // flat damp algae smudge
+      { sheet: 'mire', frames: [40], weight: 2 }, // smooth bog pebbles
+      { sheet: 'mire', frames: [41], weight: 1 }, // tiny pale marsh shoots
+    ],
+    decorCount: [2, 3],
+    torches: false,
+    blocks: { sheet: 'mire', frames: [96, 97] }, // mire stone monolith & sunken marsh pillar
+  },
+  {
+    id: 'sand',
+    name: 'Dune Catacomb',
+    floor: { sheet: 'sand', frames: [109, 109, 109, 110, 111, 112], accents: [113] },
+    patches: { sheet: 'sand', frames: [0, 1, 2], count: 2 },
+    floorTint: 0xffffff,
+    wallTint: 0xebd0a2,
+    ambientBg: 0x181511,
+    decor: [
+      { sheet: 'sand', frames: [83], weight: 3 }, // settled dune ripple
+      { sheet: 'sand', frames: [84], weight: 2 }, // sandstone gravel chips
+      { sheet: 'sand', frames: [85], weight: 1 }, // weathered tablet fragment
+    ],
+    decorCount: [2, 3],
+    torches: true,
+    blocks: { sheet: 'sand', frames: [106, 107] }, // carved sandstone block & gilded tomb obelisk
+  },
 ];
 
-/** Floors cycle daily-shuffled biomes across all 5 themes, repeating from Floor 6. */
+/** Floors cycle daily-shuffled biomes across all 8 vaults, repeating from Floor 9. */
 export function getFloorBiome(floor: number, utcDate?: string): FloorBiome {
   const biomeId = getBiomeIdForFloor(floor, utcDate);
   return BIOMES.find((b) => b.id === biomeId) ?? BIOMES[0]!;
@@ -133,4 +184,7 @@ export const BIOME_SHEETS: ReadonlyArray<{ key: BiomeSheet; url: string }> = [
   { key: 'town', url: './assets/town/tilemap_packed.png' },
   { key: 'battle', url: './assets/battle/tilemap_packed.png' },
   { key: 'farm', url: './assets/farm/tilemap_packed.png' },
+  { key: 'ember', url: './assets/ember/tilemap_packed.png' },
+  { key: 'mire', url: './assets/mire/tilemap_packed.png' },
+  { key: 'sand', url: './assets/sand/tilemap_packed.png' },
 ];

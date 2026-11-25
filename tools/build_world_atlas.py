@@ -30,7 +30,7 @@ OUT_PNG = DUNGEON_DIR / "dungeon_atlas.png"
 OUT_JSON = DUNGEON_DIR / "dungeon_atlas.json"
 
 SCRATCH_PREVIEW = Path(
-    "/Users/Samer/.gemini/antigravity/brain/87768f31-ab3d-4ad5-8dc5-75bcc8d7a41d/scratch/world_atlas_preview.png"
+    "/Users/Samer/.gemini/antigravity/brain/681e0dd1-392e-45a9-b08c-5ca9e857fe94/scratch/world_atlas_preview.png"
 )
 
 # ---------------------------------------------------------------------------
@@ -1013,6 +1013,49 @@ def build_tiles() -> dict[int, Image.Image]:
         ],
     )
 
+    # --- 13 Plain Consistent Relic Tomes (tiles 068..080) ---
+    # Every relic shares the exact same leather-bound tome frame & cream pages,
+    # distinguished calmly by cover tint and a crisp 2-3px central rune.
+    tome_specs = [
+        # (tile_id, hi, mid, lo, rune_char)
+        (68, "o", "r", "R", "y"),   # ember_wake
+        (69, "z", "a", "2", "w"),   # arc_conduit
+        (70, "r", "R", "u", "y"),   # blood_reset
+        (71, "3", "2", "1", "o"),   # decoy_mine
+        (72, "p", "V", "1", "w"),   # rift_cleave
+        (73, "z", "a", "1", "y"),   # vortex_slam
+        (74, "w", "4", "3", "z"),   # mirror_guard
+        (75, "l", "e", "F", "w"),   # reaper_siphon
+        (76, "4", "a", "2", "y"),   # volt_nova
+        (77, "3", "m", "1", "t"),   # shatter_quake
+        (78, "p", "V", "0", "z"),   # phantom_echo
+        (79, "y", "g", "b", "w"),   # golden_cleave
+        (80, "t", "b", "u", "y"),   # concussion
+    ]
+    for tid, hi, mid, lo, rune in tome_specs:
+        tiles[tid] = paint(
+            16,
+            16,
+            [
+                "................",
+                "................",
+                "..############..",
+                f"..#g#{hi * 8}#..",
+                f"..#b#{hi}{mid * 7}#..",
+                f"..#g#{hi}{mid * 2}{rune * 2}{mid * 3}#..",
+                f"..#b#{hi}{mid}{rune}{hi}{rune}{mid * 3}#..",
+                f"..#g#{hi}{mid * 2}{rune * 2}{mid * 3}#..",
+                f"..#b#{mid * 7}{lo}#..",
+                f"..#g#{lo * 8}#..",
+                "..############..",
+                "..#b#wwwwwww#...",
+                "..#g#333333w#...",
+                "..###########...",
+                "................",
+                "................",
+            ],
+        )
+
     return tiles
 
 
@@ -1801,7 +1844,7 @@ def pack_atlas(
 def audit_atlas(atlas_img: Image.Image, atlas_json: dict, tiles: dict[int, Image.Image], props: dict[str, Image.Image]) -> None:
     """Enforce exact layout invariants, zero pure #000000, calm floor luminance, and binary spikes."""
     assert atlas_img.size == (512, 236), f"Expected 512x236 atlas, got {atlas_img.size}"
-    assert len(atlas_json["frames"]) == 146, f"Expected 146 frames, got {len(atlas_json['frames'])}"
+    assert len(atlas_json["frames"]) == 159, f"Expected 159 frames, got {len(atlas_json['frames'])}"
     assert atlas_json["frames"]["barrel_tnt"]["frame"] == {"x": 20, "y": 210, "w": 16, "h": 16}, (
         f"barrel_tnt moved: {atlas_json['frames']['barrel_tnt']['frame']}"
     )
@@ -1885,9 +1928,9 @@ def make_preview_sheet(
     weapons = [106, 103, 117, 129, 130]
     for i, wid in enumerate(weapons):
         canvas.alpha_composite(tiles[wid], (136 + i * 20, 12))
-    relics = [102, 105, 107, 114, 115, 116, 118, 119]
+    relics = list(range(68, 81))
     for i, rid in enumerate(relics):
-        canvas.alpha_composite(tiles[rid], (136 + i * 20, 36))
+        canvas.alpha_composite(tiles[rid], (136 + i * 18, 36))
     extras = [
         props["coin_0"], props["gem_0"], props["heart_0"],
         props["fire_0"], props["orb_enemy_0"], props["orb_friendly_0"],
