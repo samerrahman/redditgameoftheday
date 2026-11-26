@@ -1638,6 +1638,34 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(WEAPONS[rangedResolved.weaponId].style, 'ranged');
   });
 
+  void it('never repeats the same modifier, rule, starting biome, or Floor 1 boss on consecutive UTC dates', () => {
+    let prevDate = '2026-11-01';
+    for (let day = 2; day <= 30; day += 1) {
+      const nextDate = `2026-11-${String(day).padStart(2, '0')}`;
+      assert.notEqual(
+        getDailyModifier(prevDate).id,
+        getDailyModifier(nextDate).id,
+        `modifier repeated on ${prevDate} -> ${nextDate}`,
+      );
+      assert.notEqual(
+        getDailyRule(prevDate).id,
+        getDailyRule(nextDate).id,
+        `daily rule repeated on ${prevDate} -> ${nextDate}`,
+      );
+      assert.notEqual(
+        getBiomeIdForFloor(1, prevDate),
+        getBiomeIdForFloor(1, nextDate),
+        `starting biome repeated on ${prevDate} -> ${nextDate}`,
+      );
+      assert.notEqual(
+        getFloorBossSpec(1, prevDate).bossBase,
+        getFloorBossSpec(1, nextDate).bossBase,
+        `Floor 1 boss repeated on ${prevDate} -> ${nextDate}`,
+      );
+      prevDate = nextDate;
+    }
+  });
+
   void it('spawns breaking debris physics for crates and TNT barrels', () => {
     const profile = createDefaultProfile();
     const sim = new GameSimulation('2026-11-20', profile);

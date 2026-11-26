@@ -1,5 +1,5 @@
 import { STARTER_RELIC_IDS } from './relics.ts';
-import { createDailyStream } from './rng.ts';
+import { createDailyStream, pickDailyRotation } from './rng.ts';
 import type {
   DailyModifier,
   DailyModifierId,
@@ -105,8 +105,7 @@ const MODIFIER_LIST = Object.values(DAILY_MODIFIERS).filter(
 const HAZARD_TYPES: readonly HazardType[] = ['spikes', 'barrels', 'currents'];
 
 export function getDailyModifier(utcDate: string): DailyModifier {
-  const rng = createDailyStream(utcDate, 'meta');
-  return rng.pick(MODIFIER_LIST);
+  return pickDailyRotation(utcDate, 'meta', MODIFIER_LIST);
 }
 
 export function getDailyHazard(utcDate: string): HazardType {
@@ -179,7 +178,6 @@ export const DAILY_RULES: Record<DailyRuleId, DailyRule> = {
 
 const DAILY_RULE_WEIGHTED_POOL: readonly DailyRule[] = [
   DAILY_RULES.open_armory,
-  DAILY_RULES.open_armory,
   DAILY_RULES.melee_only,
   DAILY_RULES.ranged_only,
   DAILY_RULES.trial_dagger,
@@ -190,8 +188,7 @@ const DAILY_RULE_WEIGHTED_POOL: readonly DailyRule[] = [
 ];
 
 export function getDailyRule(utcDate: string): DailyRule {
-  const rng = createDailyStream(utcDate, 'daily-rule');
-  return rng.pick(DAILY_RULE_WEIGHTED_POOL);
+  return pickDailyRotation(utcDate, 'daily-rule', DAILY_RULE_WEIGHTED_POOL);
 }
 
 export function isWeaponAllowedByRule(rule: DailyRule, weaponId: WeaponId): boolean {

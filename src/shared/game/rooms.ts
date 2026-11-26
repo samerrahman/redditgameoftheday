@@ -1,4 +1,4 @@
-import { createDailyStream, type SeededRng } from '../rng.ts';
+import { createDailyStream, pickDailyRotation, type SeededRng } from '../rng.ts';
 import type { BiomeId, DoorDirection, EnemyArchetype, HazardType, RoomType } from '../types.ts';
 import type { BossBaseArchetype } from './enemies.ts';
 import {
@@ -475,7 +475,9 @@ export const BIOME_ORDER: readonly BiomeId[] = [
  * and cycles through all biomes without repeats before wrapping on Floor 9.
  */
 export function getDailyBiomeOrder(utcDate: string): readonly BiomeId[] {
-  return createDailyStream(utcDate, 'biome-order').shuffle(BIOME_ORDER);
+  const first = pickDailyRotation(utcDate, 'biome-f1', BIOME_ORDER);
+  const rest = BIOME_ORDER.filter((b) => b !== first);
+  return [first, ...createDailyStream(utcDate, 'biome-order').shuffle(rest)];
 }
 
 /**
@@ -533,7 +535,7 @@ export function getFloorBossSpec(
   utcDate: string,
 ): { bossBase: BossBaseArchetype; bossVariant: 0 | 1 } {
   const f = Math.max(1, Math.floor(floor));
-  const f1Boss = createDailyStream(utcDate, 'boss-order-f1').pick(FLOOR_1_BOSS_POOL);
+  const f1Boss = pickDailyRotation(utcDate, 'boss-f1', FLOOR_1_BOSS_POOL);
   if (f === 1) return f1Boss;
   const remaining = BOSS_FORM_POOL.filter(
     (entry) => !(entry.bossBase === f1Boss.bossBase && entry.bossVariant === f1Boss.bossVariant),
