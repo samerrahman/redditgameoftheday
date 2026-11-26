@@ -1051,6 +1051,9 @@ export class GameSimulation {
         bossSpec?.bossBase,
         bossSpec?.bossVariant,
       );
+      if (s.floor === 1 && spawn.archetype === 'boss') {
+        enemy.damage = Math.max(10, Math.round(enemy.damage * 0.72));
+      }
       s.enemies.push(enemy);
       this.spawnParticles(spawn.x, spawn.y, '#ef4444', 6, 90);
     }
@@ -3439,7 +3442,8 @@ export class GameSimulation {
       }
     }
 
-    const scaledDt = boss.phase === 2 ? dt * 1.18 : dt;
+    const baseDt = s.floor === 1 ? dt * 0.88 : dt;
+    const scaledDt = boss.phase === 2 ? baseDt * 1.12 : baseDt;
     switch (base) {
       case 'chaser':
         this.stepChaserAI(boss, dist, navDirX, navDirY, hasMoveLOS, scaledDt, true);

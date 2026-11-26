@@ -184,7 +184,6 @@ const DAILY_RULE_WEIGHTED_POOL: readonly DailyRule[] = [
   DAILY_RULES.trial_hammer,
   DAILY_RULES.trial_scatter,
   DAILY_RULES.trial_lance,
-  DAILY_RULES.starter_relic,
   DAILY_RULES.crate_bonanza,
 ];
 

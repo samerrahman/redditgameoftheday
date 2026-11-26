@@ -1602,20 +1602,20 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     let sawTrialDate: string | null = null;
     let sawMeleeDate: string | null = null;
     let sawRangedDate: string | null = null;
-    let sawStarterRelicDate: string | null = null;
     for (let day = 1; day <= 60; day += 1) {
       const mm = day <= 30 ? '11' : '12';
       const dd = String(day <= 30 ? day : day - 30).padStart(2, '0');
       const d = `2026-${mm}-${dd}`;
       const rule = getDailyRule(d);
+      assert.notEqual(rule.id, 'starter_relic', 'Head Start should never be selected');
+      assert.notEqual(rule.label, 'Head Start');
       seenModes.add(rule.id);
       if (rule.weaponMode === 'locked' && !sawTrialDate) sawTrialDate = d;
       if (rule.weaponMode === 'melee_only' && !sawMeleeDate) sawMeleeDate = d;
       if (rule.weaponMode === 'ranged_only' && !sawRangedDate) sawRangedDate = d;
-      if (rule.grantStarterRelic && !sawStarterRelicDate) sawStarterRelicDate = d;
     }
     assert.ok(seenModes.size >= 5, `expected varied daily rules, saw ${[...seenModes].join(', ')}`);
-    assert.ok(sawTrialDate && sawMeleeDate && sawRangedDate && sawStarterRelicDate);
+    assert.ok(sawTrialDate && sawMeleeDate && sawRangedDate);
 
     const profile = {
       ...createDefaultProfile(),
@@ -1631,10 +1631,6 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
 
     const rangedResolved = resolveDailyWeapon(sawRangedDate, profile);
     assert.equal(WEAPONS[rangedResolved.weaponId].style, 'ranged');
-
-    const relicSim = new GameSimulation(sawStarterRelicDate, profile);
-    relicSim.startNewRun(sawStarterRelicDate, profile);
-    assert.ok(Object.keys(relicSim.state.player.relics).length >= 1, 'starter_relic rule grants a Floor 1 relic');
   });
 
   void it('spawns breaking debris physics for crates and TNT barrels', () => {
@@ -2264,6 +2260,16 @@ void describe('Promoted Archetypes (Myconid, Imp, Archer), Zero Enemy Armor & Bi
     const bossSpawn = bossRoom.blueprint.waves[0]?.find((w) => w.archetype === 'boss');
     assert.ok(bossSpawn?.bossBase, 'boss wave spawn should specify a base monster');
     assert.deepEqual(bossSpawn.bossBase, getFloorBossSpec(1, '2026-11-24').bossBase);
+
+    for (const d of ['2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27']) {
+      const f1Spec = getFloorBossSpec(1, d);
+      assert.ok(
+        ['chaser', 'myconid', 'archer', 'shooter'].includes(f1Spec.bossBase),
+        `Floor 1 boss on ${d} should be an approachable starter boss, got ${f1Spec.bossBase}`,
+      );
+      assert.notEqual(f1Spec.bossBase, 'stampede', 'Floor 1 boss must never be Alpha Bull');
+    }
+    assert.ok(getFloorScaling(1).bossHpScale < 0.8, 'Floor 1 boss HP scale should be softened below 0.8');
 
     const seenBossForms = new Set(
       [1, 2, 3, 4, 5].map((f) => {

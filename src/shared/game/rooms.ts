@@ -504,6 +504,13 @@ export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = {
   sand: 'archer',
 };
 
+const FLOOR_1_BOSS_POOL: ReadonlyArray<{ bossBase: BossBaseArchetype; bossVariant: 0 | 1 }> = [
+  { bossBase: 'chaser', bossVariant: 0 },
+  { bossBase: 'myconid', bossVariant: 0 },
+  { bossBase: 'archer', bossVariant: 0 },
+  { bossBase: 'shooter', bossVariant: 0 },
+];
+
 const BOSS_FORM_POOL: ReadonlyArray<{ bossBase: BossBaseArchetype; bossVariant: 0 | 1 }> = [
   { bossBase: 'chaser', bossVariant: 0 },
   { bossBase: 'chaser', bossVariant: 1 },
@@ -526,8 +533,13 @@ export function getFloorBossSpec(
   utcDate: string,
 ): { bossBase: BossBaseArchetype; bossVariant: 0 | 1 } {
   const f = Math.max(1, Math.floor(floor));
-  const order = createDailyStream(utcDate, 'boss-order').shuffle(BOSS_FORM_POOL);
-  return order[(f - 1) % order.length]!;
+  const f1Boss = createDailyStream(utcDate, 'boss-order-f1').pick(FLOOR_1_BOSS_POOL);
+  if (f === 1) return f1Boss;
+  const remaining = BOSS_FORM_POOL.filter(
+    (entry) => !(entry.bossBase === f1Boss.bossBase && entry.bossVariant === f1Boss.bossVariant),
+  );
+  const order = createDailyStream(utcDate, 'boss-order').shuffle(remaining);
+  return order[(f - 2) % order.length]!;
 }
 
 export function getFloorScaling(floor: number): FloorScaling {
@@ -536,7 +548,7 @@ export function getFloorScaling(floor: number): FloorScaling {
   return {
     floor: f,
     hpScale: 1 + 0.3 * depth,
-    bossHpScale: 1 + 0.45 * depth,
+    bossHpScale: f === 1 ? 0.65 : 1 + 0.45 * depth,
     damageMult: 1 + 0.12 * depth,
     speedMult: Math.min(1.3, 1 + 0.03 * depth),
     coinMult: 1 + 0.12 * depth,
