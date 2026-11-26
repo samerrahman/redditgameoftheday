@@ -99,7 +99,9 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
 };
 
-const MODIFIER_LIST = Object.values(DAILY_MODIFIERS);
+const MODIFIER_LIST = Object.values(DAILY_MODIFIERS).filter(
+  (m) => m.id !== 'slippery_floors',
+);
 const HAZARD_TYPES: readonly HazardType[] = ['spikes', 'barrels', 'currents'];
 
 export function getDailyModifier(utcDate: string): DailyModifier {

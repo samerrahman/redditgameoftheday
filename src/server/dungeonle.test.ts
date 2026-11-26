@@ -1607,6 +1607,11 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
       const dd = String(day <= 30 ? day : day - 30).padStart(2, '0');
       const d = `2026-${mm}-${dd}`;
       const rule = getDailyRule(d);
+      assert.notEqual(
+        getDailyModifier(d).id,
+        'slippery_floors',
+        'Slippery Floors should not be selected',
+      );
       assert.notEqual(rule.id, 'starter_relic', 'Head Start should never be selected');
       assert.notEqual(rule.label, 'Head Start');
       seenModes.add(rule.id);
