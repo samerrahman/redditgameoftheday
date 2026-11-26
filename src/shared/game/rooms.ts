@@ -252,8 +252,17 @@ function circleHitsObstacle(x: number, y: number, r: number, obstacles: readonly
   });
 }
 
-function pickLayout(rng: SeededRng, role: 'entrance' | 'boss' | 'room', floor: number): RoomLayoutId {
+/** Floor 1's hand-picked layouts: symmetric, readable, and never the same twice in a row. */
+const FLOOR_ONE_LAYOUTS: readonly RoomLayoutId[] = ['pillars', 'diamond', 'columns', 'ledges', 'twin_bars'];
+
+function pickLayout(
+  rng: SeededRng,
+  role: 'entrance' | 'boss' | 'room',
+  floor: number,
+  floorOneSlot = 0,
+): RoomLayoutId {
   if (role === 'entrance' && floor === 1) return 'open';
+  if (floor === 1 && role === 'room') return FLOOR_ONE_LAYOUTS[floorOneSlot % FLOOR_ONE_LAYOUTS.length]!;
   if (role === 'boss') return rng.pick(['open', 'pillars', 'columns'] as const);
   return rng.pick([
     'open',
@@ -450,15 +459,33 @@ export type FloorScaling = {
   extraEnemies: number;
 };
 
-export const BIOME_ORDER: readonly BiomeId[] = ['dungeon', 'snow', 'town', 'battle', 'farm'];
+export const BIOME_ORDER: readonly BiomeId[] = [
+  'dungeon',
+  'candy',
+  'neon',
+  'space',
+  'reef',
+  'haunted',
+  'sky',
+  'snow',
+  'town',
+  'battle',
+  'farm',
+];
+
+/** The themed worlds (original art) shown right after the Dungeon. */
+export const THEMED_WORLDS: readonly BiomeId[] = ['candy', 'neon', 'space', 'reef', 'haunted', 'sky'];
+const OUTDOOR_WORLDS: readonly BiomeId[] = ['snow', 'town', 'battle', 'farm'];
 
 /**
  * Floor 1 is always the classic Dungeon so every run starts somewhere familiar.
- * Each UTC date shuffles the other four worlds for floors 2-5, then the cycle repeats.
+ * Floors 2-7 are the six themed worlds (Candy Land, Neon City, Space, Coral Reef, Haunted
+ * Manor, Sky Kingdom; order shuffled per UTC date), then the four outdoor worlds (also
+ * shuffled), then the 11-floor cycle repeats.
  */
 export function getDailyBiomeOrder(utcDate: string): readonly BiomeId[] {
-  const outdoors = BIOME_ORDER.filter((b) => b !== 'dungeon');
-  return ['dungeon', ...createDailyStream(utcDate, 'biome-order').shuffle(outdoors)];
+  const rng = createDailyStream(utcDate, 'biome-order');
+  return ['dungeon', ...rng.shuffle(THEMED_WORLDS), ...rng.shuffle(OUTDOOR_WORLDS)];
 }
 
 /**
@@ -482,6 +509,12 @@ export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = {
   town: 'bomber',
   battle: 'mortar_tank',
   farm: 'stampede',
+  candy: 'stampede', // rolling jawbreakers
+  neon: 'mortar_tank', // turret bots firing bursts
+  space: 'shade', // teleporting aliens
+  reef: 'yeti', // jellyfish lobbing bubbles
+  haunted: 'shade', // ghosts that blink through walls
+  sky: 'bomber', // diving eagles
 };
 
 export function getFloorScaling(floor: number): FloorScaling {
@@ -653,11 +686,13 @@ export function buildDailyDungeonMap(
   const centerSpawnY = Math.round(ARENA_H * 0.3);
   const crateCount = (base: number): number => Math.min(6, base + Math.max(0, extraCrates));
 
+  // Floor 1 deals its curated layouts out in order (from a daily starting point).
+  let floorOneSlot = createDailyStream(utcDate, 'floor-1-layouts').int(0, 4);
   for (const node of nodes) {
     const roomRng = createDailyStream(utcDate, `floor-${f}-room-${node.roomIndex}`);
     const layoutRng = createDailyStream(utcDate, `floor-${f}-layout-${node.roomIndex}`);
     const role = node.id === 0 ? 'entrance' : node.id === bossRoomId ? 'boss' : 'room';
-    const layout = pickLayout(layoutRng, role, f);
+    const layout = pickLayout(layoutRng, role, f, role === 'room' ? floorOneSlot++ : 0);
     const obstacles = buildObstacles(layoutRng, layout, node.roomIndex);
     const occupiedCells = new Set(
       obstacles.map((o) => `${Math.round(o.x / CELL_SIZE) - 1},${Math.round(o.y / CELL_SIZE) - 1}`),

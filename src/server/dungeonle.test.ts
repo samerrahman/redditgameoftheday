@@ -1142,20 +1142,28 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     assert.equal(sim.state.gems.length, 1, 'floor boss kill must drop a gem');
   });
 
-  void it('always starts on the Dungeon, shuffles the other biomes per date, and repeats from floor 6', () => {
+  void it('starts on the Dungeon, then the 6 themed worlds, then the outdoor worlds, repeating after 11', () => {
     assert.deepEqual(
-      [1, 2, 3, 4, 5, 6, 7].map((f) => getBiomeIdForFloor(f)),
-      ['dungeon', 'snow', 'town', 'battle', 'farm', 'dungeon', 'snow'],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((f) => getBiomeIdForFloor(f)),
+      ['dungeon', 'candy', 'neon', 'space', 'reef', 'haunted', 'sky', 'snow', 'town', 'battle', 'farm', 'dungeon'],
     );
     const dates = ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24'];
     for (const d of dates) assert.equal(getBiomeIdForFloor(1, d), 'dungeon', `floor 1 on ${d} should be the Dungeon`);
     const secondFloors = new Set(dates.map((d) => getBiomeIdForFloor(2, d)));
-    assert.ok(secondFloors.size >= 2, `expected the outdoor worlds to shuffle per date, got ${[...secondFloors].join(', ')}`);
+    assert.ok(secondFloors.size >= 2, `expected the themed worlds to shuffle per date, got ${[...secondFloors].join(', ')}`);
 
     const date = '2026-11-20';
     const order = getDailyBiomeOrder(date);
-    assert.equal(order.length, 5);
-    assert.equal(getBiomeIdForFloor(6, date), getBiomeIdForFloor(1, date));
+    assert.equal(order.length, 11);
+    assert.equal(getBiomeIdForFloor(12, date), getBiomeIdForFloor(1, date));
+    for (const d of dates) {
+      const themed = new Set([2, 3, 4, 5, 6, 7].map((f) => getBiomeIdForFloor(f, d)));
+      assert.deepEqual(
+        [...themed].sort(),
+        ['candy', 'haunted', 'neon', 'reef', 'sky', 'space'],
+        `floors 2-7 on ${d} should be the themed worlds`,
+      );
+    }
 
     const hazard = getDailyHazard(date);
     // Floor 1 uses only classic monsters (plus the boss); themed specials start on floor 2.
@@ -1164,12 +1172,24 @@ void describe('Gameplay Balance & Biome Enemy Updates', () => {
     for (const t of floor1Types) {
       assert.ok(['chaser', 'shooter', 'charger', 'elite_charger', 'boss'].includes(t), `floor 1 spawned special monster ${t}`);
     }
-    for (let floor = 2; floor <= 6; floor += 1) {
-      if (getBiomeIdForFloor(floor, date) === 'dungeon') continue; // floor 6 = dungeon again
+    for (let floor = 2; floor <= 12; floor += 1) {
+      if (getBiomeIdForFloor(floor, date) === 'dungeon') continue; // floor 12 = dungeon again
       const expectedSig = BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, date)];
       const map = buildDailyDungeonMap(date, floor, hazard);
       const spawnedTypes = new Set(map.rooms.flatMap((r) => r.blueprint.waves.flat().map((w) => w.archetype)));
       assert.equal(spawnedTypes.has(expectedSig), true, `Floor ${floor} missing signature enemy ${expectedSig}`);
+    }
+  });
+
+  void it('gives Floor 1 an open entrance and curated, non-repeating layouts (never scatter)', () => {
+    for (const d of ['2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24', '2026-11-26']) {
+      const map = buildDailyDungeonMap(d, 1, getDailyHazard(d));
+      const entrance = map.rooms.find((r) => r.id === 0)!;
+      assert.equal(entrance.blueprint.layout, 'open');
+      const rooms = map.rooms.filter((r) => r.id !== 0 && r.blueprint.waves.flat().every((w) => w.archetype !== 'boss'));
+      const layouts = rooms.map((r) => r.blueprint.layout);
+      assert.ok(!layouts.includes('scatter'), `floor 1 on ${d} used scatter: ${layouts.join(', ')}`);
+      assert.equal(new Set(layouts).size, Math.min(layouts.length, 5), `floor 1 on ${d} repeated a layout: ${layouts.join(', ')}`);
     }
   });
 

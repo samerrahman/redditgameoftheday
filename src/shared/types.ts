@@ -194,7 +194,18 @@ export type DailyLeaderboardEntry = {
 
 export type DoorDirection = 'north' | 'south' | 'east' | 'west';
 
-export type BiomeId = 'dungeon' | 'snow' | 'town' | 'battle' | 'farm';
+export type BiomeId =
+  | 'dungeon'
+  | 'snow'
+  | 'town'
+  | 'battle'
+  | 'farm'
+  | 'candy'
+  | 'neon'
+  | 'space'
+  | 'reef'
+  | 'haunted'
+  | 'sky';
 
 export type EnemyArchetype =
   | 'chaser'

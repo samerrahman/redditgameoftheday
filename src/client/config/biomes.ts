@@ -10,12 +10,18 @@
 import { getBiomeIdForFloor } from '../../shared/game/rooms.ts';
 import type { BiomeId } from '../../shared/types.ts';
 
-export type BiomeSheet = 'ski' | 'town' | 'battle' | 'farm';
+export type BiomeSheet = 'ski' | 'town' | 'battle' | 'farm' | ThemeKey;
+
+/** Atlases with named frames for the original-art themed worlds. */
+export type ThemeKey = 'keep' | 'candy' | 'neon' | 'space' | 'reef' | 'haunted' | 'sky';
+
+/** Frames are tile indices for Kenney packs, or frame names for theme atlases. */
+export type BiomeFrame = number | string;
 
 export type BiomeDecor = {
   sheet: BiomeSheet;
   /** One frame, or a vertical stack (top first) for 2-tile-tall props like trees. */
-  frames: number[];
+  frames: BiomeFrame[];
   weight: number;
 };
 
@@ -23,9 +29,19 @@ export type FloorBiome = {
   id: BiomeId;
   name: string;
   /** null = use the dungeon atlas floor (the original look). */
-  floor: { sheet: BiomeSheet; frames: number[]; accents?: number[] | undefined } | null;
+  floor: { sheet: BiomeSheet; frames: BiomeFrame[]; accents?: BiomeFrame[] | undefined } | null;
+  /** Checkerboard floors (Candy Land): even/odd tiles pick from these two lists. */
+  checker?: [BiomeFrame[], BiomeFrame[]] | undefined;
+  /** Themed wall tiles drawn instead of tinted dungeon walls. */
+  walls?: { sheet: ThemeKey; top: string[]; side: string[] } | undefined;
+  /** Theme atlas whose monster sprites replace the defaults on this world's floors. */
+  monsters?: ThemeKey | undefined;
+  /** A 2-tile carpet runner down the middle of the room, door to door. */
+  runner?: { sheet: ThemeKey; left: string; right: string } | undefined;
+  /** Cobwebs drawn in the two top corners of the room. */
+  cobweb?: { sheet: ThemeKey; frame: string } | undefined;
   /** Optional patches of a second ground (dirt paths, tilled soil). */
-  patches?: { sheet: BiomeSheet; frames: number[]; count: number } | undefined;
+  patches?: { sheet: BiomeSheet; frames: BiomeFrame[]; count: number } | undefined;
   floorTint: number;
   wallTint: number;
   ambientBg: number;
@@ -35,21 +51,38 @@ export type FloorBiome = {
   /** Wall torches only make sense indoors / at night. */
   torches: boolean;
   /** Sprites for solid layout blocks; null = drawn stone blocks (dungeon). */
-  blocks: { sheet: BiomeSheet; frames: number[] } | null;
+  blocks: { sheet: BiomeSheet; frames: BiomeFrame[] } | null;
 };
 
 export const BIOMES: readonly FloorBiome[] = [
   {
+    // Floor 1's home, so it gets the most detailed art: "The Keep" sheet (warm flagstones,
+    // a royal runner, knight statues, bookshelves) with the classic Kenney walls and monsters.
     id: 'dungeon',
     name: 'The Dungeon',
-    floor: null,
+    floor: {
+      sheet: 'keep',
+      frames: ['floor_0', 'floor_1', 'floor_2'],
+      accents: ['floor_3', 'floor_4', 'floor_5', 'floor_6', 'floor_7'],
+    },
+    runner: { sheet: 'keep', left: 'rug_l', right: 'rug_r' },
+    cobweb: { sheet: 'keep', frame: 'cobweb' },
+    // Castle cast: Rat Squires, Cursed Grimoires, Mimic Chests, Haunted Armor and the Rat King.
+    monsters: 'keep',
     floorTint: 0xffffff,
     wallTint: 0xffffff,
     ambientBg: 0x1e181f,
-    decor: [],
-    decorCount: [0, 0],
+    decor: [
+      { sheet: 'keep', frames: ['knight_top', 'knight_bottom'], weight: 3 },
+      { sheet: 'keep', frames: ['bookshelf_top', 'bookshelf_bottom'], weight: 2 },
+      { sheet: 'keep', frames: ['candles'], weight: 3 },
+      { sheet: 'keep', frames: ['bones'], weight: 2 },
+      { sheet: 'keep', frames: ['urns'], weight: 2 },
+      { sheet: 'keep', frames: ['rack'], weight: 2 },
+    ],
+    decorCount: [5, 7],
     torches: true,
-    blocks: null,
+    blocks: { sheet: 'keep', frames: ['block'] }, // carved rune pillars
   },
   {
     id: 'snow',
@@ -141,6 +174,130 @@ export const BIOMES: readonly FloorBiome[] = [
     torches: false,
     blocks: { sheet: 'farm', frames: [96, 97] }, // hay bales
   },
+  {
+    id: 'candy',
+    name: 'Candy Land',
+    floor: { sheet: 'candy', frames: ['floor_0', 'floor_1'] },
+    checker: [
+      ['floor_0', 'floor_0', 'floor_3'],
+      ['floor_1', 'floor_1', 'floor_4'],
+    ],
+    walls: { sheet: 'candy', top: ['wall_top_0', 'wall_top_1', 'wall_top_2'], side: ['wall_side_0', 'wall_side_1', 'wall_side_2'] },
+    monsters: 'candy',
+    floorTint: 0xffffff,
+    wallTint: 0xffffff,
+    ambientBg: 0xffc2e2,
+    decor: [
+      { sheet: 'candy', frames: ['lollipop_top', 'lollipop_bottom'], weight: 3 },
+      { sheet: 'candy', frames: ['candy_cane_top', 'candy_cane_bottom'], weight: 3 },
+      { sheet: 'candy', frames: ['gumdrop'], weight: 2 },
+      { sheet: 'candy', frames: ['gumdrop_mint'], weight: 2 },
+      { sheet: 'candy', frames: ['cupcake'], weight: 2 },
+      { sheet: 'candy', frames: ['donut'], weight: 2 },
+    ],
+    decorCount: [5, 7],
+    torches: false,
+    blocks: { sheet: 'candy', frames: ['block'] }, // chocolate bars
+  },
+  {
+    id: 'neon',
+    name: 'Neon City',
+    floor: { sheet: 'neon', frames: ['floor_0', 'floor_1', 'floor_2', 'floor_3', 'floor_4', 'floor_5'] },
+    walls: { sheet: 'neon', top: ['wall_top_0', 'wall_top_1', 'wall_top_2'], side: ['wall_side_0', 'wall_side_1', 'wall_side_2'] },
+    monsters: 'neon',
+    floorTint: 0xffffff,
+    wallTint: 0xffffff,
+    ambientBg: 0x0c0e1e,
+    decor: [
+      { sheet: 'neon', frames: ['neon_sign_top', 'neon_sign_bottom'], weight: 3 },
+      { sheet: 'neon', frames: ['vending_top', 'vending_bottom'], weight: 3 },
+      { sheet: 'neon', frames: ['cone'], weight: 2 },
+      { sheet: 'neon', frames: ['hologram'], weight: 2 },
+    ],
+    decorCount: [5, 7],
+    torches: false,
+    blocks: { sheet: 'neon', frames: ['block'] }, // neon-trimmed crates
+  },
+  {
+    id: 'space',
+    name: 'Space',
+    floor: { sheet: 'space', frames: ['floor_0', 'floor_1', 'floor_2', 'floor_3', 'floor_4', 'floor_5'] },
+    walls: { sheet: 'space', top: ['wall_top_0', 'wall_top_1', 'wall_top_2'], side: ['wall_side_0', 'wall_side_1', 'wall_side_2'] },
+    monsters: 'space',
+    floorTint: 0xffffff,
+    wallTint: 0xffffff,
+    ambientBg: 0x0a0620,
+    decor: [
+      { sheet: 'space', frames: ['rocket_top', 'rocket_bottom'], weight: 3 },
+      { sheet: 'space', frames: ['planet'], weight: 2 },
+      { sheet: 'space', frames: ['crystals'], weight: 2 },
+      { sheet: 'space', frames: ['dish'], weight: 2 },
+      { sheet: 'space', frames: ['moon_rock'], weight: 2 },
+    ],
+    decorCount: [5, 7],
+    torches: false,
+    blocks: { sheet: 'space', frames: ['block'] }, // supply crates
+  },
+  {
+    id: 'reef',
+    name: 'Coral Reef',
+    floor: { sheet: 'reef', frames: ['floor_0', 'floor_1', 'floor_2', 'floor_0', 'floor_1'], accents: ['floor_3', 'floor_4', 'floor_5'] },
+    walls: { sheet: 'reef', top: ['wall_top_0', 'wall_top_1', 'wall_top_2'], side: ['wall_side_0', 'wall_side_1', 'wall_side_2'] },
+    monsters: 'reef',
+    floorTint: 0xffffff,
+    wallTint: 0xffffff,
+    ambientBg: 0x1f6fa8,
+    decor: [
+      { sheet: 'reef', frames: ['kelp_top', 'kelp_bottom'], weight: 3 },
+      { sheet: 'reef', frames: ['coral_fan'], weight: 2 },
+      { sheet: 'reef', frames: ['anemone'], weight: 2 },
+      { sheet: 'reef', frames: ['starfish'], weight: 2 },
+      { sheet: 'reef', frames: ['treasure'], weight: 1 },
+    ],
+    decorCount: [5, 7],
+    torches: false,
+    blocks: { sheet: 'reef', frames: ['block'] }, // giant clams
+  },
+  {
+    id: 'haunted',
+    name: 'Haunted Manor',
+    floor: { sheet: 'haunted', frames: ['floor_0', 'floor_1', 'floor_2'], accents: ['floor_3', 'floor_4', 'floor_5'] },
+    walls: { sheet: 'haunted', top: ['wall_top_0', 'wall_top_1', 'wall_top_2'], side: ['wall_side_0', 'wall_side_1', 'wall_side_2'] },
+    monsters: 'haunted',
+    floorTint: 0xffffff,
+    wallTint: 0xffffff,
+    ambientBg: 0x1a0f24,
+    decor: [
+      { sheet: 'haunted', frames: ['clock_top', 'clock_bottom'], weight: 2 },
+      { sheet: 'haunted', frames: ['candelabra_top', 'candelabra_bottom'], weight: 2 },
+      { sheet: 'haunted', frames: ['pumpkin'], weight: 3 },
+      { sheet: 'haunted', frames: ['tombstone'], weight: 2 },
+      { sheet: 'haunted', frames: ['cauldron'], weight: 2 },
+    ],
+    decorCount: [5, 7],
+    torches: true,
+    blocks: { sheet: 'haunted', frames: ['block'] }, // coffins
+  },
+  {
+    id: 'sky',
+    name: 'Sky Kingdom',
+    floor: { sheet: 'sky', frames: ['floor_0', 'floor_1', 'floor_2', 'floor_3', 'floor_4'], accents: ['floor_5'] },
+    walls: { sheet: 'sky', top: ['wall_top_0', 'wall_top_1', 'wall_top_2'], side: ['wall_side_0', 'wall_side_1', 'wall_side_2'] },
+    monsters: 'sky',
+    floorTint: 0xffffff,
+    wallTint: 0xffffff,
+    ambientBg: 0x8fd0ff,
+    decor: [
+      { sheet: 'sky', frames: ['rainbow_top', 'rainbow_bottom'], weight: 2 },
+      { sheet: 'sky', frames: ['balloon_top', 'balloon_bottom'], weight: 2 },
+      { sheet: 'sky', frames: ['cloud'], weight: 3 },
+      { sheet: 'sky', frames: ['harp'], weight: 2 },
+      { sheet: 'sky', frames: ['sun'], weight: 2 },
+    ],
+    decorCount: [5, 7],
+    torches: false,
+    blocks: { sheet: 'sky', frames: ['block'] }, // marble blocks
+  },
 ];
 
 /** Floors cycle daily-shuffled biomes across all 5 themes, repeating from Floor 6. */
@@ -148,6 +305,17 @@ export function getFloorBiome(floor: number, utcDate?: string): FloorBiome {
   const biomeId = getBiomeIdForFloor(floor, utcDate);
   return BIOMES.find((b) => b.id === biomeId) ?? BIOMES[0]!;
 }
+
+/** Theme atlases (named frames), loaded with this.load.atlas. */
+export const THEME_ATLASES: ReadonlyArray<{ key: ThemeKey; png: string; json: string }> = [
+  { key: 'keep', png: './assets/themes/keep_sheet.png', json: './assets/themes/keep_sheet.json' },
+  { key: 'candy', png: './assets/themes/candy_sheet.png', json: './assets/themes/candy_sheet.json' },
+  { key: 'neon', png: './assets/themes/neon_sheet.png', json: './assets/themes/neon_sheet.json' },
+  { key: 'space', png: './assets/themes/space_sheet.png', json: './assets/themes/space_sheet.json' },
+  { key: 'reef', png: './assets/themes/reef_sheet.png', json: './assets/themes/reef_sheet.json' },
+  { key: 'haunted', png: './assets/themes/haunted_sheet.png', json: './assets/themes/haunted_sheet.json' },
+  { key: 'sky', png: './assets/themes/sky_sheet.png', json: './assets/themes/sky_sheet.json' },
+];
 
 export const BIOME_SHEETS: ReadonlyArray<{ key: BiomeSheet; url: string }> = [
   { key: 'ski', url: './assets/ski/tilemap_packed.png' },

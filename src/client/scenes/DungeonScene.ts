@@ -14,7 +14,14 @@ import type { EnemyEntity } from '../../shared/game/enemies.ts';
 import { CELL_SIZE, isNearDoorwayCell, oppositeDirection } from '../../shared/game/rooms.ts';
 import type { GameSimulation, GameState } from '../../shared/game/simulation.ts';
 import { createDailyStream, type SeededRng } from '../../shared/rng.ts';
-import { BIOME_SHEETS, getFloorBiome, type FloorBiome } from '../config/biomes.ts';
+import {
+  BIOME_SHEETS,
+  getFloorBiome,
+  THEME_ATLASES,
+  type BiomeFrame,
+  type FloorBiome,
+  type ThemeKey,
+} from '../config/biomes.ts';
 import { COSMETIC_IDS, COSMETICS, isCosmeticId } from '../../shared/shop.ts';
 import { getWeapon } from '../../shared/weapons.ts';
 import {
@@ -29,6 +36,23 @@ import {
   WEAPON_PALETTES,
   type WeaponPalette,
 } from './juice.ts';
+
+/** Monster roles drawn in each theme atlas. */
+const THEME_MONSTER_ROLES = ['chaser', 'shooter', 'charger', 'elite', 'boss'] as const;
+
+/** Which themed sprite each monster type wears (behaviour is unchanged). */
+const THEME_ROLE_FOR: Record<EnemyArchetype, (typeof THEME_MONSTER_ROLES)[number]> = {
+  chaser: 'chaser',
+  shade: 'chaser',
+  shooter: 'shooter',
+  yeti: 'shooter',
+  mortar_tank: 'shooter',
+  charger: 'charger',
+  stampede: 'charger',
+  bomber: 'charger',
+  elite_charger: 'elite',
+  boss: 'boss',
+};
 import type { AccessoryId, CosmeticId, DoorDirection, EnemyArchetype } from '../../shared/types.ts';
 import { hexNum, RELIC_SPRITE_FRAMES, type DungeonTheme } from '../config/theme.ts';
 import {
@@ -214,7 +238,11 @@ export class DungeonScene extends Phaser.Scene {
       './assets/dungeon/cosmetics_atlas.json',
     );
     for (const sheet of BIOME_SHEETS) {
+      if (THEME_ATLASES.some((t) => t.key === sheet.key)) continue;
       this.load.spritesheet(sheet.key, sheet.url, { frameWidth: 16, frameHeight: 16 });
+    }
+    for (const theme of THEME_ATLASES) {
+      this.load.atlas(theme.key, theme.png, theme.json);
     }
   }
 
@@ -411,7 +439,7 @@ export class DungeonScene extends Phaser.Scene {
       frames: Array<string | number>,
       frameRate: number,
       repeat = -1,
-      atlasKey: 'dungeon' | 'cosmetics' | 'ski' | 'town' | 'battle' | 'farm' = 'dungeon',
+      atlasKey: 'dungeon' | 'cosmetics' | 'ski' | 'town' | 'battle' | 'farm' | ThemeKey = 'dungeon',
     ) => {
       if (this.anims.exists(key)) return;
       this.anims.create({
@@ -421,6 +449,16 @@ export class DungeonScene extends Phaser.Scene {
         repeat,
       });
     };
+
+    // Themed-world monsters (Candy Land / Neon City / Space): idle, run and attack loops.
+    for (const { key: theme } of THEME_ATLASES) {
+      for (const role of THEME_MONSTER_ROLES) {
+        const idle = [0, 1, 2, 3].map((i) => `${role}_idle_${i}`);
+        define(`${theme}_${role}_idle`, idle, 5, -1, theme);
+        define(`${theme}_${role}_run`, idle, 10, -1, theme);
+        define(`${theme}_${role}_attack`, [`${role}_attack_0`, `${role}_attack_1`], 8, -1, theme);
+      }
+    }
 
     define('hero_idle', ['hero_idle_0', 'hero_idle_1', 'hero_idle_2', 'hero_idle_3'], 5);
     define('hero_run', ['hero_run_0', 'hero_run_1', 'hero_run_2', 'hero_run_3'], 10);
@@ -560,7 +598,14 @@ export class DungeonScene extends Phaser.Scene {
         const cx = c * tileSize + half;
         const cy = r * tileSize + half;
 
-        if (r === 0) {
+        if (biome.walls && (r === 0 || c === 0 || c === cols - 1)) {
+          const frame = r === 0 ? rng.pick(biome.walls.top) : rng.pick(biome.walls.side);
+          const img = this.add
+            .image(cx, cy, biome.walls.sheet, frame)
+            .setDisplaySize(tileSize + 0.5, tileSize + 0.5)
+            .setFlipX(c === cols - 1 && r !== 0);
+          container.add(img);
+        } else if (r === 0) {
           const wallFrame =
             c === 0
               ? 'tile_001'
@@ -590,6 +635,13 @@ export class DungeonScene extends Phaser.Scene {
     const botY = ARENA_H - half;
     for (let c = 0; c < cols; c += 1) {
       const cx = c * tileSize + half;
+      if (biome.walls) {
+        const img = this.add
+          .image(cx, botY, biome.walls.sheet, rng.pick(biome.walls.top))
+          .setDisplaySize(tileSize + 0.5, tileSize);
+        container.add(img);
+        continue;
+      }
       const botFrame = c === 0 ? 'tile_025' : c === cols - 1 ? 'tile_027' : 'tile_026';
       const img = this.add
         .image(cx, botY, 'dungeon', botFrame)
@@ -762,7 +814,7 @@ export class DungeonScene extends Phaser.Scene {
   ): void {
     const floor = biome.floor;
     if (!floor) return;
-    const place = (sheet: string, frame: number, c: number, r: number): void => {
+    const place = (sheet: string, frame: BiomeFrame, c: number, r: number): void => {
       const img = this.add
         .image(c * tileSize + tileSize / 2, r * tileSize + tileSize / 2, sheet, frame)
         .setDisplaySize(tileSize + 1, tileSize + 1)
@@ -771,8 +823,30 @@ export class DungeonScene extends Phaser.Scene {
     };
     for (let r = 1; r < rows - 1; r += 1) {
       for (let c = 1; c < cols - 1; c += 1) {
+        if (biome.checker) {
+          place(floor.sheet, rng.pick(biome.checker[(c + r) % 2]!), c, r);
+          continue;
+        }
         const accent = floor.accents && rng.next() < 0.06;
         place(floor.sheet, accent ? rng.pick(floor.accents ?? floor.frames) : rng.pick(floor.frames), c, r);
+      }
+    }
+    if (biome.runner) {
+      // Carpet runner from the south door to the north door, under everything else.
+      const leftCol = Math.floor(cols / 2) - 1;
+      for (let r = 1; r < rows - 1; r += 1) {
+        place(biome.runner.sheet, biome.runner.left, leftCol, r);
+        place(biome.runner.sheet, biome.runner.right, leftCol + 1, r);
+      }
+    }
+    if (biome.cobweb) {
+      for (const c of [1, cols - 2]) {
+        const web = this.add
+          .image(c * tileSize + tileSize / 2, tileSize + tileSize / 2, biome.cobweb.sheet, biome.cobweb.frame)
+          .setDisplaySize(tileSize, tileSize)
+          .setFlipX(c !== 1)
+          .setAlpha(0.85);
+        container.add(web);
       }
     }
     // Patches of a second ground (grass in town squares, tilled soil rows on farms).
@@ -1823,6 +1897,8 @@ export class DungeonScene extends Phaser.Scene {
     state: GameState,
   ): void {
     const activeIds = new Set<number>();
+    // On Candy Land / Neon City / Space floors every monster uses that theme's sprites.
+    const themeKey = getFloorBiome(state.floor, state.utcDate).monsters;
     const dur = Math.max(0.01, state.roomTransitionDuration);
     const doorProgress =
       state.roomTransitionTimer > 0 && state.roomTransitionKind === 'door' && !this.prefersReducedMotion()
@@ -1834,7 +1910,7 @@ export class DungeonScene extends Phaser.Scene {
       activeIds.add(enemy.id);
       let spr = this.enemySprites.get(enemy.id);
       if (!spr) {
-        const startAsset = this.getEnemyAsset(enemy.archetype);
+        const startAsset = this.getEnemyAsset(enemy.archetype, themeKey);
         spr = this.add.sprite(enemy.x, enemy.y, startAsset.texture, startAsset.frame).setDepth(10);
         this.enemySprites.set(enemy.id, spr);
       }
@@ -1926,13 +2002,13 @@ export class DungeonScene extends Phaser.Scene {
         .setAlpha(alpha)
         .setFlipX(state.player.x < enemy.x);
 
-      const animKey = this.pickEnemyAnim(enemy);
+      const animKey = this.pickEnemyAnim(enemy, themeKey);
       if (animKey) {
         spr.anims.timeScale = isBossLeapTelegraph ? 1.85 : isBossLeapAir ? 1.35 : 1;
         spr.play(animKey, true);
       } else {
         spr.anims.timeScale = 1;
-        const asset = this.getEnemyAsset(enemy.archetype);
+        const asset = this.getEnemyAsset(enemy.archetype, themeKey);
         spr.stop();
         spr.setTexture(asset.texture, asset.frame);
       }
@@ -1945,7 +2021,7 @@ export class DungeonScene extends Phaser.Scene {
       } else if (pose.charge > 0.55 && Math.sin(state.elapsedTime * 40) > 0) {
         // Flicker in the monster's colour right before it strikes.
         spr.setTint(colors.main).setTintMode(Phaser.TintModes.ADD);
-      } else if (enemy.archetype === 'shade') {
+      } else if (enemy.archetype === 'shade' && !themeKey) {
         spr
           .setTint(enemy.state === 'telegraph' ? 0xc084fc : 0xe9d5ff)
           .setTintMode(Phaser.TintModes.MULTIPLY);
@@ -2205,10 +2281,16 @@ export class DungeonScene extends Phaser.Scene {
     }
   }
 
-  private getEnemyAsset(archetype: EnemyArchetype): {
-    texture: 'dungeon' | 'ski' | 'battle' | 'farm';
+  private getEnemyAsset(
+    archetype: EnemyArchetype,
+    themeKey: ThemeKey | undefined,
+  ): {
+    texture: 'dungeon' | 'ski' | 'battle' | 'farm' | ThemeKey;
     frame: string | number;
   } {
+    if (themeKey) {
+      return { texture: themeKey, frame: `${THEME_ROLE_FOR[archetype]}_idle_0` };
+    }
     switch (archetype) {
       case 'chaser':
         return { texture: 'dungeon', frame: 'slime_idle_0' };
@@ -2237,7 +2319,12 @@ export class DungeonScene extends Phaser.Scene {
     return archetype === 'elite_charger' ? 2.65 : PIXEL_SCALE;
   }
 
-  private pickEnemyAnim(enemy: EnemyEntity): string | null {
+  private pickEnemyAnim(enemy: EnemyEntity, themeKey?: ThemeKey): string | null {
+    if (themeKey) {
+      const base = `${themeKey}_${THEME_ROLE_FOR[enemy.archetype]}`;
+      if (enemy.state === 'telegraph' || enemy.state === 'attack') return `${base}_attack`;
+      return enemy.state === 'chase' ? `${base}_run` : `${base}_idle`;
+    }
     if (enemy.archetype === 'chaser') {
       if (enemy.state === 'telegraph' || enemy.state === 'attack') return 'slime_telegraph';
       return enemy.state === 'chase' ? 'slime_run' : 'slime_idle';
@@ -2833,7 +2920,19 @@ export class DungeonScene extends Phaser.Scene {
     if (this.prefersReducedMotion()) return;
     const biome = getFloorBiome(state.floor, state.utcDate);
     const moteColor =
-      biome.id === 'snow'
+      biome.id === 'candy'
+        ? 0xff9ccc
+        : biome.id === 'neon'
+          ? 0x22f0ff
+          : biome.id === 'space'
+            ? 0xfff7b0
+            : biome.id === 'reef'
+              ? 0xbfe9ff
+              : biome.id === 'haunted'
+                ? 0x9dff8a
+                : biome.id === 'sky'
+                  ? 0xffffff
+                  : biome.id === 'snow'
         ? 0xe0f2fe
         : biome.id === 'farm' || biome.id === 'town'
           ? 0xfef08a
@@ -2866,16 +2965,15 @@ export class DungeonScene extends Phaser.Scene {
     if (!atmo) return;
 
     const biome = getFloorBiome(state.floor, state.utcDate);
-    const theme = this.bridge.theme;
     const boss = state.enemies.find((e) => e.archetype === 'boss');
 
     // Bright, saturated looks per biome; vignettes are tinted, never near-black.
     if (biome.id === 'dungeon') {
-      atmo.ambientColor = [...theme.shaderAmbient];
-      atmo.vignetteColor = boss ? [0.42, 0.04, 0.14] : [...theme.shaderVignette];
-      atmo.vignetteStrength = boss ? 0.46 : 0.32;
-      // The dungeon tiles are dark, so lift brightness more than outdoors.
-      atmo.grade = [1.45, 1.1, 1.16, 0.45];
+      // Warm torch-lit keep: amber light, deep plum-brown edges (red when the boss is up).
+      atmo.ambientColor = [1.06, 1.0, 0.93];
+      atmo.vignetteColor = boss ? [0.42, 0.04, 0.14] : [0.26, 0.1, 0.08];
+      atmo.vignetteStrength = boss ? 0.46 : 0.3;
+      atmo.grade = [1.22, 1.08, 1.04, 0.35];
     } else if (biome.id === 'snow') {
       atmo.ambientColor = [0.98, 1.02, 1.1];
       atmo.vignetteColor = [0.18, 0.36, 0.7];
@@ -2891,6 +2989,41 @@ export class DungeonScene extends Phaser.Scene {
       atmo.vignetteColor = [0.3, 0.2, 0.06];
       atmo.vignetteStrength = 0.3;
       atmo.grade = [1.42, 1.1, 1.04, 0.45];
+    } else if (biome.id === 'candy') {
+      // Bright, airy pastels: almost no vignette, gentle grade so pastels don't blow out.
+      atmo.ambientColor = [1.08, 1.04, 1.08];
+      atmo.vignetteColor = [0.85, 0.45, 0.7];
+      atmo.vignetteStrength = 0.12;
+      atmo.grade = [1.12, 1.02, 1.0, 0.2];
+    } else if (biome.id === 'neon') {
+      // Dark streets so the neon pops.
+      atmo.ambientColor = [0.92, 0.92, 1.05];
+      atmo.vignetteColor = [0.04, 0.02, 0.18];
+      atmo.vignetteStrength = 0.38;
+      atmo.grade = [1.45, 1.12, 1.05, 0.4];
+    } else if (biome.id === 'space') {
+      atmo.ambientColor = [0.98, 0.95, 1.08];
+      atmo.vignetteColor = [0.1, 0.03, 0.22];
+      atmo.vignetteStrength = 0.34;
+      atmo.grade = [1.35, 1.08, 1.06, 0.4];
+    } else if (biome.id === 'reef') {
+      // Sunlit shallow water: cool blue edges, warm sand in the middle.
+      atmo.ambientColor = [0.96, 1.02, 1.08];
+      atmo.vignetteColor = [0.04, 0.26, 0.5];
+      atmo.vignetteStrength = 0.3;
+      atmo.grade = [1.3, 1.06, 1.04, 0.35];
+    } else if (biome.id === 'haunted') {
+      // Candle-lit gloom with a ghostly purple edge.
+      atmo.ambientColor = [0.94, 0.9, 1.04];
+      atmo.vignetteColor = [0.12, 0.02, 0.18];
+      atmo.vignetteStrength = 0.42;
+      atmo.grade = [1.3, 1.1, 1.02, 0.35];
+    } else if (biome.id === 'sky') {
+      // Bright and airy, like Candy Land: barely any vignette.
+      atmo.ambientColor = [1.04, 1.04, 1.08];
+      atmo.vignetteColor = [0.45, 0.65, 0.95];
+      atmo.vignetteStrength = 0.12;
+      atmo.grade = [1.12, 1.02, 1.0, 0.2];
     } else {
       atmo.ambientColor = [1.06, 1.02, 0.9];
       atmo.vignetteColor = [0.36, 0.22, 0.06];
