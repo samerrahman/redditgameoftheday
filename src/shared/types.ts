@@ -65,7 +65,8 @@ export type HazardType = 'spikes' | 'barrels' | 'currents';
 export type RelicId =
   | 'ember_wake'
   | 'arc_conduit'
-  | 'blood_reset'
+  | 'whetstone'
+  | 'vitality'
   | 'decoy_mine'
   | 'rift_cleave'
   | 'vortex_slam'
@@ -217,6 +218,9 @@ export type EnemyArchetype =
   | 'yeti'
   | 'bomber'
   | 'mortar_tank'
-  | 'stampede';
+  | 'stampede'
+  | 'myconid'
+  | 'imp'
+  | 'archer';
 
 export type RoomType = 'warmup' | 'escalation' | 'elite' | 'gauntlet' | 'boss' | 'endless';

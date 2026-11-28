@@ -2,16 +2,16 @@ import * as Phaser from 'phaser';
 import { DungeonAudio } from './audio/dungeonAudio.ts';
 import { ARENA_H, ARENA_W } from '../shared/game/constants.ts';
 import { GameSimulation } from '../shared/game/simulation.ts';
-import { getUtcDateString } from '../shared/rng.ts';
 import { getDailyTheme } from './config/theme.ts';
 import { InputController } from './game/input.ts';
 import { HybridDevvitAdapter } from './platform/adapter.ts';
+import { resolvePostUtcDate } from './platform/postDate.ts';
 import { DungeonScene } from './scenes/DungeonScene.ts';
 import { GameUIController } from './ui/controller.ts';
 
 async function bootstrap(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
-  const utcDate = getUtcDateString(params.get('date'));
+  const utcDate = await resolvePostUtcDate();
   // Always open on the menu; `?autostart=1` skips straight into a run (handy for testing).
   const autoStart = params.get('autostart') === '1';
   const theme = getDailyTheme(utcDate);

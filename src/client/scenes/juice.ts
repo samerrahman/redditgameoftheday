@@ -12,35 +12,38 @@ import type { EnemyArchetype, WeaponId } from '../../shared/types.ts';
 // Palettes
 // ---------------------------------------------------------------------------
 
-/** Signature colour per monster: used for its glow, wind-up charge and attack trails. */
+/** Signature colour per monster (Hearth & Slate palette): used for wind-up cues and subtle hit/attack accents. */
 export const ENEMY_COLORS: Record<EnemyArchetype, { main: number; hot: number }> = {
-  chaser: { main: 0x4ade80, hot: 0xbef264 },
-  shooter: { main: 0xa855f7, hot: 0xf0abfc },
-  charger: { main: 0xf97316, hot: 0xfde047 },
-  elite_charger: { main: 0xfacc15, hot: 0xfff7ae },
-  boss: { main: 0xef4444, hot: 0xfb923c },
-  shade: { main: 0xd946ef, hot: 0xf5d0fe },
-  yeti: { main: 0x38bdf8, hot: 0xe0f2fe },
-  bomber: { main: 0xfb923c, hot: 0xfef08a },
-  mortar_tank: { main: 0x84cc16, hot: 0xd9f99d },
-  stampede: { main: 0xf472b6, hot: 0xfbcfe8 },
+  chaser: { main: 0x4eab5b, hot: 0x96db6e },
+  shooter: { main: 0xa770d6, hot: 0xf2efe4 },
+  charger: { main: 0xf0853a, hot: 0xf7df86 },
+  elite_charger: { main: 0xe6a82e, hot: 0xf7df86 },
+  boss: { main: 0xe04f44, hot: 0xf0853a },
+  shade: { main: 0xa770d6, hot: 0xf2efe4 },
+  yeti: { main: 0x45a2e5, hot: 0x9edbf7 },
+  bomber: { main: 0xf0853a, hot: 0xf7df86 },
+  mortar_tank: { main: 0x6a738c, hot: 0xa9b6cc },
+  stampede: { main: 0x8c5236, hot: 0xd49562 },
+  myconid: { main: 0x4eab5b, hot: 0x96db6e },
+  imp: { main: 0xf0853a, hot: 0xf7df86 },
+  archer: { main: 0xa9b6cc, hot: 0xf2efe4 },
 };
 
 export type WeaponPalette = { main: number; glow: number; sparks: number[] };
 
 export const WEAPON_PALETTES: Record<WeaponId, WeaponPalette> = {
-  longsword: { main: 0x38bdf8, glow: 0x6366f1, sparks: [0x7dd3fc, 0xa5b4fc, 0xffffff, 0x22d3ee] },
-  dagger: { main: 0x34d399, glow: 0x14b8a6, sparks: [0x6ee7b7, 0xa7f3d0, 0xffffff, 0x2dd4bf] },
-  hammer: { main: 0xfb923c, glow: 0xef4444, sparks: [0xfdba74, 0xfde047, 0xffffff, 0xf87171] },
-  scatter_staff: { main: 0xd946ef, glow: 0x8b5cf6, sparks: [0xf0abfc, 0xc4b5fd, 0xffffff, 0xe879f9] },
-  arcane_lance: { main: 0x22d3ee, glow: 0x3b82f6, sparks: [0x67e8f9, 0x93c5fd, 0xffffff, 0x38bdf8] },
+  longsword: { main: 0x45a2e5, glow: 0x2c303e, sparks: [0x9edbf7, 0x45a2e5, 0xf2efe4] },
+  dagger: { main: 0x4eab5b, glow: 0x265c42, sparks: [0x96db6e, 0x4eab5b, 0xf2efe4] },
+  hammer: { main: 0xf0853a, glow: 0x7a222e, sparks: [0xf7df86, 0xf0853a, 0xf2efe4] },
+  scatter_staff: { main: 0xa770d6, glow: 0x4b356e, sparks: [0xa770d6, 0xf2efe4, 0x9edbf7] },
+  arcane_lance: { main: 0x9edbf7, glow: 0x45a2e5, sparks: [0x9edbf7, 0x45a2e5, 0xf2efe4] },
 };
 
 /** Gold override when blade relics recolour the slash (matches the sim's '#fbbf24'). */
 export const GOLD_PALETTE: WeaponPalette = {
-  main: 0xfbbf24,
-  glow: 0xf97316,
-  sparks: [0xfde047, 0xfef3c7, 0xffffff, 0xfb923c],
+  main: 0xe6a82e,
+  glow: 0x8c5236,
+  sparks: [0xf7df86, 0xe6a82e, 0xf2efe4],
 };
 
 export function rgb01(hex: number): [number, number, number] {
@@ -66,7 +69,7 @@ type Particle = {
   shape: 'dot' | 'spark' | 'ring';
 };
 
-const MAX_PARTICLES = 600;
+const MAX_PARTICLES = 240;
 
 export class FxParticles {
   private items: Particle[] = [];
@@ -204,7 +207,12 @@ export function computeEnemyPose(
   const pose: EnemyPose = { sx: 1, sy: 1, rot: 0, ox: 0, oy: 0, charge: 0 };
   const aimX = Math.cos(enemy.aimAngle);
   const aimY = Math.sin(enemy.aimAngle);
-  const squishy = enemy.archetype === 'chaser' || enemy.archetype === 'shade' ? 1.6 : 1;
+  const squishy =
+    enemy.archetype === 'chaser' ||
+    enemy.archetype === 'shade' ||
+    enemy.archetype === 'myconid'
+      ? 1.5
+      : 1;
 
   switch (enemy.state) {
     case 'spawning': {
@@ -259,6 +267,18 @@ export function computeEnemyPose(
         const t = Math.min(1, inState / 0.35);
         pose.oy = -Math.sin(t * Math.PI) * 16;
         pose.sy = 1 + 0.12 * Math.sin(t * Math.PI);
+      } else if (kind === 'spore_burst') {
+        const t = Math.min(1, inState / 0.28);
+        const puff = Math.sin(t * Math.PI);
+        pose.sx = 1 + 0.22 * puff;
+        pose.sy = 1 - 0.16 * puff;
+      } else if (kind === 'imp_dart') {
+        const t = Math.min(1, inState / 0.24);
+        const hop = Math.sin(t * Math.PI);
+        pose.oy = -10 * hop;
+        pose.ox = -aimX * 5 * (1 - t);
+        pose.sx = 1 + 0.1 * (1 - t);
+        pose.sy = 1 + 0.08 * hop;
       } else if (kind === 'shade_fan') {
         pose.rot = Math.sin(time * 20) * 0.35;
         pose.sx = 1.1;

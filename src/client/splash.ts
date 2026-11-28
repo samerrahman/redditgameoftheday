@@ -2,9 +2,11 @@ import { requestExpandedMode } from '@devvit/web/client';
 import { ENFORCE_SINGLE_DAILY_RUN } from '../shared/buildMeta.ts';
 import { getDailyModifier, getDailyRule } from '../shared/modifiers.ts';
 import { hasCompletedDailyRun } from '../shared/profile.ts';
-import { formatTimeUntilNextUtcDay, getUtcDateString } from '../shared/rng.ts';
+import { formatTimeUntilNextUtcDay } from '../shared/rng.ts';
+import { getFloorBiome } from './config/biomes.ts';
 import { GAME_META, getDailyTheme } from './config/theme.ts';
 import { HybridDevvitAdapter } from './platform/adapter.ts';
+import { resolvePostUtcDate } from './platform/postDate.ts';
 
 function setText(id: string, value: string): void {
   const node = document.getElementById(id);
@@ -14,14 +16,14 @@ function setText(id: string, value: string): void {
 }
 
 async function initSplash(): Promise<void> {
-  const params = new URLSearchParams(window.location.search);
-  const utcDate = getUtcDateString(params.get('date'));
+  const utcDate = await resolvePostUtcDate();
   const theme = getDailyTheme(utcDate);
+  const startBiome = getFloorBiome(1, utcDate);
   const modifier = getDailyModifier(utcDate);
   const rule = getDailyRule(utcDate);
 
   setText('splash-date', utcDate);
-  setText('splash-dungeon', theme.name);
+  setText('splash-dungeon', `${theme.name} - ${startBiome.name}`);
   setText('splash-modifier', modifier.banner);
   setText('splash-daily-rule', rule.label);
 

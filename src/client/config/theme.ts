@@ -1,4 +1,4 @@
-import { createDailyStream } from '../../shared/rng.ts';
+import { pickDailyRotation } from '../../shared/rng.ts';
 import type { EnemyArchetype, HazardType, RelicId, RoomType } from '../../shared/types.ts';
 
 export const GAME_META = {
@@ -176,8 +176,7 @@ export const DUNGEON_THEMES: readonly DungeonTheme[] = [
 ];
 
 export function getDailyTheme(utcDate: string): DungeonTheme {
-  const rng = createDailyStream(utcDate, 'theme');
-  return rng.pick(DUNGEON_THEMES);
+  return pickDailyRotation(utcDate, 'theme', DUNGEON_THEMES);
 }
 
 export function hexNum(cssHex: string): number {
@@ -189,7 +188,8 @@ export function hexNum(cssHex: string): number {
 export const RELIC_SPRITE_FRAMES: Record<RelicId, string> = {
   ember_wake: 'tile_115',
   arc_conduit: 'tile_130',
-  blood_reset: 'tile_103',
+  whetstone: 'tile_103',
+  vitality: 'heart_0',
   decoy_mine: 'barrel_tnt',
   rift_cleave: 'tile_107',
   vortex_slam: 'tile_129',
@@ -214,6 +214,9 @@ export const ENTITY_LABELS = {
     bomber: 'Alley Sapper',
     mortar_tank: 'Iron Tank',
     stampede: 'Stampede Bull',
+    myconid: 'Spore Myconid',
+    imp: 'Ember Imp',
+    archer: 'Bone Archer',
   } satisfies Record<EnemyArchetype, string>,
   rooms: {
     warmup: 'Floor Entrance',

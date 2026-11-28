@@ -2855,3 +2855,157 @@ button:disabled:hover {
     box-shadow: none;
   }
 }
+
+
+/* ---------- Fixes 7: boss bar at the bottom, distinct rank badges ---------- */
+
+.hud-bottom-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.hud-bottom-row > .hud-bottom {
+  grid-column: 1;
+}
+
+.hud-bottom-row > .boss-bar {
+  grid-column: 2;
+  inline-size: min(360px, 40vw);
+  padding: 5px 10px 6px;
+}
+
+.hud-bottom-row .boss-name {
+  font-size: 0.82rem;
+  margin-block-end: 3px;
+}
+
+.hud-bottom-row .boss-track {
+  block-size: 10px;
+}
+
+@media (max-width: 640px) {
+  .hud-bottom-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hud-bottom-row > .boss-bar {
+    grid-column: 1;
+    grid-row: 1;
+    inline-size: min(320px, 100%);
+    justify-self: center;
+  }
+}
+
+.player-title.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 2px solid var(--rank-border, #43495e);
+  border-radius: 3px;
+  background: var(--rank-bg, #1d1f29);
+  color: var(--rank-text, #a9b6cc);
+  font-size: var(--rank-size, 0.94rem);
+  box-shadow:
+    inset 1px 1px 0 rgb(255 255 255 / 0.08),
+    0 3px 0 #09060b,
+    0 0 var(--rank-glow-size, 0) var(--rank-glow, transparent);
+  text-shadow: 0 2px 0 rgb(0 0 0 / 0.45);
+}
+
+.rank-badge .rank-medal {
+  filter: var(--rank-medal-filter, grayscale(1) brightness(0.9));
+}
+
+.rank-pips {
+  display: inline-flex;
+  gap: 2px;
+  margin-inline-start: 2px;
+}
+
+.rank-pip {
+  inline-size: 6px;
+  block-size: 6px;
+  background: rgb(0 0 0 / 0.45);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+.rank-pip.is-on {
+  background: var(--rank-pip, #a9b6cc);
+  box-shadow: none;
+}
+
+.rank-badge[data-tier='0'] {
+  --rank-border: #43495e;
+  --rank-bg: #1b1d27;
+  --rank-text: #a9b6cc;
+  --rank-pip: #a9b6cc;
+}
+
+.rank-badge[data-tier='1'] {
+  --rank-border: #8c5236;
+  --rank-bg: #2a1810;
+  --rank-text: #f0b27a;
+  --rank-pip: #d49562;
+  --rank-medal-filter: sepia(1) saturate(1.6) hue-rotate(-12deg);
+}
+
+.rank-badge[data-tier='2'] {
+  --rank-border: #9edbf7;
+  --rank-bg: #142233;
+  --rank-text: #e0f2fe;
+  --rank-pip: #9edbf7;
+  --rank-size: 1rem;
+  --rank-medal-filter: grayscale(1) brightness(1.35);
+}
+
+.rank-badge[data-tier='3'] {
+  --rank-border: #e6a82e;
+  --rank-bg: #2d2210;
+  --rank-text: #fde68a;
+  --rank-pip: #f7df86;
+  --rank-size: 1.04rem;
+  --rank-glow: rgb(230 168 46 / 0.45);
+  --rank-glow-size: 10px;
+  --rank-medal-filter: none;
+}
+
+.rank-badge[data-tier='4'] {
+  --rank-border: #a770d6;
+  --rank-bg: #23143a;
+  --rank-text: #f3e8ff;
+  --rank-pip: #d8b4fe;
+  --rank-size: 1.08rem;
+  --rank-glow: rgb(167 112 214 / 0.55);
+  --rank-glow-size: 12px;
+  --rank-medal-filter: hue-rotate(220deg) saturate(1.4);
+}
+
+.rank-badge[data-tier='5'] {
+  --rank-border: #e04f44;
+  --rank-bg: linear-gradient(180deg, #3d161b, #1f0b10);
+  --rank-text: #fff7e8;
+  --rank-pip: #f0853a;
+  --rank-size: 1.12rem;
+  --rank-glow: rgb(224 79 68 / 0.6);
+  --rank-glow-size: 14px;
+  --rank-medal-filter: hue-rotate(-30deg) saturate(2);
+  animation: rank-legend-pulse 1.6s steps(4) infinite;
+}
+
+@keyframes rank-legend-pulse {
+  50% {
+    box-shadow:
+      inset 1px 1px 0 rgb(255 255 255 / 0.08),
+      0 3px 0 #09060b,
+      0 0 20px rgb(240 133 58 / 0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rank-badge[data-tier='5'] {
+    animation: none;
+  }
+}

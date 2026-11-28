@@ -1,3 +1,4 @@
+import { getBossDisplayName } from '../../shared/game/enemies.ts';
 import type {
   DungeonMapRoomView,
   GamePhase,
@@ -5,7 +6,12 @@ import type {
 } from '../../shared/game/simulation.ts';
 import { ENFORCE_SINGLE_DAILY_RUN } from '../../shared/buildMeta.ts';
 import { getDailyModifier, getDailyRule } from '../../shared/modifiers.ts';
-import { getDailyRunSummary, getPlayerTitle, hasCompletedDailyRun } from '../../shared/profile.ts';
+import {
+  getDailyRunSummary,
+  getPlayerTitle,
+  hasCompletedDailyRun,
+  PLAYER_TITLES,
+} from '../../shared/profile.ts';
 import { RELICS } from '../../shared/relics.ts';
 import { formatTimeUntilNextUtcDay } from '../../shared/rng.ts';
 import { formatDuration, formatShareComment } from '../../shared/share.ts';
@@ -17,6 +23,7 @@ import type {
   RelicId,
   RunSummary,
 } from '../../shared/types.ts';
+import { getFloorBiome } from '../config/biomes.ts';
 import { ENTITY_LABELS, GAME_META, getDailyTheme, RELIC_SPRITE_FRAMES } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
@@ -105,6 +112,7 @@ export class GameUIController {
   private lastRoomText = '';
   private lastShieldCount = -1;
   private lastTimerSec = -1;
+  private lastScore = -1;
   private lastCoins = -1;
   private lastRelicKey = '';
   private lastRerollVisible = false;
@@ -126,6 +134,7 @@ export class GameUIController {
   private readonly hudBossBar = getEl('hud-boss-bar');
   private readonly hudBossName = getEl('hud-boss-name');
   private readonly hudBossFill = getEl('hud-boss-fill');
+  private readonly hudScore = getEl('hud-score');
   private readonly hudTimer = getEl('hud-timer');
   private readonly hudCoinsVal = getEl('hud-coins-val');
   private readonly hudGems = getEl('hud-gems');
@@ -315,7 +324,13 @@ export class GameUIController {
       this.hudShieldsVal.textContent = String(p.shields);
     }
 
-    const sec = Math.floor(s.elapsedTime);
+    const liveScore = this.sim.getLiveScore();
+    if (liveScore !== this.lastScore) {
+      this.lastScore = liveScore;
+      this.hudScore.textContent = `Score ${liveScore.toLocaleString()}`;
+    }
+
+    const sec = Math.floor(s.runTime);
     if (sec !== this.lastTimerSec) {
       this.lastTimerSec = sec;
       this.hudTimer.textContent = formatDuration(sec);
@@ -343,12 +358,17 @@ export class GameUIController {
     const featuredEnemy = s.enemies.find(
       (e) => e.archetype === 'boss' || e.archetype === 'elite_charger',
     );
-    const bossKey = featuredEnemy ? `${featuredEnemy.id}:${featuredEnemy.hp}` : '';
+    const bossKey = featuredEnemy
+      ? `${featuredEnemy.id}:${featuredEnemy.hp}:${featuredEnemy.bossBase ?? ''}`
+      : '';
     if (bossKey !== this.lastBossKey) {
       this.lastBossKey = bossKey;
       if (featuredEnemy) {
         this.hudBossBar.hidden = false;
-        this.hudBossName.textContent = ENTITY_LABELS.enemies[featuredEnemy.archetype];
+        this.hudBossName.textContent =
+          featuredEnemy.archetype === 'boss' && featuredEnemy.bossBase
+            ? getBossDisplayName(featuredEnemy.bossBase, featuredEnemy.bossVariant)
+            : ENTITY_LABELS.enemies[featuredEnemy.archetype];
         const pct = Math.max(0, Math.min(100, (featuredEnemy.hp / featuredEnemy.maxHp) * 100));
         this.hudBossFill.style.inlineSize = `${pct.toFixed(1)}%`;
       } else {
@@ -560,6 +580,7 @@ export class GameUIController {
     this.lastBossKey = '';
     this.lastMinimapKey = '';
     this.lastGems = -1;
+    this.lastScore = -1;
     // Hide leftovers from the previous run (e.g. a boss bar still showing when you died).
     this.hudBossBar.hidden = true;
     this.sim.startNewRun(this.utcDate, this.profile);
@@ -614,17 +635,19 @@ export class GameUIController {
 
   private syncStartScreen(): void {
     const theme = getDailyTheme(this.utcDate);
+    const startBiome = getFloorBiome(1, this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
     const rule = getDailyRule(this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
-    const { title } = getPlayerTitle(this.profile.bestFloor);
+    const { title, tier } = getPlayerTitle(this.profile.bestFloor);
 
     this.startDate.textContent = this.utcDate;
-    this.startDungeon.textContent = theme.name;
+    this.startDungeon.textContent = `${theme.name} - ${startBiome.name}`;
     this.startModifier.textContent = modifier.banner;
     this.startDailyRule.textContent = rule.label;
     this.startStreak.textContent = `${this.profile.streak}`;
     this.startTitle.textContent = title;
+    this.renderRankBadge(tier);
     this.updateStartHero?.(this.lookOfProfile());
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
     this.startGems.textContent = `${this.profile.gems}`;
@@ -635,6 +658,22 @@ export class GameUIController {
     this.playBtnLabel.textContent = completed ? 'VIEW RESULTS' : 'BEGIN DUNGEON';
     this.playBtn.classList.toggle('is-completed', completed);
     this.startDailyNote.hidden = !completed;
+  }
+
+  /** Each rank tier gets its own colours and a row of pips so ranks are easy to tell apart. */
+  private renderRankBadge(tier: number): void {
+    const badge = this.startTitle.closest<HTMLElement>('.rank-badge');
+    if (!badge) return;
+    badge.dataset.tier = String(tier);
+    const pips = badge.querySelector<HTMLElement>('.rank-pips');
+    if (!pips) return;
+    pips.replaceChildren();
+    for (let i = 0; i < PLAYER_TITLES.length; i += 1) {
+      const pip = document.createElement('span');
+      pip.className = i <= tier ? 'rank-pip is-on' : 'rank-pip';
+      pips.appendChild(pip);
+    }
+    badge.setAttribute('aria-label', `Rank ${tier + 1} of ${PLAYER_TITLES.length}: ${this.startTitle.textContent ?? ''}`);
   }
 
   private async handleRunEnd(summary: RunSummary): Promise<void> {
@@ -713,7 +752,7 @@ export class GameUIController {
         return li;
       }),
     );
-    this.endScore.textContent = `Score: ${summary.score}`;
+    this.endScore.textContent = `Score: ${summary.score.toLocaleString()}`;
 
     this.endRelics.replaceChildren();
     const relicIds = (Object.keys(summary.relics) as RelicId[]).filter(

@@ -9,6 +9,8 @@ export type EnemyAIState =
   | 'recover'
   | 'staggered';
 
+export type BossBaseArchetype = Exclude<EnemyArchetype, 'boss'>;
+
 export type EnemyAttackKind =
   | 'none'
   | 'lunge'
@@ -20,11 +22,43 @@ export type EnemyAttackKind =
   | 'ice_mortar'
   | 'drop_bomb'
   | 'tank_burst'
-  | 'ricochet_charge';
+  | 'ricochet_charge'
+  | 'spore_burst'
+  | 'imp_dart'
+  | 'shoot_arrow'
+  | 'spore_lob'
+  | 'imp_swoop'
+  | 'arrow_volley'
+  | 'throw_bomb'
+  | 'quake_slam'
+  | 'arcane_ring'
+  | 'shade_ring'
+  | 'frost_rush'
+  | 'tank_shell'
+  | 'arcane_bolt'
+  | 'arcane_rune'
+  | 'blink_nova'
+  | 'slime_split'
+  | 'coin_spit'
+  | 'chomp_chain'
+  | 'boulder_toss'
+  | 'warden_sweep'
+  | 'phase_strike'
+  | 'icicle_rain'
+  | 'bomb_ring'
+  | 'bomb_line'
+  | 'tank_crush'
+  | 'stomp_quake'
+  | 'mushroom_ring'
+  | 'ember_nova'
+  | 'arrow_rain'
+  | 'snipe';
 
 export type EnemyEntity = {
   id: number;
   archetype: EnemyArchetype;
+  bossBase?: BossBaseArchetype | undefined;
+  bossVariant?: 0 | 1 | undefined;
   x: number;
   y: number;
   vx: number;
@@ -60,6 +94,12 @@ export type EnemyEntity = {
   leapStartY: number;
   leapZ: number;
   leapDuration: number;
+  /** Mimics wear a treasure chest disguise until the player walks up or hits them. */
+  mimic?: boolean | undefined;
+  /** Disguised and stationary (sleeping Mimic); ignored for room-clear checks. */
+  dormant?: boolean | undefined;
+  /** Spawned by a boss or warden (adds are capped so fights stay readable). */
+  isAdd?: boolean | undefined;
 };
 
 type EnemyBaseSpec = {
@@ -106,9 +146,9 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     telegraphDuration: 0.62,
   },
   elite_charger: {
-    baseHp: 215,
+    baseHp: 250,
     radius: 20,
-    armor: 3,
+    armor: 0,
     speed: 118,
     damage: 22,
     coinDrop: 6,
@@ -157,9 +197,9 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     telegraphDuration: 0.42,
   },
   mortar_tank: {
-    baseHp: 115,
+    baseHp: 135,
     radius: 20,
-    armor: 2,
+    armor: 0,
     speed: 78,
     damage: 14,
     coinDrop: 3,
@@ -176,7 +216,71 @@ const ENEMY_SPECS: Record<EnemyArchetype, EnemyBaseSpec> = {
     spawnTime: 0.55,
     telegraphDuration: 0.55,
   },
+  myconid: {
+    baseHp: 58,
+    radius: 15,
+    armor: 0,
+    speed: 112,
+    damage: 12,
+    coinDrop: 2,
+    spawnTime: 0.55,
+    telegraphDuration: 0.56,
+  },
+  imp: {
+    baseHp: 38,
+    radius: 14,
+    armor: 0,
+    speed: 162,
+    damage: 12,
+    coinDrop: 2,
+    spawnTime: 0.55,
+    telegraphDuration: 0.42,
+  },
+  archer: {
+    baseHp: 44,
+    radius: 15,
+    armor: 0,
+    speed: 116,
+    damage: 14,
+    coinDrop: 2,
+    spawnTime: 0.55,
+    telegraphDuration: 0.52,
+  },
 };
+
+export const ALL_ENEMY_ARCHETYPES = Object.keys(ENEMY_SPECS) as readonly EnemyArchetype[];
+
+export function getBossDisplayName(
+  bossBase: BossBaseArchetype = 'shooter',
+  bossVariant?: 0 | 1,
+): string {
+  switch (bossBase) {
+    case 'chaser':
+      return bossVariant === 1 ? 'King Mimic' : 'Giant Slime';
+    case 'shooter':
+      return 'Arch-Mage';
+    case 'charger':
+      return bossVariant === 1 ? 'Molten Colossus' : 'Giant Brute';
+    case 'elite_charger':
+      return 'High Warden';
+    case 'shade':
+      return 'Dread Shade';
+    case 'yeti':
+      return 'Elder Yeti';
+    case 'bomber':
+      return 'Master Sapper';
+    case 'mortar_tank':
+      return 'Siege Tank';
+    case 'stampede':
+      return 'Alpha Bull';
+    case 'myconid':
+      return 'Elder Myconid';
+    case 'imp':
+      return 'Dread Imp';
+    case 'archer':
+      return 'Bone Marksman';
+  }
+}
 
 export function createEnemy(
   id: number,
@@ -187,17 +291,26 @@ export function createEnemy(
   enemyHpMult: number,
   enemySpeedMult: number,
   enemyDamageMult: number,
+  bossBase?: BossBaseArchetype,
+  bossVariant?: 0 | 1,
 ): EnemyEntity {
   const spec = ENEMY_SPECS[archetype];
+  const resolvedBossBase: BossBaseArchetype | undefined =
+    archetype === 'boss' ? (bossBase ?? 'shooter') : undefined;
+  const resolvedRadius =
+    archetype === 'boss' && resolvedBossBase
+      ? Math.max(26, Math.min(34, Math.round(ENEMY_SPECS[resolvedBossBase].radius * 1.65)))
+      : spec.radius;
   const hp = Math.round(spec.baseHp * hpScale * enemyHpMult);
   return {
     id,
     archetype,
+    ...(resolvedBossBase ? { bossBase: resolvedBossBase, bossVariant: bossVariant ?? 0 } : {}),
     x,
     y,
     vx: 0,
     vy: 0,
-    radius: spec.radius,
+    radius: resolvedRadius,
     hp,
     maxHp: hp,
     armor: spec.armor,

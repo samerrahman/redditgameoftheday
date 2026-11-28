@@ -20,16 +20,10 @@
             <div id="hud-minimap" class="hud-minimap" aria-label="Dungeon map"></div>
           </div>
 
-          <div class="hud-center">
-            <div id="hud-boss-bar" class="boss-bar" hidden>
-              <span id="hud-boss-name" class="boss-name">The Threadkeeper</span>
-              <div class="boss-track">
-                <div id="hud-boss-fill" class="boss-fill"></div>
-              </div>
-            </div>
-          </div>
+          <div class="hud-center"></div>
 
           <div class="hud-right">
+            <span id="hud-score" class="hud-chip mono">Score 0</span>
             <span id="hud-timer" class="hud-chip mono">0:00</span>
             <span id="hud-gems" class="hud-chip gem-chip" hidden><img src="./assets/icons/gem.svg" class="stat-icon" width="16" height="16" alt="Gems" /> <span id="hud-gems-val">0</span></span>
             <span id="hud-coins" class="hud-chip coin-chip">
@@ -51,6 +45,7 @@
           </div>
         </div>
 
+        <div class="hud-bottom-row">
         <div class="hud-bottom">
           <div id="hud-relics" class="hud-relics"></div>
           <div class="hud-vitals">
@@ -106,6 +101,14 @@
             </span>
           </div>
         </div>
+        <!-- Boss health sits at the bottom so it never hides the top of the room. -->
+        <div id="hud-boss-bar" class="boss-bar" hidden>
+          <span id="hud-boss-name" class="boss-name">Boss</span>
+          <div class="boss-track">
+            <div id="hud-boss-fill" class="boss-fill"></div>
+          </div>
+        </div>
+        </div>
 
         <button
           id="touch-action-btn"
@@ -129,8 +132,8 @@
       <section id="start-screen" class="overlay-screen" hidden aria-labelledby="game-title">
         <div class="card start-card">
           <div class="eyebrow-row">
-            <span id="start-date" class="pill mono">2026-11-20</span>
-            <span id="start-dungeon" class="pill accent-pill">The Archives</span>
+            <span id="start-date" class="pill mono">----</span>
+            <span id="start-dungeon" class="pill accent-pill">Daily Vault</span>
           </div>
 
           <div class="title-lockup">
@@ -145,9 +148,10 @@
           </div>
 
           <div class="player-title-row">
-            <span class="player-title pixel-stat">
-              <img src="./assets/icons/medal.svg" class="stat-icon" width="16" height="16" alt="" aria-hidden="true" />
+            <span class="player-title pixel-stat rank-badge" data-tier="0">
+              <img src="./assets/icons/medal.svg" class="stat-icon rank-medal" width="16" height="16" alt="" aria-hidden="true" />
               <span id="start-title">Fresh Recruit</span>
+              <span class="rank-pips" aria-hidden="true"></span>
             </span>
           </div>
 
@@ -157,8 +161,8 @@
 
           <div class="modifier-banner" aria-label="Daily Modifier">
             <span class="modifier-label">TODAY'S MODIFIER</span>
-            <strong id="start-modifier" class="modifier-text">Glass Cannon: 2x Damage</strong>
-            <span id="start-daily-rule" class="modifier-rule">Open Armory - Starts in The Dungeon</span>
+            <strong id="start-modifier" class="modifier-text">Loading daily modifier...</strong>
+            <span id="start-daily-rule" class="modifier-rule">Any Weapon</span>
           </div>
 
           <div class="start-stats-strip">

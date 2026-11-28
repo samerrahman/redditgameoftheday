@@ -91,18 +91,23 @@ export const PLAYER_TITLES: readonly PlayerTitle[] = [
 export function getPlayerTitle(bestFloor: number): {
   title: string;
   next: PlayerTitle | null;
+  /** 0-based rank tier (0 = Fresh Recruit ... 5 = Dungeon Legend). */
+  tier: number;
 } {
   let current = PLAYER_TITLES[0]!;
+  let tier = 0;
   let next: PlayerTitle | null = null;
-  for (const t of PLAYER_TITLES) {
+  for (let i = 0; i < PLAYER_TITLES.length; i += 1) {
+    const t = PLAYER_TITLES[i]!;
     if (bestFloor >= t.minFloor) {
       current = t;
+      tier = i;
     } else {
       next = t;
       break;
     }
   }
-  return { title: current.title, next };
+  return { title: current.title, next, tier };
 }
 
 // ---------------------------------------------------------------------------

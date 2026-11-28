@@ -2,6 +2,26 @@ import type { SeededRng } from './rng.ts';
 import type { RelicDef, RelicId } from './types.ts';
 
 export const RELICS: Record<RelicId, RelicDef> = {
+  whetstone: {
+    id: 'whetstone',
+    name: 'Whetstone',
+    category: 'blade',
+    emoji: '🗡️',
+    shortTag: 'Edge',
+    starter: true,
+    synergyImpact: true,
+    summary: (lv) => `+${Math.round(WHETSTONE_DAMAGE_PER_LEVEL * 100 * lv)}% weapon damage`,
+  },
+  vitality: {
+    id: 'vitality',
+    name: 'Heart Vessel',
+    category: 'arcane',
+    emoji: '❤️',
+    shortTag: 'HP+',
+    starter: true,
+    synergyImpact: false,
+    summary: (lv) => `+${VITALITY_HP_PER_LEVEL * lv} max HP (keeps current HP %)`,
+  },
   ember_wake: {
     id: 'ember_wake',
     name: 'Ember Wake',
@@ -10,7 +30,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Ember',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Attacks leave 2.2s fire patch (${14 + 7 * (lv - 1)} DPS)`,
+    summary: (lv) => `Hits leave a 2.2s fire patch where they land (${14 + 7 * (lv - 1)} DPS)`,
   },
   arc_conduit: {
     id: 'arc_conduit',
@@ -21,16 +41,6 @@ export const RELICS: Record<RelicId, RelicDef> = {
     starter: true,
     synergyImpact: true,
     summary: (lv) => `Hits chain lightning to ${2 + (lv - 1)} foes (${18 + 8 * (lv - 1)} dmg)`,
-  },
-  blood_reset: {
-    id: 'blood_reset',
-    name: 'Blood Reset',
-    category: 'blade',
-    emoji: '🩸',
-    shortTag: 'Reset',
-    starter: true,
-    synergyImpact: true,
-    summary: (lv) => `Kills reset attack cooldown (+${15 * lv}% attack dmg)`,
   },
   decoy_mine: {
     id: 'decoy_mine',
@@ -70,7 +80,7 @@ export const RELICS: Record<RelicId, RelicDef> = {
     shortTag: 'Mirror',
     starter: true,
     synergyImpact: true,
-    summary: (lv) => `Attacks reflect nearby projectiles at ${2.5 + 0.25 * (lv - 1)}x dmg`,
+    summary: (lv) => `Attacks pulse a mirror shield that reflects nearby shots at ${2.5 + 0.25 * (lv - 1)}x dmg`,
   },
   reaper_siphon: {
     id: 'reaper_siphon',
@@ -119,8 +129,9 @@ export const RELICS: Record<RelicId, RelicDef> = {
     emoji: '🪙',
     shortTag: 'Gild',
     starter: false,
-    synergyImpact: false,
-    summary: (lv) => `Hits burst +${2 * lv} magnetized coins`,
+    synergyImpact: true,
+    summary: (lv) =>
+      `Hits burst +${2 * lv} coins, gild-blast (${16 + 8 * (lv - 1)} dmg), +${2 * lv}% dmg per 10 coins`,
   },
   concussion: {
     id: 'concussion',
@@ -140,12 +151,22 @@ export const ALL_RELIC_IDS = Object.keys(RELICS) as RelicId[];
 export const STARTER_RELIC_IDS = ALL_RELIC_IDS.filter((id) => RELICS[id].starter);
 export const UNLOCKABLE_RELIC_IDS = ALL_RELIC_IDS.filter((id) => !RELICS[id].starter);
 
+/** Weapon damage gained per Whetstone level (the only way to hit harder as floors get tougher). */
+export const WHETSTONE_DAMAGE_PER_LEVEL = 0.15;
+
+/** Max HP gained per Heart Vessel level while keeping the player's current HP percentage. */
+export const VITALITY_HP_PER_LEVEL = 25;
+
+/**
+ * Draft `count` unique relics from unlockedRelics (weighted draw without replacement).
+ */
 export function draftRelics(
   rng: SeededRng,
   unlockedRelics: readonly RelicId[],
   count: number,
   filterMode?: 'synergy',
 ): RelicDef[] {
+  if (count <= 0) return [];
   const uniqueIds = Array.from(new Set(unlockedRelics));
   let pool = uniqueIds
     .map((id) => RELICS[id])

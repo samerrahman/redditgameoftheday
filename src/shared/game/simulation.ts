@@ -4,7 +4,11 @@ import {
   getDailyStarterRelic,
   resolveDailyWeapon,
 } from '../modifiers.ts';
-import { draftRelics } from '../relics.ts';
+import {
+  draftRelics,
+  VITALITY_HP_PER_LEVEL,
+  WHETSTONE_DAMAGE_PER_LEVEL,
+} from '../relics.ts';
 import { getWeapon, type WeaponDef } from '../weapons.ts';
 import { createDailyStream, type SeededRng } from '../rng.ts';
 import type {
@@ -40,12 +44,19 @@ import {
   PLAY_MIN_X,
   PLAY_MIN_Y,
 } from './constants.ts';
-import { chooseBossPattern, createEnemy, type EnemyEntity } from './enemies.ts';
+import {
+  createEnemy,
+  getBossDisplayName,
+  type BossBaseArchetype,
+  type EnemyAttackKind,
+  type EnemyEntity,
+} from './enemies.ts';
 import {
   CELL_SIZE,
   LAYOUT_COLS,
   LAYOUT_ROWS,
   buildDailyDungeonMap,
+  getFloorBossSpec,
   getFloorScaling,
   oppositeDirection,
   type FloorScaling,
@@ -79,6 +90,20 @@ export type DungeonMapRoomView = {
   doors: DoorDirection[];
 };
 
+export type ProjectileKind =
+  | 'orb'
+  | 'rift_wave'
+  | 'bolt'
+  | 'lance'
+  | 'arrow'
+  | 'ember'
+  | 'arcane'
+  | 'shadow'
+  | 'ice'
+  | 'shell'
+  | 'rock'
+  | 'coin';
+
 export type ProjectileEntity = {
   id: number;
   friendly: boolean;
@@ -91,12 +116,16 @@ export type ProjectileEntity = {
   ttl: number;
   pierce: boolean;
   hitEnemyIds: number[];
-  kind: 'orb' | 'rift_wave' | 'bolt' | 'lance';
+  kind: ProjectileKind;
   /** Weapon projectiles proc on-hit relics; relic/reflected projectiles do not. */
   weaponShot?: boolean | undefined;
   stripsArmor?: boolean | undefined;
   attackSeq?: number | undefined;
   angle: number;
+  /** Enemy shots that gently steer toward the player (turn rate in rad/s). */
+  homing?: number | undefined;
+  /** Seconds of homing left before the shot flies straight. */
+  homingTime?: number | undefined;
 };
 
 export type HazardEntity = {
@@ -109,6 +138,8 @@ export type HazardEntity = {
   dirX: number;
   dirY: number;
   timer: number;
+  /** Binary ON/OFF state for spike plates (true = extended/lethal, false = recessed/safe). */
+  active: boolean;
   hp: number;
   destroyed: boolean;
 };
@@ -120,8 +151,10 @@ export type BreakableEntity = {
   hp: number;
   maxHp: number;
   radius: number;
-  kind: 'crate' | 'pillar';
+  kind: 'crate' | 'pillar' | 'chest';
   hitFlash: number;
+  /** Chests open when the player walks up to them (they are never smashed). */
+  opened?: boolean | undefined;
 };
 
 export type CoinEntity = {
@@ -186,6 +219,36 @@ export type FirePatchEffect = {
   tickTimer: number;
 };
 
+export type SporeCloudEffect = {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  ttl: number;
+  maxTtl: number;
+  damage: number;
+};
+
+export type LobKind = 'bomb' | 'shell' | 'spore_pod' | 'snowball' | 'rock';
+
+/** Something a monster throws in a visible arc; it lands at (tx, ty). */
+export type LobEffect = {
+  id: number;
+  kind: LobKind;
+  sx: number;
+  sy: number;
+  tx: number;
+  ty: number;
+  timer: number;
+  duration: number;
+  /** Arc height in px. */
+  peak: number;
+  radius: number;
+  /** Seconds a landed bomb fizzes before exploding. */
+  fuse: number;
+  damage: number;
+};
+
 export type DelayedBlastEffect = {
   kind:
     | 'decoy_mine'
@@ -194,7 +257,13 @@ export type DelayedBlastEffect = {
     | 'volatile_blast'
     | 'barrel_blast'
     | 'ice_mortar'
-    | 'sapper_bomb';
+    | 'sapper_bomb'
+    | 'spore_pod'
+    | 'tank_shell'
+    | 'rock_impact'
+    | 'arcane_rune'
+    | 'arrow_rain'
+    | 'icicle';
   x: number;
   y: number;
   radius: number;
@@ -296,6 +365,7 @@ export type PlayerState = {
   maxHp: number;
   shields: number;
   maxShields: number;
+  mirrorBubbleTimer: number;
   facingX: number;
   facingY: number;
   attackCooldown: number;
@@ -341,6 +411,8 @@ export type GameState = {
   totalWaves: number;
   waveDelayTimer: number;
   elapsedTime: number;
+  /** Run clock used for the timer and Score; it pauses once the floor's boss is beaten. */
+  runTime: number;
   hitstopTimer: number;
   shakeIntensity: number;
   onboardingTimer: number;
@@ -370,7 +442,9 @@ export type GameState = {
   fountain: FountainEntity | null;
   portals: PortalEntity[];
   firePatches: FirePatchEffect[];
+  sporeClouds: SporeCloudEffect[];
   delayedBlasts: DelayedBlastEffect[];
+  lobs: LobEffect[];
   slashes: SlashEffect[];
   rings: RingEffect[];
   lightnings: LightningEffect[];
@@ -394,6 +468,8 @@ type RoomVisitMemory = {
   rewardClaimed: boolean;
   fountainUsed: boolean;
   breakables?: BreakableEntity[] | undefined;
+  /** Mimics left in a cleared room go back to sleep as chests. */
+  mimics?: Array<{ x: number; y: number }> | undefined;
 };
 
 export class GameSimulation {
@@ -405,7 +481,6 @@ export class GameSimulation {
   private doorEntryLockTimer = 0;
   private nextEntityId = 1;
   private relicRng: SeededRng;
-  private bossRng: SeededRng;
   private fxRng: SeededRng;
   private lootRng: SeededRng;
   private attackSeq = 0;
@@ -415,6 +490,7 @@ export class GameSimulation {
   private dailyRule: DailyRule;
   private floorScaling: FloorScaling;
   private endCallback?: ((summary: RunSummary) => void) | undefined;
+  private readonly stuckTimers = new Map<number, number>();
 
   constructor(
     utcDate: string,
@@ -424,7 +500,6 @@ export class GameSimulation {
     this.profile = profile;
     this.endCallback = onRunEnd;
     this.relicRng = createDailyStream(utcDate, 'relics');
-    this.bossRng = createDailyStream(utcDate, 'boss');
     this.fxRng = createDailyStream(utcDate, 'fx');
     this.lootRng = createDailyStream(utcDate, 'loot');
     const resolved = resolveDailyWeapon(utcDate, profile);
@@ -456,7 +531,6 @@ export class GameSimulation {
   ): void {
     this.profile = profile;
     this.relicRng = createDailyStream(utcDate, 'relics');
-    this.bossRng = createDailyStream(utcDate, 'boss');
     this.fxRng = createDailyStream(utcDate, 'fx');
     this.lootRng = createDailyStream(utcDate, 'loot');
     const ignoreRule = Boolean(options?.ignoreDailyWeaponRule);
@@ -521,14 +595,23 @@ export class GameSimulation {
     return true;
   }
 
+  public getLiveScore(): number {
+    return this.getRunSummary().score;
+  }
+
   public getRunSummary(): RunSummary {
     const s = this.state;
-    const roomsOnFloor = s.clearedRooms;
-    // Depth dominates: one extra floor always beats any amount of rooms/kills on a shallower floor.
-    const score = Math.max(
-      10,
-      s.floorsCleared * 1000 + roomsOnFloor * 120 + s.stats.enemiesKilled * 5,
-    );
+    const elapsedSec = Math.round(s.runTime * 10) / 10;
+    const damageTaken = Math.round(s.stats.damageTaken);
+    const score = computeRunScore({
+      floorReached: s.floor,
+      floorsCleared: s.floorsCleared,
+      roomsCleared: s.roomsClearedTotal,
+      coinsEarned: s.stats.coinsEarned,
+      elapsedSec,
+      damageTaken,
+      enemiesKilled: s.stats.enemiesKilled,
+    });
 
     return {
       utcDate: s.utcDate,
@@ -540,10 +623,10 @@ export class GameSimulation {
       roomReached: s.roomIndex,
       progressPct: s.progressPct,
       totalRooms: s.totalRooms,
-      elapsedSec: Math.round(s.elapsedTime * 10) / 10,
+      elapsedSec,
       coinsEarned: s.stats.coinsEarned,
       gemsEarned: s.stats.gemsEarned,
-      damageTaken: Math.round(s.stats.damageTaken),
+      damageTaken,
       enemiesKilled: s.stats.enemiesKilled,
       weapon: this.weapon.id,
       relics: { ...s.player.relics },
@@ -593,6 +676,7 @@ export class GameSimulation {
     }
 
     s.elapsedTime += dt;
+    if (!this.isBossRoomCleared()) s.runTime += dt;
     if (s.onboardingTimer > 0) {
       s.onboardingTimer = Math.max(0, s.onboardingTimer - dt);
     }
@@ -604,7 +688,9 @@ export class GameSimulation {
     this.updatePlayer(input, dt);
     this.updateHazards(dt);
     this.updateDelayedBlasts(dt);
+    this.updateLobs(dt);
     this.updateFirePatches(dt);
+    this.updateSporeClouds(dt);
     this.updateEnemies(dt);
     for (const enemy of s.enemies) {
       if (enemy.leapZ <= 24) {
@@ -626,6 +712,15 @@ export class GameSimulation {
     }
   }
 
+  /** True once this floor's boss is dead (the run clock stops so Score stops dropping). */
+  private isBossRoomCleared(): boolean {
+    const s = this.state;
+    return (
+      s.currentRoomId === this.dungeonMap.bossRoomId &&
+      (s.roomState === 'reward' || s.roomState === 'boss_choice')
+    );
+  }
+
   private createFreshState(
     utcDate: string,
     profile: PlayerProfile,
@@ -635,12 +730,12 @@ export class GameSimulation {
     const modifier = this.buildScaledModifier();
     const dailyRule = this.dailyRule;
     const dailyHazard = getDailyHazard(utcDate);
-    const maxHp = BASE_HP;
     const weapon = this.weapon;
     const initialRelics: ActiveRelicMap = {};
     if (dailyRule.grantStarterRelic && !ignoreRule) {
       initialRelics[getDailyStarterRelic(utcDate)] = 1;
     }
+    const maxHp = BASE_HP + VITALITY_HP_PER_LEVEL * (initialRelics.vitality ?? 0);
 
     const startNode = this.dungeonMap.rooms[0];
     if (!startNode) throw new Error('Dungeon map missing start room');
@@ -666,6 +761,7 @@ export class GameSimulation {
       totalWaves: startNode.blueprint.waves.length,
       waveDelayTimer: 0,
       elapsedTime: 0,
+      runTime: 0,
       hitstopTimer: 0,
       shakeIntensity: 0,
       onboardingTimer: ONBOARDING_HINT_DURATION,
@@ -691,6 +787,7 @@ export class GameSimulation {
         maxHp,
         shields: 0,
         maxShields: 0,
+        mirrorBubbleTimer: 0,
         facingX: 0,
         facingY: -1,
         attackCooldown: 0,
@@ -725,7 +822,9 @@ export class GameSimulation {
       fountain: null,
       portals: [],
       firePatches: [],
+      sporeClouds: [],
       delayedBlasts: [],
+      lobs: [],
       slashes: [],
       rings: [],
       lightnings: [],
@@ -764,6 +863,9 @@ export class GameSimulation {
       const leavingMem = this.roomMemory.get(s.currentRoomId);
       if (leavingMem) {
         leavingMem.breakables = s.breakables.map((b) => ({ ...b, hitFlash: 0 }));
+        if (leavingMem.cleared) {
+          leavingMem.mimics = s.enemies.filter((e) => e.mimic).map((e) => ({ x: e.x, y: e.y }));
+        }
       }
     }
 
@@ -832,6 +934,7 @@ export class GameSimulation {
     s.player.attackAnimTimer = 0;
     s.player.attackEndlagTimer = 0;
     s.player.attackBufferedTimer = 0;
+    s.player.mirrorBubbleTimer = 0;
     s.player.iFramesTimer = Math.max(
       s.player.iFramesTimer,
       transitionKind !== 'none' ? s.roomTransitionDuration + 0.35 : 0.35,
@@ -843,7 +946,9 @@ export class GameSimulation {
     s.fountain = null;
     s.portals = [];
     s.firePatches = [];
+    s.sporeClouds = [];
     s.delayedBlasts = [];
+    s.lobs = [];
     s.rings = [];
     s.debris = [];
     s.coins = [];
@@ -859,6 +964,9 @@ export class GameSimulation {
       s.waveIndex = 0;
       s.totalWaves = 0;
       s.waveDelayTimer = 0;
+      for (const m of mem.mimics ?? []) {
+        s.enemies.push(this.makeDormantMimic(m.x, m.y, node.blueprint.hpScale));
+      }
 
       if (s.rewardType === 'fountain_and_relics' && !mem.fountainUsed) {
         s.fountain = {
@@ -885,6 +993,7 @@ export class GameSimulation {
       s.hazards = node.blueprint.hazards.map((h) => ({
         ...h,
         timer: h.phaseOffset,
+        active: h.type === 'spikes' ? isSpikeActive(h.phaseOffset) : false,
         hp: 20,
         destroyed: false,
       }));
@@ -974,7 +1083,9 @@ export class GameSimulation {
           dir,
           targetRoomId: targetId,
           targetCleared: Boolean(this.roomMemory.get(targetId)?.cleared),
-          targetIsBoss: targetId === this.dungeonMap.bossRoomId,
+          // The boss room stays a mystery until you have been inside it.
+          targetIsBoss:
+            targetId === this.dungeonMap.bossRoomId && Boolean(this.roomMemory.get(targetId)?.visited),
         });
       }
       s.doors = doors;
@@ -994,7 +1105,7 @@ export class GameSimulation {
         visited: Boolean(mem?.visited),
         cleared: Boolean(mem?.cleared),
         isCurrent: node.id === s.currentRoomId,
-        isBoss: node.id === this.dungeonMap.bossRoomId,
+        isBoss: node.id === this.dungeonMap.bossRoomId && Boolean(mem?.visited),
         doors,
       };
     });
@@ -1006,6 +1117,16 @@ export class GameSimulation {
     if (!wave) return;
     s.waveIndex = waveIdx;
     for (const spawn of wave) {
+      if (spawn.mimic) {
+        s.enemies.push(this.makeDormantMimic(spawn.x, spawn.y, this.currentBlueprint.hpScale));
+        continue;
+      }
+      const bossSpec =
+        spawn.archetype === 'boss'
+          ? spawn.bossBase
+            ? { bossBase: spawn.bossBase, bossVariant: spawn.bossVariant ?? (0 as const) }
+            : getFloorBossSpec(s.floor, s.utcDate)
+          : undefined;
       const enemy = createEnemy(
         this.nextEntityId++,
         spawn.archetype,
@@ -1015,10 +1136,81 @@ export class GameSimulation {
         s.modifier.enemyHpMult,
         s.modifier.enemySpeedMult,
         s.modifier.enemyDamageMult,
+        bossSpec?.bossBase,
+        bossSpec?.bossVariant,
       );
+      if (s.floor === 1 && spawn.archetype === 'boss') {
+        enemy.damage = Math.max(10, Math.round(enemy.damage * 0.72));
+      }
       s.enemies.push(enemy);
       this.spawnParticles(spawn.x, spawn.y, '#ef4444', 6, 90);
     }
+  }
+
+  /** A Mimic disguised as a treasure chest: it sits still until you walk up or hit it. */
+  private makeDormantMimic(x: number, y: number, hpScale: number): EnemyEntity {
+    const s = this.state;
+    const mimic = createEnemy(
+      this.nextEntityId++,
+      'chaser',
+      x,
+      y,
+      hpScale * 1.6,
+      s.modifier.enemyHpMult,
+      s.modifier.enemySpeedMult,
+      s.modifier.enemyDamageMult,
+    );
+    mimic.mimic = true;
+    mimic.dormant = true;
+    mimic.state = 'chase';
+    mimic.stateTimer = 0.4;
+    mimic.spawnShieldTimer = 0;
+    mimic.coinDrop = 3;
+    return mimic;
+  }
+
+  private wakeMimic(enemy: EnemyEntity): void {
+    const s = this.state;
+    if (!enemy.dormant) return;
+    enemy.dormant = false;
+    enemy.state = 'spawning';
+    enemy.stateTimer = 0.55;
+    enemy.spawnShieldTimer = Math.max(enemy.spawnShieldTimer, 0.25);
+    s.shakeIntensity = Math.max(s.shakeIntensity, 4);
+    this.addFloatingText(enemy.x, enemy.y - 30, 'MIMIC!', '#f87171', 1.25);
+    this.spawnParticles(enemy.x, enemy.y, '#fde047', 10, 150);
+  }
+
+  private openChest(br: BreakableEntity): void {
+    const s = this.state;
+    if (br.kind !== 'chest' || br.opened) return;
+    br.opened = true;
+    br.hitFlash = 0.12;
+    const coins = Math.max(4, Math.round(4 * this.floorScaling.coinMult));
+    this.spawnCoins(br.x, br.y - 6, coins, false);
+    this.spawnParticles(br.x, br.y, '#fde047', 12, 155);
+    this.addFloatingText(br.x, br.y - 28, `CHEST! +${coins}`, '#fde047', 1.1);
+    if (this.lootRng.next() < HEART_CRATE_CHANCE) {
+      s.hearts.push({ id: this.nextEntityId++, x: br.x, y: br.y + 26, age: 0 });
+    }
+    const mem = this.roomMemory.get(s.currentRoomId);
+    if (mem) mem.breakables = s.breakables.map((b) => ({ ...b, hitFlash: 0 }));
+  }
+
+  private placeEmberPatch(x: number, y: number): void {
+    const s = this.state;
+    const emberLv = s.player.relics.ember_wake ?? 0;
+    if (emberLv <= 0) return;
+    const pt = this.clampPoint(x, y, 12);
+    s.firePatches.push({
+      x: pt.x,
+      y: pt.y,
+      radius: 34 + emberLv * 4,
+      ttl: 2.2,
+      dps: 14 + 7 * (emberLv - 1),
+      tickTimer: 0.08,
+    });
+    if (s.firePatches.length > 10) s.firePatches.splice(0, s.firePatches.length - 10);
   }
 
   private updatePlayer(input: InputFrame, dt: number): void {
@@ -1031,6 +1223,7 @@ export class GameSimulation {
     p.attackBufferedTimer = Math.max(0, p.attackBufferedTimer - dt);
     p.iFramesTimer = Math.max(0, p.iFramesTimer - dt);
     p.hurtFlashTimer = Math.max(0, p.hurtFlashTimer - dt);
+    p.mirrorBubbleTimer = Math.max(0, p.mirrorBubbleTimer - dt);
 
     const aimVec = this.resolveAimDirection(input);
     if (p.attackAnimTimer <= 0 && (input.moveX !== 0 || input.moveY !== 0)) {
@@ -1135,19 +1328,24 @@ export class GameSimulation {
       }
     }
 
-    const bloodLv = p.relics.blood_reset ?? 0;
+    const whetLv = p.relics.whetstone ?? 0;
+    const goldenLv = p.relics.golden_cleave ?? 0;
+    const goldenCoinMult =
+      goldenLv > 0
+        ? 1 + Math.min(0.4 * goldenLv, Math.floor(s.stats.coinsEarned / 10) * 0.02 * goldenLv)
+        : 1;
     const hitDmg =
       w.damage *
       s.modifier.attackDamageMult *
-      (1 + 0.15 * bloodLv) *
+      (1 + WHETSTONE_DAMAGE_PER_LEVEL * whetLv) *
+      goldenCoinMult *
       p.damageBonusMult *
       s.modifier.playerDamageMult;
 
     const range = w.range;
     const cleaveArc = (Math.max(1, w.arcDeg) * Math.PI) / 180;
     const swingSign: 1 | -1 = p.swingCount % 2 === 1 ? 1 : -1;
-    const slashColor =
-      bloodLv > 0 || (p.relics.rift_cleave ?? 0) > 0 ? '#fbbf24' : w.slashColor;
+    const slashColor = (p.relics.rift_cleave ?? 0) > 0 ? '#fbbf24' : w.slashColor;
 
     // Claiming a relic: any weapon can "tap" a pedestal in front of the player.
     if (s.roomState === 'reward' && s.pedestals.length > 0) {
@@ -1213,6 +1411,7 @@ export class GameSimulation {
 
       let hitCount = 0;
       let killCount = 0;
+      let firstHit: { x: number; y: number } | null = null;
       const chain = { arcUsed: false };
       for (const enemy of [...s.enemies]) {
         if (enemy.spawnShieldTimer > 0 || enemy.leapZ > 24) continue;
@@ -1224,14 +1423,17 @@ export class GameSimulation {
         const inCloseCleave = dist <= 34 + enemy.radius;
         if (!inFrontCone && !inCloseCleave) continue;
         hitCount += 1;
+        if (!firstHit) firstHit = { x: enemy.x, y: enemy.y };
         const dirX = dist > 0 ? dx / dist : Math.cos(angle);
         const dirY = dist > 0 ? dy / dist : Math.sin(angle);
         const killed = this.weaponHitEnemy(enemy, hitDmg, dirX, dirY, w.stripsArmor, chain);
         if (killed) killCount += 1;
       }
       slashEffect.hitCount = hitCount;
+      if (firstHit) this.placeEmberPatch(firstHit.x, firstHit.y);
 
       for (const br of [...s.breakables]) {
+        if (br.kind === 'chest') continue;
         const dx = br.x - p.x;
         const dy = br.y - p.y;
         const dist = Math.hypot(dx, dy);
@@ -1297,19 +1499,7 @@ export class GameSimulation {
       s.shakeIntensity = Math.max(s.shakeIntensity, w.id === 'arcane_lance' ? 4 : 3);
     }
 
-    // On-attack relics fire regardless of weapon style.
-    const emberLv = p.relics.ember_wake ?? 0;
-    if (emberLv > 0) {
-      s.firePatches.push({
-        x: p.x + Math.cos(angle) * 42,
-        y: p.y + Math.sin(angle) * 42,
-        radius: 34 + emberLv * 4,
-        ttl: 2.2,
-        dps: 14 + 7 * (emberLv - 1),
-        tickTimer: 0.08,
-      });
-    }
-
+    // On-attack relics fire regardless of weapon style (Ember Wake lands where hits land).
     const riftLv = p.relics.rift_cleave ?? 0;
     if (riftLv > 0) {
       const waveDmg =
@@ -1333,19 +1523,36 @@ export class GameSimulation {
 
     const mirrorLv = p.relics.mirror_guard ?? 0;
     if (mirrorLv > 0) {
+      const bubbleRadius = Math.max(range, 84) + 22;
+      p.mirrorBubbleTimer = 0.28;
+      s.rings.push({
+        x: p.x,
+        y: p.y,
+        radius: p.radius + 8,
+        maxRadius: bubbleRadius,
+        ttl: 0.22,
+        maxTtl: 0.22,
+        color: '#38bdf8',
+      });
       const dmgMult = 2.5 + 0.25 * (mirrorLv - 1);
+      let reflected = 0;
       for (const proj of s.projectiles) {
         if (proj.friendly) continue;
         const d = Math.hypot(proj.x - p.x, proj.y - p.y);
-        if (d <= Math.max(range, 84) + 22) {
+        if (d <= bubbleRadius) {
+          reflected += 1;
           proj.friendly = true;
           const speed = Math.hypot(proj.vx, proj.vy) * 2.2;
           proj.vx = Math.cos(angle) * speed;
           proj.vy = Math.sin(angle) * speed;
+          proj.angle = angle;
           proj.damage = Math.round(proj.damage * dmgMult);
           proj.ttl = 1.6;
           this.spawnParticles(proj.x, proj.y, '#38bdf8', 5, 110);
         }
+      }
+      if (reflected > 0) {
+        this.addFloatingText(p.x, p.y - 28, 'REFLECT!', '#7dd3fc', 1.05);
       }
     }
   }
@@ -1388,32 +1595,32 @@ export class GameSimulation {
       '#f8fafc',
     );
     this.spawnParticles(enemy.x, enemy.y, '#fff7e8', 5, 195);
-    s.rings.push({
-      x: enemy.x,
-      y: enemy.y,
-      radius: 8,
-      maxRadius: 34,
-      ttl: 0.14,
-      maxTtl: 0.14,
-      color: '#fff7e8',
-    });
     const arcLv = p.relics.arc_conduit ?? 0;
     if (arcLv > 0 && !chain.arcUsed) {
       chain.arcUsed = true;
       this.triggerArcConduit(enemy, arcLv);
     }
-    const bloodLv = p.relics.blood_reset ?? 0;
     const goldenLv = p.relics.golden_cleave ?? 0;
-    if (killed) {
-      if (bloodLv > 0) {
-        p.attackCooldown = 0;
-        p.attackEndlagTimer = 0;
-        this.addFloatingText(p.x, p.y - 26, 'RESET!', '#f87171', 1.05);
+    if (goldenLv > 0 && (killed || enemy.goldenBurstCount < 2)) {
+      if (!killed) {
+        enemy.goldenBurstCount += 1;
       }
-      if (goldenLv > 0) this.spawnCoins(enemy.x, enemy.y, 2 * goldenLv, true);
-    } else if (goldenLv > 0 && enemy.goldenBurstCount < 2) {
-      enemy.goldenBurstCount += 1;
       this.spawnCoins(enemy.x, enemy.y, 2 * goldenLv, true);
+      const gildDmg = Math.round(
+        (16 + 8 * (goldenLv - 1)) * p.damageBonusMult * s.modifier.playerDamageMult,
+      );
+      this.spawnParticles(enemy.x, enemy.y, '#f7df86', 7, 165);
+      for (const other of [...s.enemies]) {
+        if (other.id === enemy.id || other.spawnShieldTimer > 0 || other.leapZ > 24) continue;
+        const gdx = other.x - enemy.x;
+        const gdy = other.y - enemy.y;
+        const gDist = Math.hypot(gdx, gdy);
+        if (gDist <= 68 + other.radius) {
+          const gnx = gDist > 0 ? gdx / gDist : 0;
+          const gny = gDist > 0 ? gdy / gDist : 0;
+          this.damageEnemy(other, gildDmg, gnx * 180, gny * 180, false, '#f7df86');
+        }
+      }
     }
     return killed;
   }
@@ -1588,9 +1795,10 @@ export class GameSimulation {
       if (haz.destroyed) continue;
 
       if (haz.type === 'spikes') {
-        haz.timer = (haz.timer + dt) % 3.2;
-        const active = haz.timer >= 2.55;
-        if (active) {
+        const prevTimer = haz.timer;
+        haz.timer = (haz.timer + dt) % SPIKE_CYCLE_SEC;
+        haz.active = isSpikeActive(haz.timer);
+        if (haz.active) {
           const halfW = haz.w / 2;
           const halfH = haz.h / 2;
           if (
@@ -1605,7 +1813,7 @@ export class GameSimulation {
               Math.abs(enemy.x - haz.x) <= halfW + enemy.radius * 0.4 &&
               Math.abs(enemy.y - haz.y) <= halfH + enemy.radius * 0.4
             ) {
-              if (Math.floor((haz.timer - dt) * 4) !== Math.floor(haz.timer * 4)) {
+              if (!isSpikeActive(prevTimer) || Math.floor(prevTimer * 4) !== Math.floor(haz.timer * 4)) {
                 this.damageEnemy(enemy, 14, 0, 0, false, '#f43f5e');
               }
             }
@@ -1677,22 +1885,30 @@ export class GameSimulation {
       }
 
       const color = blast.friendly
-        ? '#fb923c'
-        : blast.kind === 'ice_mortar'
-          ? '#67e8f9'
-          : '#ef4444';
-      s.rings.push({
-        x: blast.x,
-        y: blast.y,
-        radius: 14,
-        maxRadius: blast.radius,
-        ttl: 0.22,
-        maxTtl: 0.22,
-        color,
-      });
-      this.spawnParticles(blast.x, blast.y, color, 12, 180);
+        ? '#f0853a'
+        : blast.kind === 'ice_mortar' || blast.kind === 'icicle'
+          ? '#9edbf7'
+          : blast.kind === 'spore_pod'
+            ? '#4eab5b'
+            : blast.kind === 'arcane_rune'
+              ? '#a770d6'
+              : blast.kind === 'rock_impact' || blast.kind === 'arrow_rain'
+                ? '#d49562'
+                : '#e04f44';
+      this.spawnParticles(blast.x, blast.y, color, 10, 175);
       if (blast.kind === 'barrel_blast') {
         this.spawnBreakDebris(blast.x, blast.y, 'barrel', false);
+      }
+      if (blast.kind === 'spore_pod') {
+        s.sporeClouds.push({
+          id: this.nextEntityId++,
+          x: blast.x,
+          y: blast.y,
+          radius: blast.radius,
+          ttl: 2.2,
+          maxTtl: 2.2,
+          damage: Math.max(1, Math.round(blast.damage * 0.85)),
+        });
       }
       s.shakeIntensity = Math.max(s.shakeIntensity, 5);
       // Explosions set off nearby barrels, so barrels can chain-react.
@@ -1739,7 +1955,28 @@ export class GameSimulation {
               ttl: 1.3,
               pierce: false,
               hitEnemyIds: [],
-              kind: 'orb',
+              kind: 'ice',
+              angle: ang,
+            });
+          }
+        }
+        if (blast.kind === 'rock_impact') {
+          const shardDmg = Math.max(1, Math.round(blast.damage * 0.6));
+          for (let i = 0; i < 6; i += 1) {
+            const ang = (i * Math.PI * 2) / 6 + 0.26;
+            s.projectiles.push({
+              id: this.nextEntityId++,
+              friendly: false,
+              x: blast.x + Math.cos(ang) * 22,
+              y: blast.y + Math.sin(ang) * 22,
+              vx: Math.cos(ang) * 230,
+              vy: Math.sin(ang) * 230,
+              radius: 7,
+              damage: shardDmg,
+              ttl: 0.9,
+              pierce: false,
+              hitEnemyIds: [],
+              kind: 'rock',
               angle: ang,
             });
           }
@@ -1774,6 +2011,26 @@ export class GameSimulation {
     s.firePatches = next;
   }
 
+  private updateSporeClouds(dt: number): void {
+    const s = this.state;
+    const p = s.player;
+    const next: SporeCloudEffect[] = [];
+
+    for (const cloud of s.sporeClouds) {
+      cloud.ttl -= dt;
+      if (cloud.ttl <= 0) continue;
+      if (
+        s.phase === 'playing' &&
+        Math.hypot(p.x - cloud.x, p.y - cloud.y) <= cloud.radius + p.radius * 0.55
+      ) {
+        this.damagePlayer(cloud.damage);
+      }
+      next.push(cloud);
+    }
+
+    s.sporeClouds = next;
+  }
+
   private updateEnemies(dt: number): void {
     const s = this.state;
     const p = s.player;
@@ -1783,6 +2040,16 @@ export class GameSimulation {
       enemy.hitFlashTimer = Math.max(0, enemy.hitFlashTimer - dt);
       enemy.spawnShieldTimer = Math.max(0, enemy.spawnShieldTimer - dt);
       enemy.dashTagTimer = Math.max(0, enemy.dashTagTimer - dt);
+
+      if (enemy.dormant) {
+        // Disguised Mimic: a perfectly still chest until the player walks right up.
+        enemy.vx = 0;
+        enemy.vy = 0;
+        if (Math.hypot(p.x - enemy.x, p.y - enemy.y) <= p.radius + enemy.radius + 40) {
+          this.wakeMimic(enemy);
+        }
+        continue;
+      }
 
       const kbSpeed = Math.hypot(enemy.vx, enemy.vy);
       if (kbSpeed > 12) {
@@ -1841,39 +2108,70 @@ export class GameSimulation {
       const dirX = dist > 0 ? dx / dist : 0;
       const dirY = dist > 0 ? dy / dist : 1;
       const nav = this.getNavDirection(enemy, flowField, dirX, dirY);
+      const beforeX = enemy.x;
+      const beforeY = enemy.y;
+      const wasChasing = enemy.state === 'chase';
 
-      if (enemy.archetype === 'chaser') {
-        this.stepChaserAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else if (enemy.archetype === 'shooter') {
-        this.stepShooterAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
-      } else if (enemy.archetype === 'charger' || enemy.archetype === 'elite_charger') {
-        this.stepChargerAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else if (enemy.archetype === 'shade') {
-        this.stepShadeAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
-      } else if (enemy.archetype === 'yeti') {
-        this.stepYetiAI(enemy, dist, nav.dirX, nav.dirY, dt);
-      } else if (enemy.archetype === 'bomber') {
-        this.stepBomberAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else if (enemy.archetype === 'mortar_tank') {
-        this.stepMortarTankAI(enemy, dist, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
-      } else if (enemy.archetype === 'stampede') {
-        this.stepStampedeAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
-      } else {
-        this.stepBossAI(enemy, nav.dirX, nav.dirY, dt);
+      switch (enemy.archetype) {
+        case 'chaser':
+          this.stepChaserAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'shooter':
+          this.stepShooterAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'charger':
+        case 'elite_charger':
+          this.stepChargerAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'shade':
+          this.stepShadeAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'yeti':
+          this.stepYetiAI(enemy, dist, nav.dirX, nav.dirY, dt);
+          break;
+        case 'bomber':
+          this.stepBomberAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'mortar_tank':
+          this.stepMortarTankAI(enemy, dist, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'stampede':
+          this.stepStampedeAI(enemy, dist, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'myconid':
+          this.stepMyconidAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, dt);
+          break;
+        case 'imp':
+          this.stepImpAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'archer':
+          this.stepArcherAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasShotLOS, dt);
+          break;
+        case 'boss':
+          this.stepBossAI(enemy, dist, dirX, dirY, nav.dirX, nav.dirY, nav.hasMoveLOS, nav.hasShotLOS, dt);
+          break;
       }
 
       if (enemy.leapZ <= 24) {
         this.pushOutOfObstacles(enemy, enemy.radius);
       }
       this.clampToArena(enemy);
+
+      // Notice when a monster is pressing into a wall so it switches to path-finding.
+      if (wasChasing && enemy.state === 'chase' && dt > 0) {
+        const moved = Math.hypot(enemy.x - beforeX, enemy.y - beforeY);
+        const prev = this.stuckTimers.get(enemy.id) ?? 0;
+        const stuck = moved < enemy.speed * dt * 0.3 && dist > enemy.radius + p.radius + 24;
+        this.stuckTimers.set(enemy.id, stuck ? Math.min(2, prev + dt) : Math.max(0, prev - dt * 0.5));
+      }
     }
 
     for (let i = 0; i < s.enemies.length; i += 1) {
       const a = s.enemies[i];
-      if (!a || a.leapZ > 24) continue;
+      if (!a || a.leapZ > 24 || a.dormant) continue;
       for (let j = i + 1; j < s.enemies.length; j += 1) {
         const b = s.enemies[j];
-        if (!b || b.leapZ > 24) continue;
+        if (!b || b.leapZ > 24 || b.dormant) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const d = Math.hypot(dx, dy);
@@ -1892,7 +2190,7 @@ export class GameSimulation {
       }
     }
 
-    if (s.roomState === 'combat' && s.enemies.length === 0) {
+    if (s.roomState === 'combat' && s.enemies.every((e) => e.dormant)) {
       if (s.waveIndex + 1 < s.totalWaves) {
         s.waveDelayTimer += dt;
         if (s.waveDelayTimer >= 0.45) {
@@ -1905,6 +2203,189 @@ export class GameSimulation {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Monster AI. Every monster has 1 attack on Floor 1 and 2 attacks from Floor 2
+  // (elites always have 2). The giant boss version of each monster gets a 3rd,
+  // signature attack. Attacks cycle in order so they are easy to learn.
+  // ---------------------------------------------------------------------------
+
+  /** How many attacks of its kit this monster may use right now. */
+  private kitSize(enemy: EnemyEntity): number {
+    if (enemy.archetype === 'boss') return 3;
+    if (enemy.archetype === 'elite_charger') return 2;
+    return this.state.floor >= 2 ? 2 : 1;
+  }
+
+  /** The next attack in this monster's cycle (does not advance the cycle). */
+  private peekAttack(enemy: EnemyEntity, kit: readonly EnemyAttackKind[]): EnemyAttackKind {
+    const n = Math.max(1, Math.min(kit.length, this.kitSize(enemy)));
+    return kit[enemy.bossPatternIndex % n]!;
+  }
+
+  private beginTelegraph(enemy: EnemyEntity, kind: EnemyAttackKind, duration: number): void {
+    enemy.bossPatternIndex += 1;
+    enemy.state = 'telegraph';
+    enemy.attackKind = kind;
+    enemy.telegraphDuration = duration;
+    enemy.stateTimer = duration;
+    enemy.telegraphLocked = false;
+    enemy.attackFired = false;
+  }
+
+  private endAttack(enemy: EnemyEntity, recover: number): void {
+    enemy.state = 'recover';
+    enemy.stateTimer = recover;
+    enemy.attackKind = 'none';
+    enemy.leapZ = 0;
+  }
+
+  private stepRecover(enemy: EnemyEntity, dt: number, nextChaseDelay: number): void {
+    enemy.leapZ = 0;
+    enemy.stateTimer -= dt;
+    if (enemy.stateTimer <= 0) {
+      enemy.state = 'chase';
+      enemy.stateTimer = nextChaseDelay;
+    }
+  }
+
+  private clampPoint(x: number, y: number, pad = 36): { x: number; y: number } {
+    const pt = {
+      x: Math.max(PLAY_MIN_X + pad, Math.min(PLAY_MAX_X - pad, x)),
+      y: Math.max(PLAY_MIN_Y + pad, Math.min(PLAY_MAX_Y - pad, y)),
+    };
+    return pt;
+  }
+
+  /** Track the player during a wind-up, with a little lead, then lock in. */
+  private aimAtPlayer(enemy: EnemyEntity, lead = 0.14, maxLead = 32): void {
+    const s = this.state;
+    const rawLeadX = s.player.vx * lead;
+    const rawLeadY = s.player.vy * lead;
+    const mag = Math.hypot(rawLeadX, rawLeadY);
+    const k = mag > maxLead ? maxLead / mag : 1;
+    enemy.aimAngle = Math.atan2(s.player.y + rawLeadY * k - enemy.y, s.player.x + rawLeadX * k - enemy.x);
+  }
+
+  private fireEnemyProjectile(
+    enemy: EnemyEntity,
+    angle: number,
+    speed: number,
+    kind: ProjectileKind,
+    radius: number,
+    ttl = 2.4,
+    opts: { homing?: number; homingTime?: number; pierce?: boolean; damageMult?: number } = {},
+  ): void {
+    this.state.projectiles.push({
+      id: this.nextEntityId++,
+      friendly: false,
+      x: enemy.x + Math.cos(angle) * (enemy.radius + 6),
+      y: enemy.y + Math.sin(angle) * (enemy.radius + 6),
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius,
+      damage: Math.max(1, Math.round(enemy.damage * (opts.damageMult ?? 1))),
+      ttl,
+      pierce: Boolean(opts.pierce),
+      hitEnemyIds: [],
+      kind,
+      angle,
+      ...(opts.homing ? { homing: opts.homing, homingTime: opts.homingTime ?? 1 } : {}),
+    });
+  }
+
+  /** A ring of projectiles with a gap the player can slip through. */
+  private fireProjectileRing(
+    enemy: EnemyEntity,
+    count: number,
+    gapSize: number,
+    speed: number,
+    kind: ProjectileKind,
+    radius: number,
+  ): void {
+    const gapStart = this.fxRng.int(0, count - 1);
+    const offset = this.fxRng.range(0, Math.PI * 2);
+    for (let i = 0; i < count; i += 1) {
+      const rel = (i - gapStart + count) % count;
+      if (rel < gapSize) continue;
+      this.fireEnemyProjectile(enemy, offset + (i * Math.PI * 2) / count, speed, kind, radius, 2.4);
+    }
+  }
+
+  /** Throw something in a visible arc (bomb, shell, spore pod, snowball, boulder). */
+  private launchLob(
+    enemy: EnemyEntity,
+    kind: LobKind,
+    tx: number,
+    ty: number,
+    opts: { duration: number; peak: number; radius: number; fuse?: number; damageMult?: number },
+  ): void {
+    const target = this.clampPoint(tx, ty, 32);
+    this.state.lobs.push({
+      id: this.nextEntityId++,
+      kind,
+      sx: enemy.x,
+      sy: enemy.y - enemy.radius * 0.6,
+      tx: target.x,
+      ty: target.y,
+      timer: 0,
+      duration: opts.duration,
+      peak: opts.peak,
+      radius: opts.radius,
+      fuse: opts.fuse ?? 0,
+      damage: Math.max(1, Math.round(enemy.damage * (opts.damageMult ?? 1))),
+    });
+  }
+
+  private spawnAdds(boss: EnemyEntity, kind: BossBaseArchetype, count: number, hpScale: number): void {
+    const s = this.state;
+    const alive = s.enemies.filter((e) => e.isAdd).length;
+    const toSpawn = Math.max(0, Math.min(count, 4 - alive));
+    for (let i = 0; i < toSpawn; i += 1) {
+      const ang = this.fxRng.range(0, Math.PI * 2);
+      const pt = this.clampPoint(boss.x + Math.cos(ang) * 80, boss.y + Math.sin(ang) * 80, 48);
+      this.pushOutOfObstacles(pt, 18);
+      const add = createEnemy(
+        this.nextEntityId++,
+        kind,
+        pt.x,
+        pt.y,
+        hpScale,
+        s.modifier.enemyHpMult,
+        s.modifier.enemySpeedMult,
+        s.modifier.enemyDamageMult,
+      );
+      add.isAdd = true;
+      add.coinDrop = 0;
+      s.enemies.push(add);
+      this.spawnParticles(pt.x, pt.y, '#e04f44', 6, 90);
+    }
+  }
+
+  private contactHit(enemy: EnemyEntity, pad: number): void {
+    const s = this.state;
+    if (enemy.attackFired) return;
+    if (Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <= s.player.radius + enemy.radius + pad) {
+      enemy.attackFired = true;
+      this.damagePlayer(enemy.damage);
+    }
+  }
+
+  /** Expanding shockwave ring that hurts the player once as it sweeps past. */
+  private pushShockwave(x: number, y: number, maxRadius: number, ttl: number, enemy: EnemyEntity, color = '#e04f44'): void {
+    this.state.rings.push({
+      x,
+      y,
+      radius: 24,
+      maxRadius,
+      ttl,
+      maxTtl: ttl,
+      color,
+      harmfulToPlayer: true,
+      damage: enemy.damage / Math.max(0.01, this.state.modifier.enemyDamageMult),
+    });
+  }
+
+  /** Slime: lunge / hop slam / (boss) split into minis. Mimic: chomp / chomp chain / (boss) coin spit. */
   private stepChaserAI(
     enemy: EnemyEntity,
     dist: number,
@@ -1912,53 +2393,93 @@ export class GameSimulation {
     navDirY: number,
     hasMoveLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
+    const isMimic = Boolean(enemy.mimic) || (isBoss && enemy.bossVariant === 1);
+    if (enemy.state === 'attack' && enemy.attackKind === 'boss_leap') {
+      this.stepLeapAttack(enemy, isBoss ? 86 : 48, isBoss, dt);
+      return;
+    }
+
     if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
       this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       enemy.aimAngle = Math.atan2(navDirY, navDirX);
-      if (dist <= 68 && hasMoveLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'lunge';
-        enemy.telegraphDuration = 0.48;
-        enemy.stateTimer = 0.48;
-        enemy.targetX = s.player.x;
-        enemy.targetY = s.player.y;
+      if (enemy.stateTimer > 0) return;
+      const kit: EnemyAttackKind[] = isMimic
+        ? ['lunge', 'chomp_chain', 'coin_spit']
+        : ['lunge', 'boss_leap', 'slime_split'];
+      const next = this.peekAttack(enemy, kit);
+      if (next === 'lunge' || next === 'chomp_chain') {
+        if (dist <= (isBoss ? 112 : 74) && hasMoveLOS) {
+          this.beginTelegraph(enemy, next, isBoss ? 0.44 : 0.48);
+          enemy.burstLeft = next === 'chomp_chain' ? (isBoss ? 3 : 2) : 0;
+          enemy.targetX = s.player.x;
+          enemy.targetY = s.player.y;
+        }
+      } else if (next === 'boss_leap') {
+        if (dist <= (isBoss ? 300 : 210) && hasMoveLOS) {
+          enemy.bossPatternIndex += 1;
+          this.beginLeapTelegraph(enemy, isBoss ? 0.64 : 0.52);
+        }
+      } else if (dist <= 380) {
+        this.beginTelegraph(enemy, next, 0.6);
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
+      if (enemy.attackKind === 'boss_leap') {
+        this.updateLeapTelegraph(enemy);
+        if (enemy.stateTimer <= 0) {
+          this.launchLeapAttack(enemy, isBoss ? BOSS_LEAP_DURATION : 0.46, isBoss);
+        }
+        return;
+      }
+      if (enemy.attackKind === 'lunge' || enemy.attackKind === 'chomp_chain') {
+        if (enemy.stateTimer > 0.12) this.aimAtPlayer(enemy, 0.05, 12);
+      }
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'slime_split') {
+        this.spawnAdds(enemy, 'chaser', 2, 0.35 * this.currentBlueprint.hpScale);
+        s.rings.push({ x: enemy.x, y: enemy.y, radius: 20, maxRadius: 90, ttl: 0.35, maxTtl: 0.35, color: '#4eab5b' });
+        this.endAttack(enemy, 0.7);
+      } else if (enemy.attackKind === 'coin_spit') {
+        this.aimAtPlayer(enemy, 0, 0);
+        for (const off of [-0.5, -0.25, 0, 0.25, 0.5]) {
+          this.fireEnemyProjectile(enemy, enemy.aimAngle + off, 300, 'coin', 8, 1.8);
+        }
+        this.endAttack(enemy, 0.8);
+      } else {
         enemy.state = 'attack';
-        enemy.stateTimer = 0.2;
+        enemy.stateTimer = isBoss ? 0.28 : 0.2;
         enemy.attackFired = false;
       }
     } else if (enemy.state === 'attack') {
-      const lx = Math.cos(enemy.aimAngle);
-      const ly = Math.sin(enemy.aimAngle);
-      enemy.x += lx * 440 * dt;
-      enemy.y += ly * 440 * dt;
-      if (
-        !enemy.attackFired &&
-        Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <=
-          s.player.radius + enemy.radius + 14
-      ) {
-        enemy.attackFired = true;
-        this.damagePlayer(enemy.damage);
-      }
+      const spd = (isBoss ? 540 : 440) * s.modifier.enemySpeedMult;
+      this.moveWithSlide(enemy, Math.cos(enemy.aimAngle) * spd * dt, Math.sin(enemy.aimAngle) * spd * dt);
+      this.contactHit(enemy, 14);
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
-        enemy.state = 'recover';
-        enemy.stateTimer = 0.42;
-        enemy.attackKind = 'none';
+        if (enemy.attackKind === 'chomp_chain' && enemy.burstLeft > 0) {
+          enemy.burstLeft -= 1;
+          enemy.state = 'telegraph';
+          enemy.stateTimer = 0.22;
+          enemy.telegraphDuration = 0.22;
+          enemy.attackFired = false;
+          return;
+        }
+        this.endAttack(enemy, isBoss ? 0.36 : 0.42);
       }
     } else if (enemy.state === 'recover') {
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-      }
+      this.stepRecover(enemy, dt, isBoss ? 0.45 : 0.55);
     }
   }
 
+  /**
+   * Mage: slow homing arcane bolt / rune trap under you / (boss) blink + nova.
+   * Casters stand still while casting and the Arch-Mage is left exhausted after
+   * its nova, so melee builds always get an opening.
+   */
   private stepShooterAI(
     enemy: EnemyEntity,
     dist: number,
@@ -1968,116 +2489,108 @@ export class GameSimulation {
     navDirY: number,
     hasShotLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
     if (enemy.bouncesLeft === 0) {
       enemy.bouncesLeft = enemy.id % 2 === 0 ? 1 : -1;
     }
     const strafeDir = enemy.bouncesLeft >= 0 ? 1 : -1;
+    const far = isBoss ? 270 : 300;
+    const near = isBoss ? 140 : 150;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
       const prevX = enemy.x;
       const prevY = enemy.y;
-      if (!hasShotLOS || dist > 315) {
-        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
-      } else if (dist < 185) {
-        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.9 * dt, -dirY * enemy.speed * 0.9 * dt);
-        if (
-          dt > 0 &&
-          enemy.speed > 0 &&
-          Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
-        ) {
-          enemy.bouncesLeft = -strafeDir;
-          this.moveWithSlide(
-            enemy,
-            -dirY * -strafeDir * enemy.speed * 0.72 * dt,
-            dirX * -strafeDir * enemy.speed * 0.72 * dt,
-          );
-        }
+      if (!hasShotLOS || dist > far) {
+        this.moveWithSlide(enemy, navDirX * enemy.speed * 0.85 * dt, navDirY * enemy.speed * 0.85 * dt);
+      } else if (dist < near) {
+        // Back off slowly: a melee player can always catch a caster.
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.5 * dt, -dirY * enemy.speed * 0.5 * dt);
       } else {
         this.moveWithSlide(
           enemy,
-          -dirY * strafeDir * enemy.speed * 0.72 * dt,
-          dirX * strafeDir * enemy.speed * 0.72 * dt,
+          -dirY * strafeDir * enemy.speed * 0.5 * dt,
+          dirX * strafeDir * enemy.speed * 0.5 * dt,
         );
-        if (
-          dt > 0 &&
-          enemy.speed > 0 &&
-          Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15
-        ) {
-          enemy.bouncesLeft = -strafeDir;
-          this.moveWithSlide(
-            enemy,
-            -dirY * -strafeDir * enemy.speed * 0.72 * dt,
-            dirX * -strafeDir * enemy.speed * 0.72 * dt,
-          );
-        }
+      }
+      if (dt > 0 && enemy.speed > 0 && Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.1) {
+        enemy.bouncesLeft = -strafeDir;
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 460 && hasShotLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'shoot';
-        enemy.telegraphDuration = 0.52;
-        enemy.stateTimer = 0.52;
-        enemy.telegraphLocked = false;
+      if (enemy.stateTimer <= 0 && dist <= 440 && hasShotLOS) {
+        const next = this.peekAttack(enemy, ['arcane_bolt', 'arcane_rune', 'blink_nova']);
+        this.beginTelegraph(enemy, next, next === 'arcane_bolt' ? 0.6 : next === 'arcane_rune' ? 0.5 : 0.45);
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer > 0.16) {
-        const rawLeadX = s.player.vx * 0.18;
-        const rawLeadY = s.player.vy * 0.18;
-        const rawLeadMag = Math.hypot(rawLeadX, rawLeadY);
-        const leadScale = rawLeadMag > 42 ? 42 / rawLeadMag : 1;
-        enemy.aimAngle = Math.atan2(
-          s.player.y + rawLeadY * leadScale - enemy.y,
-          s.player.x + rawLeadX * leadScale - enemy.x,
-        );
-      } else {
-        enemy.telegraphLocked = true;
-      }
-      if (enemy.stateTimer <= 0) {
-        const spread =
-          s.floor >= 3
-            ? enemy.burstLeft
-              ? [-0.22, 0, 0.22]
-              : [-0.14, 0.14]
-            : s.floor >= 2 || s.roomIndex >= 4
-              ? [-0.14, 0.14]
-              : [0];
-        if (s.floor >= 3) {
-          enemy.burstLeft = enemy.burstLeft ? 0 : 1;
-        }
-        for (const offset of spread) {
-          const ang = enemy.aimAngle + offset;
-          s.projectiles.push({
-            id: this.nextEntityId++,
-            friendly: false,
-            x: enemy.x + Math.cos(ang) * (enemy.radius + 6),
-            y: enemy.y + Math.sin(ang) * (enemy.radius + 6),
-            vx: Math.cos(ang) * 340,
-            vy: Math.sin(ang) * 340,
-            radius: 7,
-            damage: enemy.damage,
-            ttl: 2.6,
-            pierce: false,
-            hitEnemyIds: [],
-            kind: 'orb',
-            angle: ang,
+      if (enemy.stateTimer > 0.16) this.aimAtPlayer(enemy, 0.12, 30);
+      else enemy.telegraphLocked = true;
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'arcane_bolt') {
+        const offsets = isBoss ? [-0.45, 0, 0.45] : [0];
+        for (const off of offsets) {
+          this.fireEnemyProjectile(enemy, enemy.aimAngle + off, isBoss ? 215 : 235, 'arcane', isBoss ? 9 : 8, 3, {
+            homing: isBoss ? 1.2 : 1.5,
+            homingTime: isBoss ? 1.3 : 1.1,
           });
         }
-        enemy.state = 'recover';
-        enemy.stateTimer = 0.78;
-        enemy.attackKind = 'none';
+        this.endAttack(enemy, isBoss ? 0.7 : 0.85);
+      } else if (enemy.attackKind === 'arcane_rune') {
+        const spots: Array<{ x: number; y: number }> = [{ x: s.player.x, y: s.player.y }];
+        if (isBoss) {
+          const perp = enemy.aimAngle + Math.PI / 2;
+          spots.push(
+            { x: s.player.x + Math.cos(perp) * 88, y: s.player.y + Math.sin(perp) * 88 },
+            { x: s.player.x - Math.cos(perp) * 88, y: s.player.y - Math.sin(perp) * 88 },
+          );
+        }
+        for (const spot of spots) {
+          const pt = this.clampPoint(spot.x, spot.y, 30);
+          s.delayedBlasts.push({
+            kind: 'arcane_rune',
+            x: pt.x,
+            y: pt.y,
+            radius: isBoss ? 56 : 50,
+            timer: 1.0,
+            maxTimer: 1.0,
+            damage: enemy.damage,
+            friendly: false,
+            alreadyScaled: true,
+          });
+        }
+        this.endAttack(enemy, isBoss ? 0.7 : 0.9);
+      } else {
+        // Blink to a new spot, then charge a nova (standing still).
+        const ang = this.fxRng.range(0, Math.PI * 2);
+        let dest = this.clampPoint(s.player.x + Math.cos(ang) * 200, s.player.y + Math.sin(ang) * 200, 60);
+        if (this.pointInObstacle(dest.x, dest.y, enemy.radius)) {
+          dest = this.clampPoint(s.player.x - Math.cos(ang) * 200, s.player.y - Math.sin(ang) * 200, 60);
+        }
+        this.spawnParticles(enemy.x, enemy.y, '#a770d6', 10, 140);
+        enemy.x = dest.x;
+        enemy.y = dest.y;
+        this.pushOutOfObstacles(enemy, enemy.radius);
+        this.spawnParticles(enemy.x, enemy.y, '#a770d6', 10, 140);
+        enemy.state = 'attack';
+        enemy.stateTimer = 0.5;
+        enemy.attackFired = false;
       }
-    } else if (enemy.state === 'recover') {
+    } else if (enemy.state === 'attack') {
+      // Nova wind-up after the blink.
       enemy.stateTimer -= dt;
       if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.65;
+        this.fireProjectileRing(enemy, 12, 3, 175, 'arcane', 8);
+        s.rings.push({ x: enemy.x, y: enemy.y, radius: 20, maxRadius: 110, ttl: 0.3, maxTtl: 0.3, color: '#a770d6' });
+        // Exhausted: a long, still recovery window for melee.
+        this.endAttack(enemy, 1.5);
       }
+    } else if (enemy.state === 'recover') {
+      this.stepRecover(enemy, dt, isBoss ? 0.55 : 0.7);
     }
   }
 
+  /** Brute/Warden: charge / ground slam (warden: shield sweep) / (boss) leap + boulder toss. */
   private stepChargerAI(
     enemy: EnemyEntity,
     dist: number,
@@ -2085,67 +2598,85 @@ export class GameSimulation {
     navDirY: number,
     hasMoveLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
+    const isWarden = enemy.archetype === 'elite_charger' || (isBoss && enemy.bossBase === 'elite_charger');
 
-    if (
-      enemy.archetype === 'elite_charger' &&
-      !enemy.didPhaseAddSpawn &&
-      enemy.hp <= enemy.maxHp * 0.6
-    ) {
+    if (enemy.archetype === 'elite_charger' && !enemy.didPhaseAddSpawn && enemy.hp <= enemy.maxHp * 0.6) {
       enemy.didPhaseAddSpawn = true;
       this.announce('Warden calls reinforcements!');
-      for (const offsetX of [-70, 70]) {
-        const sx = Math.max(PLAY_MIN_X + 40, Math.min(PLAY_MAX_X - 40, enemy.x + offsetX));
-        const sy = Math.max(PLAY_MIN_Y + 40, Math.min(PLAY_MAX_Y - 40, enemy.y + 45));
-        s.enemies.push(
-          createEnemy(
-            this.nextEntityId++,
-            'chaser',
-            sx,
-            sy,
-            this.currentBlueprint.hpScale,
-            s.modifier.enemyHpMult,
-            s.modifier.enemySpeedMult,
-            s.modifier.enemyDamageMult,
-          ),
-        );
-      }
+      this.spawnAdds(enemy, 'chaser', 2, this.currentBlueprint.hpScale);
+    }
+
+    if (enemy.state === 'attack' && enemy.attackKind === 'boss_leap') {
+      this.stepLeapAttack(enemy, isBoss ? 88 : 56, true, dt);
+      return;
     }
 
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
       this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       enemy.aimAngle = Math.atan2(navDirY, navDirX);
-      if (enemy.stateTimer <= 0 && dist <= 320 && hasMoveLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'charge';
-        enemy.telegraphDuration = 0.62;
-        enemy.stateTimer = 0.62;
-        enemy.targetX = enemy.x + Math.cos(enemy.aimAngle) * 280;
-        enemy.targetY = enemy.y + Math.sin(enemy.aimAngle) * 280;
+      if (enemy.stateTimer > 0) return;
+      const kit: EnemyAttackKind[] = isWarden
+        ? ['charge', 'warden_sweep', 'boss_leap']
+        : isBoss
+          ? ['charge', 'boss_leap', 'boulder_toss']
+          : ['charge', 'quake_slam'];
+      const next = this.peekAttack(enemy, kit);
+      if (next === 'charge') {
+        if (dist <= 320 && hasMoveLOS) {
+          this.beginTelegraph(enemy, 'charge', isBoss ? 0.56 : 0.62);
+        }
+      } else if (next === 'quake_slam' || next === 'warden_sweep') {
+        if (dist <= (next === 'warden_sweep' ? 140 : 110)) {
+          this.beginTelegraph(enemy, next, 0.52);
+        }
+      } else if (next === 'boss_leap') {
+        if (dist <= 320) {
+          enemy.bossPatternIndex += 1;
+          this.beginLeapTelegraph(enemy, 0.68);
+        }
+      } else if (dist <= 460) {
+        this.beginTelegraph(enemy, 'boulder_toss', 0.6);
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
+      if (enemy.attackKind === 'boss_leap') {
+        this.updateLeapTelegraph(enemy);
+        if (enemy.stateTimer <= 0) this.launchLeapAttack(enemy, BOSS_LEAP_DURATION, true);
+        return;
+      }
+      if (enemy.attackKind === 'charge' && enemy.stateTimer > 0.16) this.aimAtPlayer(enemy, 0, 0);
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'quake_slam') {
+        const slamRadius = 66;
+        this.spawnParticles(enemy.x, enemy.y, '#f0853a', 12, 175);
+        this.triggerBarrelsInRadius(enemy.x, enemy.y, slamRadius);
+        s.rings.push({ x: enemy.x, y: enemy.y, radius: 20, maxRadius: slamRadius + 10, ttl: 0.25, maxTtl: 0.25, color: '#d49562' });
+        s.shakeIntensity = Math.max(s.shakeIntensity, 4);
+        if (Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <= slamRadius + s.player.radius * 0.5) {
+          this.damagePlayer(enemy.damage);
+        }
+        this.endAttack(enemy, 0.75);
+      } else if (enemy.attackKind === 'warden_sweep') {
+        this.pushShockwave(enemy.x, enemy.y, isBoss ? 160 : 120, isBoss ? 0.5 : 0.4, enemy, '#f7df86');
+        s.shakeIntensity = Math.max(s.shakeIntensity, 4);
+        this.endAttack(enemy, 0.75);
+      } else if (enemy.attackKind === 'boulder_toss') {
+        this.launchLob(enemy, 'rock', s.player.x, s.player.y, { duration: 0.8, peak: 130, radius: 62 });
+        this.endAttack(enemy, 0.85);
+      } else {
         enemy.state = 'attack';
-        enemy.stateTimer = 0.46;
+        enemy.stateTimer = isBoss ? 0.54 : 0.46;
         enemy.attackFired = false;
       }
     } else if (enemy.state === 'attack') {
-      const chargeSpeed = 560 * s.modifier.enemySpeedMult;
+      const chargeSpeed = (isBoss ? 640 : 560) * s.modifier.enemySpeedMult;
       enemy.x += Math.cos(enemy.aimAngle) * chargeSpeed * dt;
       enemy.y += Math.sin(enemy.aimAngle) * chargeSpeed * dt;
-
-      if (
-        !enemy.attackFired &&
-        Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <=
-          s.player.radius + enemy.radius + 8
-      ) {
-        enemy.attackFired = true;
-        this.damagePlayer(enemy.damage);
-      }
-
+      this.contactHit(enemy, 8);
       // Blocks count as walls, so baiting a charge into one stuns the charger.
       const hitWall =
         enemy.x - enemy.radius <= PLAY_MIN_X + 2 ||
@@ -2153,28 +2684,22 @@ export class GameSimulation {
         enemy.y - enemy.radius <= PLAY_MIN_Y + 2 ||
         enemy.y + enemy.radius >= PLAY_MAX_Y - 2 ||
         this.pushOutOfObstacles(enemy, enemy.radius);
-
       enemy.stateTimer -= dt;
       if (hitWall) {
         s.shakeIntensity = Math.max(s.shakeIntensity, 4);
         this.spawnParticles(enemy.x, enemy.y, '#fbbf24', 7, 130);
-        enemy.state = 'staggered';
+        enemy.state = isBoss ? 'recover' : 'staggered';
         enemy.stateTimer = 0.8;
         enemy.attackKind = 'none';
       } else if (enemy.stateTimer <= 0) {
-        enemy.state = 'recover';
-        enemy.stateTimer = 0.65;
-        enemy.attackKind = 'none';
+        this.endAttack(enemy, 0.65);
       }
     } else if (enemy.state === 'recover') {
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.65;
-      }
+      this.stepRecover(enemy, dt, isBoss ? 0.55 : 0.65);
     }
   }
 
+  /** Shade: vanish and strike from behind / slow shadow fan / (boss) shadow ring. */
   private stepShadeAI(
     enemy: EnemyEntity,
     dist: number,
@@ -2184,109 +2709,146 @@ export class GameSimulation {
     navDirY: number,
     hasShotLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
     const orbitDir = enemy.id % 2 === 0 ? 1 : -1;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (!hasShotLOS || dist > 210) {
+      if (!hasShotLOS || dist > 220) {
         this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
-      } else if (dist < 130) {
-        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.85 * dt, -dirY * enemy.speed * 0.85 * dt);
+      } else if (dist < 120) {
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.7 * dt, -dirY * enemy.speed * 0.7 * dt);
       } else {
-        this.moveWithSlide(enemy, -dirY * orbitDir * enemy.speed * 0.75 * dt, dirX * orbitDir * enemy.speed * 0.75 * dt);
+        this.moveWithSlide(enemy, -dirY * orbitDir * enemy.speed * 0.7 * dt, dirX * orbitDir * enemy.speed * 0.7 * dt);
       }
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 380 && hasShotLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'shade_fan';
-        enemy.telegraphDuration = 0.55;
-        enemy.stateTimer = 0.55;
+      if (enemy.stateTimer <= 0 && dist <= 380) {
+        const next = this.peekAttack(enemy, ['phase_strike', 'shade_fan', 'shade_ring']);
+        if (next !== 'phase_strike' && !hasShotLOS) return;
+        this.beginTelegraph(enemy, next, next === 'phase_strike' ? 0.5 : 0.55);
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        for (const offset of [-0.28, 0, 0.28]) {
-          const ang = enemy.aimAngle + offset;
-          s.projectiles.push({
-            id: this.nextEntityId++,
-            friendly: false,
-            x: enemy.x + Math.cos(ang) * (enemy.radius + 6),
-            y: enemy.y + Math.sin(ang) * (enemy.radius + 6),
-            vx: Math.cos(ang) * 265,
-            vy: Math.sin(ang) * 265,
-            radius: 7,
-            damage: enemy.damage,
-            ttl: 1.45,
-            pierce: false,
-            hitEnemyIds: [],
-            kind: 'orb',
-            angle: ang,
-          });
+      if (enemy.attackKind !== 'phase_strike' && enemy.stateTimer > 0.14) this.aimAtPlayer(enemy, 0, 0);
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'phase_strike') {
+        // Reappear behind the player (opposite to where they are facing).
+        const fx = s.player.facingX || 0;
+        const fy = s.player.facingY || -1;
+        const flen = Math.max(0.001, Math.hypot(fx, fy));
+        let dest = this.clampPoint(s.player.x - (fx / flen) * 72, s.player.y - (fy / flen) * 72, 40);
+        if (this.pointInObstacle(dest.x, dest.y, enemy.radius)) {
+          dest = this.clampPoint(s.player.x + (fx / flen) * 72, s.player.y + (fy / flen) * 72, 40);
         }
-        this.spawnParticles(enemy.x, enemy.y, '#c084fc', 6, 110);
-        enemy.state = 'recover';
-        enemy.stateTimer = 0.9;
-        enemy.attackKind = 'none';
+        this.spawnParticles(enemy.x, enemy.y, '#a770d6', 8, 110);
+        enemy.x = dest.x;
+        enemy.y = dest.y;
+        this.pushOutOfObstacles(enemy, enemy.radius);
+        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+        enemy.state = 'attack';
+        enemy.stateTimer = isBoss ? 0.3 : 0.36;
+        enemy.attackFired = false;
+        return;
+      }
+      if (enemy.attackKind === 'shade_fan') {
+        const offsets = isBoss ? [-0.5, -0.25, 0, 0.25, 0.5] : [-0.3, 0, 0.3];
+        for (const off of offsets) {
+          this.fireEnemyProjectile(enemy, enemy.aimAngle + off, isBoss ? 230 : 210, 'shadow', isBoss ? 8 : 7, 2);
+        }
+      } else {
+        this.fireProjectileRing(enemy, 14, 3, 200, 'shadow', 8);
+      }
+      this.spawnParticles(enemy.x, enemy.y, '#a770d6', 6, 110);
+      this.endAttack(enemy, isBoss ? 0.75 : 0.9);
+    } else if (enemy.state === 'attack') {
+      // Visible wind-up after reappearing, then a short slash.
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) {
+        if (Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <= s.player.radius + enemy.radius + 36) {
+          this.damagePlayer(enemy.damage);
+        }
+        this.spawnParticles(enemy.x + Math.cos(enemy.aimAngle) * 24, enemy.y + Math.sin(enemy.aimAngle) * 24, '#d8b4fe', 8, 150);
+        if (isBoss) this.fireProjectileRing(enemy, 8, 2, 190, 'shadow', 7);
+        this.endAttack(enemy, isBoss ? 0.7 : 0.85);
       }
     } else if (enemy.state === 'recover') {
       this.moveWithSlide(enemy, -dirY * orbitDir * enemy.speed * 0.4 * dt, dirX * orbitDir * enemy.speed * 0.4 * dt);
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.85;
-      }
+      this.stepRecover(enemy, dt, isBoss ? 0.6 : 0.8);
     }
   }
 
+  /** Yeti: thrown snowball that shatters / frost rush / (boss) icicle rain. */
   private stepYetiAI(
     enemy: EnemyEntity,
     dist: number,
     navDirX: number,
     navDirY: number,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
       this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       enemy.aimAngle = Math.atan2(navDirY, navDirX);
-      if (enemy.stateTimer <= 0 && dist <= 420) {
-        enemy.targetX = Math.max(PLAY_MIN_X + 36, Math.min(PLAY_MAX_X - 36, s.player.x));
-        enemy.targetY = Math.max(PLAY_MIN_Y + 36, Math.min(PLAY_MAX_Y - 36, s.player.y));
-        enemy.aimAngle = Math.atan2(enemy.targetY - enemy.y, enemy.targetX - enemy.x);
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'ice_mortar';
-        enemy.telegraphDuration = 0.65;
-        enemy.stateTimer = 0.65;
+      if (enemy.stateTimer > 0) return;
+      const next = this.peekAttack(enemy, ['ice_mortar', 'frost_rush', 'icicle_rain']);
+      if (next === 'frost_rush' ? dist <= (isBoss ? 300 : 210) : dist <= 420) {
+        this.beginTelegraph(enemy, next, next === 'frost_rush' ? 0.54 : 0.6);
+        enemy.targetX = s.player.x;
+        enemy.targetY = s.player.y;
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        s.delayedBlasts.push({
-          kind: 'ice_mortar',
-          x: enemy.targetX,
-          y: enemy.targetY,
-          radius: 62,
-          timer: 0.6,
-          maxTimer: 0.6,
-          damage: enemy.damage,
-          friendly: false,
-          alreadyScaled: true,
-        });
-        enemy.state = 'recover';
-        enemy.stateTimer = 1.0;
-        enemy.attackKind = 'none';
+      if (enemy.stateTimer > 0.14) this.aimAtPlayer(enemy, 0, 0);
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'frost_rush') {
+        enemy.state = 'attack';
+        enemy.stateTimer = isBoss ? 0.42 : 0.34;
+        enemy.attackFired = false;
+      } else if (enemy.attackKind === 'ice_mortar') {
+        const spots = isBoss ? [[0, 0], [-70, -40], [70, 40]] : [[0, 0]];
+        for (const [ox, oy] of spots) {
+          this.launchLob(enemy, 'snowball', s.player.x + ox!, s.player.y + oy!, {
+            duration: 0.7,
+            peak: 110,
+            radius: isBoss ? 66 : 56,
+          });
+        }
+        this.endAttack(enemy, isBoss ? 0.8 : 1.0);
+      } else {
+        for (let i = 0; i < 5; i += 1) {
+          const ang = this.fxRng.range(0, Math.PI * 2);
+          const r = i === 0 ? 0 : this.fxRng.range(50, 120);
+          const pt = this.clampPoint(s.player.x + Math.cos(ang) * r, s.player.y + Math.sin(ang) * r, 30);
+          const t = 0.75 + i * 0.14;
+          s.delayedBlasts.push({
+            kind: 'icicle',
+            x: pt.x,
+            y: pt.y,
+            radius: 40,
+            timer: t,
+            maxTimer: t,
+            damage: enemy.damage,
+            friendly: false,
+            alreadyScaled: true,
+          });
+        }
+        this.endAttack(enemy, 0.9);
       }
-    } else if (enemy.state === 'recover') {
+    } else if (enemy.state === 'attack') {
+      const rushSpeed = (isBoss ? 470 : 390) * s.modifier.enemySpeedMult;
+      this.moveWithSlide(enemy, Math.cos(enemy.aimAngle) * rushSpeed * dt, Math.sin(enemy.aimAngle) * rushSpeed * dt);
+      this.contactHit(enemy, 10);
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.9;
-      }
+      if (enemy.stateTimer <= 0) this.endAttack(enemy, 0.8);
+    } else if (enemy.state === 'recover') {
+      this.stepRecover(enemy, dt, isBoss ? 0.7 : 0.9);
     }
   }
 
+  /** Sapper: thrown bomb / plant a bomb and run / (boss) bomb ring + bomb carpet. */
   private stepBomberAI(
     enemy: EnemyEntity,
     dist: number,
@@ -2296,52 +2858,77 @@ export class GameSimulation {
     navDirY: number,
     hasMoveLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
-      if (!hasMoveLOS || dist > 165) {
-        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
-      } else if (dist < 95) {
-        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.85 * dt, -dirY * enemy.speed * 0.85 * dt);
-      } else {
-        this.moveWithSlide(enemy, -dirY * enemy.speed * 0.7 * dt, dirX * enemy.speed * 0.7 * dt);
-      }
+      // Always keeps closing in, so standing still is never safe.
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       enemy.aimAngle = Math.atan2(dirY, dirX);
-      if (enemy.stateTimer <= 0 && dist <= 185 && hasMoveLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'drop_bomb';
-        enemy.telegraphDuration = 0.42;
-        enemy.stateTimer = 0.42;
+      if (enemy.stateTimer > 0) return;
+      const kit: EnemyAttackKind[] = isBoss ? ['throw_bomb', 'bomb_ring', 'bomb_line'] : ['throw_bomb', 'drop_bomb'];
+      const next = this.peekAttack(enemy, kit);
+      if (next === 'drop_bomb' ? dist <= 70 && hasMoveLOS : next === 'bomb_ring' ? dist <= 200 : dist <= 250) {
+        this.beginTelegraph(enemy, next, next === 'drop_bomb' ? 0.3 : 0.45);
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
+      if (enemy.stateTimer > 0.12) this.aimAtPlayer(enemy, 0.1, 24);
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'throw_bomb') {
+        const spots = isBoss ? [[0, 0], [-60, 36], [60, 36]] : [[0, 0]];
+        for (const [ox, oy] of spots) {
+          this.launchLob(enemy, 'bomb', s.player.x + ox!, s.player.y + oy!, {
+            duration: 0.62,
+            peak: 95,
+            radius: isBoss ? 72 : 64,
+            fuse: 0.5,
+          });
+        }
+      } else if (enemy.attackKind === 'drop_bomb') {
         s.delayedBlasts.push({
           kind: 'sapper_bomb',
           x: enemy.x,
           y: enemy.y,
-          radius: 72,
+          radius: 78,
           timer: 0.9,
           maxTimer: 0.9,
           damage: enemy.damage,
           friendly: false,
           alreadyScaled: true,
         });
-        enemy.state = 'recover';
-        enemy.stateTimer = 0.95;
-        enemy.attackKind = 'none';
+      } else if (enemy.attackKind === 'bomb_ring') {
+        for (let i = 0; i < 5; i += 1) {
+          const ang = (i * Math.PI * 2) / 5 + this.fxRng.range(0, 0.6);
+          this.launchLob(enemy, 'bomb', enemy.x + Math.cos(ang) * 110, enemy.y + Math.sin(ang) * 110, {
+            duration: 0.45,
+            peak: 70,
+            radius: 60,
+            fuse: 0.55,
+          });
+        }
+      } else {
+        const len = Math.max(140, Math.min(360, dist + 60));
+        for (let i = 1; i <= 5; i += 1) {
+          const d = (len * i) / 5;
+          this.launchLob(
+            enemy,
+            'bomb',
+            enemy.x + Math.cos(enemy.aimAngle) * d,
+            enemy.y + Math.sin(enemy.aimAngle) * d,
+            { duration: 0.3 + i * 0.12, peak: 60 + i * 12, radius: 54, fuse: 0.35 },
+          );
+        }
       }
+      this.endAttack(enemy, isBoss ? 0.8 : 0.92);
     } else if (enemy.state === 'recover') {
-      this.moveWithSlide(enemy, -dirX * enemy.speed * 1.15 * dt, -dirY * enemy.speed * 1.15 * dt);
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.7;
-      }
+      this.moveWithSlide(enemy, -dirX * enemy.speed * 1.1 * dt, -dirY * enemy.speed * 1.1 * dt);
+      this.stepRecover(enemy, dt, isBoss ? 0.55 : 0.65);
     }
   }
 
+  /** Tank: lobbed mortar shell / cannon burst / (boss) tread crush. */
   private stepMortarTankAI(
     enemy: EnemyEntity,
     dist: number,
@@ -2349,6 +2936,7 @@ export class GameSimulation {
     navDirY: number,
     hasShotLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
     if (enemy.state === 'chase') {
@@ -2356,67 +2944,64 @@ export class GameSimulation {
       const moveX = Math.sign(navDirX) * enemy.speed * dt;
       const moveY = Math.sign(navDirY) * enemy.speed * dt;
       if (Math.abs(navDirX) >= Math.abs(navDirY) && moveX !== 0) {
-        if (!this.tryMoveCardinal(enemy, moveX, 0) && moveY !== 0) {
-          this.tryMoveCardinal(enemy, 0, moveY);
-        }
+        if (!this.tryMoveCardinal(enemy, moveX, 0) && moveY !== 0) this.tryMoveCardinal(enemy, 0, moveY);
       } else if (moveY !== 0) {
-        if (!this.tryMoveCardinal(enemy, 0, moveY) && moveX !== 0) {
-          this.tryMoveCardinal(enemy, moveX, 0);
-        }
+        if (!this.tryMoveCardinal(enemy, 0, moveY) && moveX !== 0) this.tryMoveCardinal(enemy, moveX, 0);
       }
       enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
-      if (enemy.stateTimer <= 0 && dist <= 440 && hasShotLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'tank_burst';
-        enemy.telegraphDuration = 0.65;
-        enemy.stateTimer = 0.65;
-        enemy.burstLeft = 3;
-        enemy.burstCooldown = 0;
-      }
+      if (enemy.stateTimer > 0 || dist > 460) return;
+      const next = this.peekAttack(enemy, ['tank_shell', 'tank_burst', 'tank_crush']);
+      if (next === 'tank_burst' && !hasShotLOS) return;
+      if (next === 'tank_crush' && (dist > 340 || !hasShotLOS)) return;
+      this.beginTelegraph(enemy, next, 0.62);
+      enemy.burstLeft = isBoss ? 5 : 3;
+      enemy.burstCooldown = 0;
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
+      if (enemy.stateTimer > 0.14) this.aimAtPlayer(enemy, 0, 0);
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'tank_shell') {
+        const spots = isBoss ? [[0, 0], [-70, -30], [70, 30]] : [[0, 0]];
+        for (const [ox, oy] of spots) {
+          this.launchLob(enemy, 'shell', s.player.x + ox!, s.player.y + oy!, {
+            duration: 0.85,
+            peak: 150,
+            radius: isBoss ? 68 : 58,
+          });
+        }
+        s.shakeIntensity = Math.max(s.shakeIntensity, 2.5);
+        this.endAttack(enemy, 0.95);
+      } else {
         enemy.state = 'attack';
+        enemy.stateTimer = enemy.attackKind === 'tank_crush' ? 0.75 : 2;
         enemy.burstCooldown = 0;
+        enemy.attackFired = false;
       }
     } else if (enemy.state === 'attack') {
+      if (enemy.attackKind === 'tank_crush') {
+        const spd = 380 * s.modifier.enemySpeedMult;
+        this.moveWithSlide(enemy, Math.cos(enemy.aimAngle) * spd * dt, Math.sin(enemy.aimAngle) * spd * dt);
+        this.contactHit(enemy, 8);
+        enemy.stateTimer -= dt;
+        if (enemy.stateTimer <= 0) this.endAttack(enemy, 0.9);
+        return;
+      }
       enemy.burstCooldown -= dt;
       while (enemy.burstLeft > 0 && enemy.burstCooldown <= 0) {
         const targetAng = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
-        const delta = Math.max(-0.12, Math.min(0.12, normalizeAngle(targetAng - enemy.aimAngle)));
+        const delta = Math.max(-0.14, Math.min(0.14, normalizeAngle(targetAng - enemy.aimAngle)));
         enemy.aimAngle = normalizeAngle(enemy.aimAngle + delta);
-        s.projectiles.push({
-          id: this.nextEntityId++,
-          friendly: false,
-          x: enemy.x + Math.cos(enemy.aimAngle) * (enemy.radius + 6),
-          y: enemy.y + Math.sin(enemy.aimAngle) * (enemy.radius + 6),
-          vx: Math.cos(enemy.aimAngle) * 380,
-          vy: Math.sin(enemy.aimAngle) * 380,
-          radius: 7,
-          damage: enemy.damage,
-          ttl: 2.2,
-          pierce: false,
-          hitEnemyIds: [],
-          kind: 'orb',
-          angle: enemy.aimAngle,
-        });
+        this.fireEnemyProjectile(enemy, enemy.aimAngle, isBoss ? 410 : 380, 'shell', isBoss ? 8 : 7, 2.2);
         enemy.burstLeft -= 1;
-        enemy.burstCooldown += 0.15;
+        enemy.burstCooldown += isBoss ? 0.12 : 0.15;
       }
-      if (enemy.burstLeft <= 0) {
-        enemy.state = 'recover';
-        enemy.stateTimer = 1.05;
-        enemy.attackKind = 'none';
-      }
+      if (enemy.burstLeft <= 0) this.endAttack(enemy, isBoss ? 0.85 : 1.05);
     } else if (enemy.state === 'recover') {
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.95;
-      }
+      this.stepRecover(enemy, dt, isBoss ? 0.75 : 0.95);
     }
   }
 
+  /** Bull: ricochet charge / leaping stomp / (boss) triple quake. */
   private stepStampedeAI(
     enemy: EnemyEntity,
     dist: number,
@@ -2424,31 +3009,66 @@ export class GameSimulation {
     navDirY: number,
     hasMoveLOS: boolean,
     dt: number,
+    isBoss = false,
   ): void {
     const s = this.state;
+    if (enemy.state === 'attack' && enemy.attackKind === 'boss_leap') {
+      this.stepLeapAttack(enemy, isBoss ? 86 : 52, true, dt);
+      return;
+    }
+
     if (enemy.state === 'chase') {
       enemy.stateTimer -= dt;
       this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
       enemy.aimAngle = Math.atan2(navDirY, navDirX);
-      if (enemy.stateTimer <= 0 && dist <= 340 && hasMoveLOS) {
-        enemy.state = 'telegraph';
-        enemy.attackKind = 'ricochet_charge';
-        enemy.telegraphDuration = 0.55;
-        enemy.stateTimer = 0.55;
-        enemy.bouncesLeft = 2;
+      if (enemy.stateTimer > 0) return;
+      const next = this.peekAttack(enemy, ['ricochet_charge', 'boss_leap', 'stomp_quake']);
+      if (next === 'ricochet_charge') {
+        if (dist <= 340 && hasMoveLOS) {
+          this.beginTelegraph(enemy, 'ricochet_charge', 0.55);
+          enemy.bouncesLeft = isBoss ? 3 : 1;
+        }
+      } else if (next === 'boss_leap') {
+        if (dist <= (isBoss ? 320 : 210)) {
+          enemy.bossPatternIndex += 1;
+          this.beginLeapTelegraph(enemy, isBoss ? 0.68 : 0.54);
+        }
+      } else if (dist <= 260) {
+        this.beginTelegraph(enemy, 'stomp_quake', 0.55);
       }
     } else if (enemy.state === 'telegraph') {
       enemy.stateTimer -= dt;
-      if (enemy.stateTimer > 0.12) {
-        enemy.aimAngle = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+      if (enemy.attackKind === 'boss_leap') {
+        this.updateLeapTelegraph(enemy);
+        if (enemy.stateTimer <= 0) this.launchLeapAttack(enemy, isBoss ? BOSS_LEAP_DURATION : 0.5, isBoss);
+        return;
       }
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'attack';
-        enemy.stateTimer = 1.25;
-        enemy.attackFired = false;
+      if (enemy.stateTimer > 0.12) this.aimAtPlayer(enemy, 0, 0);
+      if (enemy.stateTimer > 0) return;
+      enemy.state = 'attack';
+      enemy.attackFired = false;
+      if (enemy.attackKind === 'stomp_quake') {
+        enemy.burstLeft = 3;
+        enemy.burstCooldown = 0;
+        enemy.stateTimer = 1.0;
+      } else {
+        enemy.stateTimer = isBoss ? 1.55 : 1.25;
       }
     } else if (enemy.state === 'attack') {
-      const chargeSpeed = 480 * s.modifier.enemySpeedMult;
+      if (enemy.attackKind === 'stomp_quake') {
+        enemy.burstCooldown -= dt;
+        if (enemy.burstLeft > 0 && enemy.burstCooldown <= 0) {
+          this.pushShockwave(enemy.x, enemy.y, 170, 0.55, enemy, '#d49562');
+          s.shakeIntensity = Math.max(s.shakeIntensity, 5);
+          this.spawnParticles(enemy.x, enemy.y, '#d49562', 10, 160);
+          enemy.burstLeft -= 1;
+          enemy.burstCooldown = 0.34;
+        }
+        enemy.stateTimer -= dt;
+        if (enemy.stateTimer <= 0 && enemy.burstLeft <= 0) this.endAttack(enemy, 0.8);
+        return;
+      }
+      const chargeSpeed = (isBoss ? 560 : 480) * s.modifier.enemySpeedMult;
       const prevX = enemy.x;
       enemy.x += Math.cos(enemy.aimAngle) * chargeSpeed * dt;
       const hitX =
@@ -2456,7 +3076,6 @@ export class GameSimulation {
         enemy.x + enemy.radius >= PLAY_MAX_X - 2 ||
         this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1);
       if (hitX) enemy.x = prevX;
-
       const prevY = enemy.y;
       enemy.y += Math.sin(enemy.aimAngle) * chargeSpeed * dt;
       const hitY =
@@ -2464,16 +3083,7 @@ export class GameSimulation {
         enemy.y + enemy.radius >= PLAY_MAX_Y - 2 ||
         this.pointInObstacle(enemy.x, enemy.y, enemy.radius - 1);
       if (hitY) enemy.y = prevY;
-
-      if (
-        !enemy.attackFired &&
-        Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <=
-          s.player.radius + enemy.radius + 8
-      ) {
-        enemy.attackFired = true;
-        this.damagePlayer(enemy.damage);
-      }
-
+      this.contactHit(enemy, 8);
       enemy.stateTimer -= dt;
       if (hitX || hitY) {
         if (hitX) enemy.aimAngle = Math.PI - enemy.aimAngle;
@@ -2483,198 +3093,518 @@ export class GameSimulation {
         enemy.attackFired = false;
         s.shakeIntensity = Math.max(s.shakeIntensity, 3.5);
         this.spawnParticles(enemy.x, enemy.y, '#fbbf24', 6, 120);
-        if (enemy.bouncesLeft < 0) {
-          enemy.state = 'recover';
-          enemy.stateTimer = 0.78;
-          enemy.attackKind = 'none';
-        }
+        if (enemy.bouncesLeft < 0) this.endAttack(enemy, 0.78);
       } else if (enemy.stateTimer <= 0) {
-        enemy.state = 'recover';
-        enemy.stateTimer = 0.78;
-        enemy.attackKind = 'none';
+        this.endAttack(enemy, 0.78);
       }
     } else if (enemy.state === 'recover') {
-      enemy.stateTimer -= dt;
-      if (enemy.stateTimer <= 0) {
-        enemy.state = 'chase';
-        enemy.stateTimer = 0.65;
-      }
+      this.stepRecover(enemy, dt, isBoss ? 0.55 : 0.65);
     }
+  }
+
+  /** Myconid: spore burst around itself / lobbed spore pod / (boss) mushroom ring around you. */
+  private stepMyconidAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasMoveLOS: boolean,
+    dt: number,
+    isBoss = false,
+  ): void {
+    const s = this.state;
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      // Closes all the way in, so standing still never leaves the mushroom short.
+      this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      enemy.aimAngle = Math.atan2(navDirY, navDirX);
+      if (enemy.stateTimer > 0) return;
+      const next = this.peekAttack(enemy, ['spore_burst', 'spore_lob', 'mushroom_ring']);
+      if (next === 'spore_burst' ? dist <= (isBoss ? 90 : 56) && hasMoveLOS : dist <= 280) {
+        this.beginTelegraph(enemy, next, next === 'spore_burst' ? 0.52 : 0.55);
+        enemy.targetX = s.player.x;
+        enemy.targetY = s.player.y;
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'spore_burst') {
+        enemy.state = 'attack';
+        enemy.stateTimer = 0.28;
+        enemy.attackFired = true;
+        s.sporeClouds.push({
+          id: this.nextEntityId++,
+          x: enemy.x,
+          y: enemy.y,
+          radius: isBoss ? 102 : 72,
+          ttl: 2.6,
+          maxTtl: 2.6,
+          damage: enemy.damage,
+        });
+        this.spawnParticles(enemy.x, enemy.y, '#96db6e', 8, 120);
+        return;
+      }
+      if (enemy.attackKind === 'spore_lob') {
+        const spots = isBoss ? [[0, 0], [-64, 26], [64, -26]] : [[0, 0]];
+        for (const [ox, oy] of spots) {
+          this.launchLob(enemy, 'spore_pod', s.player.x + ox!, s.player.y + oy!, {
+            duration: 0.7,
+            peak: 100,
+            radius: isBoss ? 68 : 56,
+          });
+        }
+      } else {
+        const base = this.fxRng.range(0, Math.PI * 2);
+        for (let i = 0; i < 4; i += 1) {
+          const ang = base + (i * Math.PI) / 2;
+          const pt = this.clampPoint(s.player.x + Math.cos(ang) * 92, s.player.y + Math.sin(ang) * 92, 30);
+          s.delayedBlasts.push({
+            kind: 'spore_pod',
+            x: pt.x,
+            y: pt.y,
+            radius: 52,
+            timer: 0.9,
+            maxTimer: 0.9,
+            damage: enemy.damage,
+            friendly: false,
+            alreadyScaled: true,
+          });
+        }
+      }
+      this.endAttack(enemy, isBoss ? 0.7 : 0.85);
+    } else if (enemy.state === 'attack') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) this.endAttack(enemy, isBoss ? 0.65 : 0.85);
+    } else if (enemy.state === 'recover') {
+      this.moveWithSlide(enemy, -dirX * enemy.speed * 0.45 * dt, -dirY * enemy.speed * 0.45 * dt);
+      this.stepRecover(enemy, dt, isBoss ? 0.6 : 0.75);
+    }
+  }
+
+  /** Imp: ember dart + hop / diving swoop / (boss) ember nova. */
+  private stepImpAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
+    dt: number,
+    isBoss = false,
+  ): void {
+    const s = this.state;
+    if (enemy.bouncesLeft === 0) {
+      enemy.bouncesLeft = enemy.id % 2 === 0 ? 1 : -1;
+    }
+    const flankDir = enemy.bouncesLeft >= 0 ? 1 : -1;
+
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      const prevX = enemy.x;
+      const prevY = enemy.y;
+      if (!hasShotLOS || dist > 235) {
+        const vx = navDirX * 0.84 + -navDirY * flankDir * 0.54;
+        const vy = navDirY * 0.84 + navDirX * flankDir * 0.54;
+        const mag = Math.max(0.001, Math.hypot(vx, vy));
+        this.moveWithSlide(enemy, (vx / mag) * enemy.speed * dt, (vy / mag) * enemy.speed * dt);
+      } else if (dist < 115) {
+        const vx = -dirX * 0.72 + -dirY * flankDir * 0.68;
+        const vy = -dirY * 0.72 + dirX * flankDir * 0.68;
+        const mag = Math.max(0.001, Math.hypot(vx, vy));
+        this.moveWithSlide(enemy, (vx / mag) * enemy.speed * 0.95 * dt, (vy / mag) * enemy.speed * 0.95 * dt);
+      } else {
+        this.moveWithSlide(enemy, -dirY * flankDir * enemy.speed * 0.92 * dt, dirX * flankDir * enemy.speed * 0.92 * dt);
+      }
+      if (dt > 0 && enemy.speed > 0 && Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15) {
+        enemy.bouncesLeft = -flankDir;
+      }
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 320 && hasShotLOS) {
+        const next = this.peekAttack(enemy, ['imp_dart', 'imp_swoop', 'ember_nova']);
+        this.beginTelegraph(enemy, next, next === 'ember_nova' ? 0.55 : 0.42);
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer > 0.14) this.aimAtPlayer(enemy, 0, 0);
+      else enemy.telegraphLocked = true;
+      if (enemy.stateTimer > 0) return;
+      if (enemy.attackKind === 'imp_swoop') {
+        enemy.targetX = s.player.x + Math.cos(enemy.aimAngle) * 32;
+        enemy.targetY = s.player.y + Math.sin(enemy.aimAngle) * 32;
+        enemy.attackFired = false;
+        enemy.state = 'attack';
+        enemy.stateTimer = isBoss ? 0.34 : 0.28;
+        return;
+      }
+      if (enemy.attackKind === 'ember_nova') {
+        this.fireProjectileRing(enemy, 12, 3, 260, 'ember', 7);
+        this.endAttack(enemy, 0.7);
+        return;
+      }
+      const spread = isBoss ? [-0.2, 0, 0.2] : [0];
+      for (const off of spread) {
+        this.fireEnemyProjectile(enemy, enemy.aimAngle + off, isBoss ? 460 : 420, 'ember', isBoss ? 8 : 6, 1.8);
+      }
+      this.spawnParticles(
+        enemy.x + Math.cos(enemy.aimAngle) * enemy.radius,
+        enemy.y + Math.sin(enemy.aimAngle) * enemy.radius,
+        '#f0853a',
+        4,
+        110,
+      );
+      // Diagonal flank hop after each dart.
+      const ax = Math.cos(enemy.aimAngle);
+      const ay = Math.sin(enemy.aimAngle);
+      const radialBias = dist < 175 ? -0.45 : 0.35;
+      let hopSide = flankDir;
+      const makeHopDir = (side: number): { hx: number; hy: number } => {
+        const rx = -ay * side * 0.84 + ax * radialBias;
+        const ry = ax * side * 0.84 + ay * radialBias;
+        const len = Math.max(0.001, Math.hypot(rx, ry));
+        return { hx: rx / len, hy: ry / len };
+      };
+      let hop = makeHopDir(hopSide);
+      const probeX = enemy.x + hop.hx * 32;
+      const probeY = enemy.y + hop.hy * 32;
+      if (
+        probeX - enemy.radius < PLAY_MIN_X ||
+        probeX + enemy.radius > PLAY_MAX_X ||
+        probeY - enemy.radius < PLAY_MIN_Y ||
+        probeY + enemy.radius > PLAY_MAX_Y ||
+        this.pointInObstacle(probeX, probeY, enemy.radius)
+      ) {
+        hopSide = -hopSide;
+        hop = makeHopDir(hopSide);
+      }
+      enemy.targetX = enemy.x + hop.hx * 84;
+      enemy.targetY = enemy.y + hop.hy * 84;
+      enemy.bouncesLeft = -hopSide;
+      enemy.attackFired = true;
+      enemy.state = 'attack';
+      enemy.stateTimer = 0.24;
+    } else if (enemy.state === 'attack') {
+      const hdx = enemy.targetX - enemy.x;
+      const hdy = enemy.targetY - enemy.y;
+      const hDist = Math.hypot(hdx, hdy);
+      if (hDist > 2) {
+        const hopSpeed = (enemy.attackKind === 'imp_swoop' ? 420 : 295) * s.modifier.enemySpeedMult;
+        const step = Math.min(hDist, hopSpeed * dt);
+        this.moveWithSlide(enemy, (hdx / hDist) * step, (hdy / hDist) * step);
+      }
+      if (enemy.attackKind === 'imp_swoop') this.contactHit(enemy, 10);
+      enemy.stateTimer -= dt;
+      if (enemy.stateTimer <= 0) this.endAttack(enemy, isBoss ? 0.42 : 0.52);
+    } else if (enemy.state === 'recover') {
+      this.stepRecover(enemy, dt, isBoss ? 0.45 : 0.55);
+    }
+  }
+
+  private fireEnemyArrow(enemy: EnemyEntity, angOffset = 0, radius = 5, speed = 500, pierce = false): void {
+    this.fireEnemyProjectile(enemy, enemy.aimAngle + angOffset, speed, 'arrow', radius, 2.2, { pierce });
+  }
+
+  /** Archer: aimed shot / arrow rain on your position / (boss) charged piercing snipe. */
+  private stepArcherAI(
+    enemy: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
+    navDirX: number,
+    navDirY: number,
+    hasShotLOS: boolean,
+    dt: number,
+    isBoss = false,
+  ): void {
+    const s = this.state;
+    if (enemy.bouncesLeft === 0) {
+      enemy.bouncesLeft = enemy.id % 2 === 0 ? 1 : -1;
+    }
+    const strafeDir = enemy.bouncesLeft >= 0 ? 1 : -1;
+
+    if (enemy.state === 'chase') {
+      enemy.stateTimer -= dt;
+      const prevX = enemy.x;
+      const prevY = enemy.y;
+      if (!hasShotLOS || dist > 360) {
+        this.moveWithSlide(enemy, navDirX * enemy.speed * dt, navDirY * enemy.speed * dt);
+      } else if (dist < 190) {
+        this.moveWithSlide(enemy, -dirX * enemy.speed * 0.7 * dt, -dirY * enemy.speed * 0.7 * dt);
+      } else {
+        this.moveWithSlide(enemy, -dirY * strafeDir * enemy.speed * 0.58 * dt, dirX * strafeDir * enemy.speed * 0.58 * dt);
+      }
+      if (dt > 0 && enemy.speed > 0 && Math.hypot(enemy.x - prevX, enemy.y - prevY) < enemy.speed * dt * 0.15) {
+        enemy.bouncesLeft = -strafeDir;
+      }
+      enemy.aimAngle = Math.atan2(dirY, dirX);
+      if (enemy.stateTimer <= 0 && dist <= 500) {
+        const next = this.peekAttack(enemy, ['shoot_arrow', 'arrow_rain', 'snipe']);
+        if (next !== 'arrow_rain' && !hasShotLOS) return;
+        this.beginTelegraph(enemy, next, next === 'snipe' ? 1.0 : next === 'arrow_rain' ? 0.45 : 0.52);
+      }
+    } else if (enemy.state === 'telegraph') {
+      enemy.stateTimer -= dt;
+      const lockAt = enemy.attackKind === 'snipe' ? 0.26 : 0.18;
+      if (enemy.stateTimer > lockAt) {
+        this.aimAtPlayer(enemy, enemy.attackKind === 'snipe' ? 0.2 : 0.14, enemy.attackKind === 'snipe' ? 44 : 28);
+        enemy.targetX = enemy.x + Math.cos(enemy.aimAngle) * 640;
+        enemy.targetY = enemy.y + Math.sin(enemy.aimAngle) * 640;
+      } else {
+        enemy.telegraphLocked = true;
+      }
+      if (enemy.stateTimer > 0) return;
+      enemy.attackFired = true;
+      if (enemy.attackKind === 'arrow_rain') {
+        const spots: Array<{ x: number; y: number }> = [{ x: s.player.x, y: s.player.y }];
+        if (isBoss) {
+          const base = this.fxRng.range(0, Math.PI * 2);
+          spots.push(
+            { x: s.player.x + Math.cos(base) * 90, y: s.player.y + Math.sin(base) * 90 },
+            { x: s.player.x - Math.cos(base) * 90, y: s.player.y - Math.sin(base) * 90 },
+          );
+        }
+        for (const spot of spots) {
+          const pt = this.clampPoint(spot.x, spot.y, 30);
+          s.delayedBlasts.push({
+            kind: 'arrow_rain',
+            x: pt.x,
+            y: pt.y,
+            radius: isBoss ? 58 : 54,
+            timer: 0.95,
+            maxTimer: 0.95,
+            damage: enemy.damage,
+            friendly: false,
+            alreadyScaled: true,
+          });
+        }
+        this.endAttack(enemy, isBoss ? 0.6 : 0.8);
+      } else if (enemy.attackKind === 'snipe') {
+        this.fireEnemyArrow(enemy, 0, 7, 950, true);
+        s.shakeIntensity = Math.max(s.shakeIntensity, 3);
+        this.endAttack(enemy, 0.9);
+      } else {
+        this.fireEnemyArrow(enemy, 0, isBoss ? 6 : 5);
+        enemy.state = 'attack';
+        enemy.burstLeft = isBoss ? 2 : 0;
+        enemy.burstCooldown = 0.16;
+        enemy.stateTimer = isBoss ? 0.4 : 0.16;
+      }
+    } else if (enemy.state === 'attack') {
+      enemy.stateTimer -= dt;
+      if (enemy.burstLeft > 0) {
+        enemy.burstCooldown -= dt;
+        if (enemy.burstCooldown <= 0) {
+          const targetAng = Math.atan2(s.player.y - enemy.y, s.player.x - enemy.x);
+          const delta = Math.max(-0.16, Math.min(0.16, normalizeAngle(targetAng - enemy.aimAngle)));
+          enemy.aimAngle = normalizeAngle(enemy.aimAngle + delta);
+          this.fireEnemyArrow(enemy, 0, isBoss ? 6 : 5);
+          enemy.burstLeft -= 1;
+          enemy.burstCooldown += 0.16;
+        }
+      }
+      if (enemy.stateTimer <= 0) this.endAttack(enemy, isBoss ? 0.58 : 0.72);
+    } else if (enemy.state === 'recover') {
+      this.stepRecover(enemy, dt, isBoss ? 0.56 : 0.68);
+    }
+  }
+
+  private beginLeapTelegraph(enemy: EnemyEntity, duration: number): void {
+    const landing = this.pickSafeLeapLanding(enemy.radius);
+    enemy.state = 'telegraph';
+    enemy.attackKind = 'boss_leap';
+    enemy.telegraphDuration = duration;
+    enemy.stateTimer = duration;
+    enemy.aimAngle = Math.atan2(landing.y - enemy.y, landing.x - enemy.x);
+    enemy.targetX = landing.x;
+    enemy.targetY = landing.y;
+    enemy.leapStartX = enemy.x;
+    enemy.leapStartY = enemy.y;
+    enemy.leapZ = 0;
+  }
+
+  private updateLeapTelegraph(enemy: EnemyEntity): void {
+    if (enemy.stateTimer > 0.25) {
+      const landing = this.pickSafeLeapLanding(enemy.radius);
+      enemy.targetX = landing.x;
+      enemy.targetY = landing.y;
+      enemy.aimAngle = Math.atan2(enemy.targetY - enemy.y, enemy.targetX - enemy.x);
+    }
+  }
+
+  private launchLeapAttack(enemy: EnemyEntity, duration: number, isBoss: boolean): void {
+    enemy.state = 'attack';
+    enemy.leapStartX = enemy.x;
+    enemy.leapStartY = enemy.y;
+    enemy.leapDuration = duration;
+    enemy.stateTimer = duration;
+    enemy.leapZ = 1;
+    if (isBoss) {
+      this.spawnParticles(enemy.x, enemy.y, '#cbd5e1', 8, 120);
+    }
+  }
+
+  private stepLeapAttack(enemy: EnemyEntity, slamRadius: number, isBoss: boolean, dt: number): void {
+    const s = this.state;
+    enemy.stateTimer -= dt;
+    const u = Math.max(0, Math.min(1, 1 - enemy.stateTimer / Math.max(0.01, enemy.leapDuration)));
+    enemy.x = enemy.leapStartX + (enemy.targetX - enemy.leapStartX) * u;
+    enemy.y = enemy.leapStartY + (enemy.targetY - enemy.leapStartY) * u;
+    enemy.leapZ = Math.sin(u * Math.PI) * (isBoss ? BOSS_LEAP_MAX_Z : 58);
+
+    if (enemy.stateTimer <= 0) {
+      enemy.leapZ = 0;
+      enemy.x = enemy.targetX;
+      enemy.y = enemy.targetY;
+      this.pushOutOfObstacles(enemy, enemy.radius);
+      this.clampToArena(enemy);
+      s.shakeIntensity = Math.max(s.shakeIntensity, isBoss ? 8.5 : 4.5);
+      this.spawnParticles(enemy.x, enemy.y, '#e04f44', isBoss ? 14 : 8, 200);
+      if (isBoss) this.spawnBreakDebris(enemy.x, enemy.y, 'pillar', true);
+      if (Math.hypot(s.player.x - enemy.x, s.player.y - enemy.y) <= slamRadius + s.player.radius * 0.5) {
+        this.damagePlayer(enemy.damage);
+      }
+      this.triggerBarrelsInRadius(enemy.x, enemy.y, slamRadius);
+      if (isBoss) {
+        s.rings.push({ x: enemy.x, y: enemy.y, radius: 32, maxRadius: 150, ttl: 0.45, maxTtl: 0.45, color: '#e04f44' });
+      }
+      enemy.state = 'recover';
+      enemy.stateTimer = enemy.phase === 2 ? 0.72 : 0.88;
+      enemy.attackKind = 'none';
+    }
+  }
+
+  private pickSafeLeapLanding(radius: number): { x: number; y: number } {
+    const s = this.state;
+    const pt = {
+      x: Math.max(PLAY_MIN_X + 64, Math.min(PLAY_MAX_X - 64, s.player.x)),
+      y: Math.max(PLAY_MIN_Y + 64, Math.min(PLAY_MAX_Y - 64, s.player.y)),
+    };
+    this.pushOutOfObstacles(pt, radius);
+    this.clampToArena(pt, radius);
+    return pt;
   }
 
   private stepBossAI(
     boss: EnemyEntity,
+    dist: number,
+    dirX: number,
+    dirY: number,
     navDirX: number,
     navDirY: number,
+    hasMoveLOS: boolean,
+    hasShotLOS: boolean,
     dt: number,
   ): void {
     const s = this.state;
+    const base: BossBaseArchetype = boss.bossBase ?? 'shooter';
 
     if (boss.phase === 1 && boss.leapZ <= 0 && boss.hp <= boss.maxHp * 0.5) {
       boss.phase = 2;
       boss.state = 'recover';
-      boss.stateTimer = 0.7;
+      boss.stateTimer = 0.65;
       boss.attackKind = 'none';
-      this.announce('Phase 2 - Threadkeeper Overclocked!');
-      s.rings.push({
-        x: boss.x,
-        y: boss.y,
-        radius: 25,
-        maxRadius: 210,
-        ttl: 0.4,
-        maxTtl: 0.4,
-        color: '#f43f5e',
-      });
-      if (!boss.didPhaseAddSpawn) {
+      this.announce(`${getBossDisplayName(base, boss.bossVariant)} Enraged!`);
+      s.rings.push({ x: boss.x, y: boss.y, radius: 25, maxRadius: 210, ttl: 0.4, maxTtl: 0.4, color: '#e04f44' });
+      if (!boss.didPhaseAddSpawn && s.floor >= 2) {
         boss.didPhaseAddSpawn = true;
-        for (const ox of [-110, 110]) {
-          s.enemies.push(
-            createEnemy(
-              this.nextEntityId++,
-              'chaser',
-              Math.max(PLAY_MIN_X + 60, Math.min(PLAY_MAX_X - 60, boss.x + ox)),
-              Math.max(PLAY_MIN_Y + 60, Math.min(PLAY_MAX_Y - 60, boss.y + 40)),
-              1,
-              s.modifier.enemyHpMult,
-              s.modifier.enemySpeedMult,
-              s.modifier.enemyDamageMult,
-            ),
-          );
-        }
+        const addKind: BossBaseArchetype =
+          base === 'elite_charger' || base === 'mortar_tank' ? 'chaser' : base;
+        this.spawnAdds(boss, addKind, 2, 1);
       }
       return;
     }
 
-    const cadenceMult = boss.phase === 2 ? 0.8 : 1;
-    const pickSafeLeapLanding = (): { x: number; y: number } => {
-      const pt = {
-        x: Math.max(PLAY_MIN_X + 64, Math.min(PLAY_MAX_X - 64, s.player.x)),
-        y: Math.max(PLAY_MIN_Y + 64, Math.min(PLAY_MAX_Y - 64, s.player.y)),
-      };
-      this.pushOutOfObstacles(pt, boss.radius);
-      this.clampToArena(pt, boss.radius);
-      return pt;
-    };
-
-    if (boss.state === 'chase') {
-      this.moveWithSlide(boss, navDirX * boss.speed * dt, navDirY * boss.speed * dt);
-      boss.stateTimer -= dt;
-      if (boss.stateTimer <= 0) {
-        const pattern = chooseBossPattern(boss, this.bossRng);
-        boss.state = 'telegraph';
-        boss.attackKind = pattern;
-        boss.telegraphDuration = pattern === 'boss_radial' ? 0.6 : 0.72;
-        boss.stateTimer = boss.telegraphDuration;
-        boss.aimAngle = Math.atan2(s.player.y - boss.y, s.player.x - boss.x);
-        const landing = pickSafeLeapLanding();
-        boss.targetX = landing.x;
-        boss.targetY = landing.y;
-        boss.leapStartX = boss.x;
-        boss.leapStartY = boss.y;
-        boss.leapZ = 0;
+    // Preserve an explicit boss_leap (used by Boss Leap physics & animation test).
+    if (boss.attackKind === 'boss_leap') {
+      if (boss.state === 'telegraph') {
+        boss.stateTimer -= dt;
+        this.updateLeapTelegraph(boss);
+        if (boss.stateTimer <= 0) this.launchLeapAttack(boss, BOSS_LEAP_DURATION, true);
+        return;
       }
-    } else if (boss.state === 'telegraph') {
-      boss.stateTimer -= dt;
-      if (boss.attackKind === 'boss_leap') {
-        if (boss.stateTimer > 0.25) {
-          const landing = pickSafeLeapLanding();
-          boss.targetX = landing.x;
-          boss.targetY = landing.y;
-          boss.aimAngle = Math.atan2(boss.targetY - boss.y, boss.targetX - boss.x);
-        }
-        if (this.fxRng.next() < dt * 10) {
-          this.spawnParticles(boss.x, boss.y + boss.radius * 0.55, '#cbd5e1', 1, 55);
-        }
-      }
-      if (boss.stateTimer <= 0) {
-        if (boss.attackKind === 'boss_radial') {
-          const count = boss.phase === 2 ? 8 : 6;
-          for (let i = 0; i < count; i += 1) {
-            const ang = boss.aimAngle + (i * Math.PI * 2) / count;
-            s.projectiles.push({
-              id: this.nextEntityId++,
-              friendly: false,
-              x: boss.x + Math.cos(ang) * (boss.radius + 8),
-              y: boss.y + Math.sin(ang) * (boss.radius + 8),
-              vx: Math.cos(ang) * 290,
-              vy: Math.sin(ang) * 290,
-              radius: 9,
-              damage: boss.damage,
-              ttl: 3.1,
-              pierce: false,
-              hitEnemyIds: [],
-              kind: 'orb',
-              angle: ang,
-            });
-          }
-          boss.state = 'recover';
-          boss.stateTimer = 0.85 * cadenceMult;
-          boss.attackKind = 'none';
-        } else {
-          // Launch parabolic leap toward locked target (never instant teleport).
-          boss.state = 'attack';
-          boss.leapStartX = boss.x;
-          boss.leapStartY = boss.y;
-          boss.leapDuration = BOSS_LEAP_DURATION;
-          boss.stateTimer = BOSS_LEAP_DURATION;
-          boss.leapZ = 1;
-          s.rings.push({
-            x: boss.x,
-            y: boss.y,
-            radius: 16,
-            maxRadius: 64,
-            ttl: 0.22,
-            maxTtl: 0.22,
-            color: '#cbd5e1',
-          });
-          this.spawnParticles(boss.x, boss.y, '#cbd5e1', 8, 120);
-        }
-      }
-    } else if (boss.state === 'attack' && boss.attackKind === 'boss_leap') {
-      boss.stateTimer -= dt;
-      const u = Math.max(
-        0,
-        Math.min(1, 1 - boss.stateTimer / Math.max(0.01, boss.leapDuration)),
-      );
-      boss.x = boss.leapStartX + (boss.targetX - boss.leapStartX) * u;
-      boss.y = boss.leapStartY + (boss.targetY - boss.leapStartY) * u;
-      boss.leapZ = Math.sin(u * Math.PI) * BOSS_LEAP_MAX_Z;
-
-      if (boss.stateTimer <= 0) {
-        boss.leapZ = 0;
-        boss.x = boss.targetX;
-        boss.y = boss.targetY;
-        this.pushOutOfObstacles(boss, boss.radius);
-        this.clampToArena(boss);
-        s.shakeIntensity = Math.max(s.shakeIntensity, 8.5);
-        this.spawnParticles(boss.x, boss.y, '#ef4444', 16, 210);
-        this.spawnBreakDebris(boss.x, boss.y, 'pillar', true);
-        if (Math.hypot(s.player.x - boss.x, s.player.y - boss.y) <= 86 + s.player.radius * 0.5) {
-          this.damagePlayer(boss.damage);
-        }
-        // The landing slam detonates barrels in the same radius.
-        this.triggerBarrelsInRadius(boss.x, boss.y, 86);
-        s.rings.push({
-          x: boss.x,
-          y: boss.y,
-          radius: 32,
-          maxRadius: 150,
-          ttl: 0.45,
-          maxTtl: 0.45,
-          color: '#f43f5e',
-        });
-        boss.state = 'recover';
-        boss.stateTimer = 0.95 * cadenceMult;
-        boss.attackKind = 'none';
-      }
-    } else if (boss.state === 'recover') {
-      boss.leapZ = 0;
-      boss.stateTimer -= dt;
-      if (boss.stateTimer <= 0) {
-        boss.state = 'chase';
-        boss.stateTimer = 0.9 * cadenceMult;
+      if (boss.state === 'attack') {
+        this.stepLeapAttack(boss, 86, true, dt);
+        return;
       }
     }
+
+    const baseDt = s.floor === 1 ? dt * 0.88 : dt;
+    const scaledDt = boss.phase === 2 ? baseDt * 1.12 : baseDt;
+    switch (base) {
+      case 'chaser':
+        this.stepChaserAI(boss, dist, navDirX, navDirY, hasMoveLOS, scaledDt, true);
+        break;
+      case 'shooter':
+        this.stepShooterAI(boss, dist, dirX, dirY, navDirX, navDirY, hasShotLOS, scaledDt, true);
+        break;
+      case 'charger':
+      case 'elite_charger':
+        this.stepChargerAI(boss, dist, navDirX, navDirY, hasMoveLOS, scaledDt, true);
+        break;
+      case 'shade':
+        this.stepShadeAI(boss, dist, dirX, dirY, navDirX, navDirY, hasShotLOS, scaledDt, true);
+        break;
+      case 'yeti':
+        this.stepYetiAI(boss, dist, navDirX, navDirY, scaledDt, true);
+        break;
+      case 'bomber':
+        this.stepBomberAI(boss, dist, dirX, dirY, navDirX, navDirY, hasMoveLOS, scaledDt, true);
+        break;
+      case 'mortar_tank':
+        this.stepMortarTankAI(boss, dist, navDirX, navDirY, hasShotLOS, scaledDt, true);
+        break;
+      case 'stampede':
+        this.stepStampedeAI(boss, dist, navDirX, navDirY, hasMoveLOS, scaledDt, true);
+        break;
+      case 'myconid':
+        this.stepMyconidAI(boss, dist, dirX, dirY, navDirX, navDirY, hasMoveLOS, scaledDt, true);
+        break;
+      case 'imp':
+        this.stepImpAI(boss, dist, dirX, dirY, navDirX, navDirY, hasShotLOS, scaledDt, true);
+        break;
+      case 'archer':
+        this.stepArcherAI(boss, dist, dirX, dirY, navDirX, navDirY, hasShotLOS, scaledDt, true);
+        break;
+    }
+  }
+
+  /** Thrown things fly in an arc, then land as a blast, a fused bomb or a spore cloud. */
+  private updateLobs(dt: number): void {
+    const s = this.state;
+    const flying: LobEffect[] = [];
+    for (const lob of s.lobs) {
+      lob.timer += dt;
+      if (lob.timer < lob.duration) {
+        flying.push(lob);
+        continue;
+      }
+      const kind: DelayedBlastEffect['kind'] =
+        lob.kind === 'bomb'
+          ? 'sapper_bomb'
+          : lob.kind === 'shell'
+            ? 'tank_shell'
+            : lob.kind === 'spore_pod'
+              ? 'spore_pod'
+              : lob.kind === 'snowball'
+                ? 'ice_mortar'
+                : 'rock_impact';
+      const fuse = Math.max(0.01, lob.fuse);
+      s.delayedBlasts.push({
+        kind,
+        x: lob.tx,
+        y: lob.ty,
+        radius: lob.radius,
+        timer: fuse,
+        maxTimer: fuse,
+        damage: lob.damage,
+        friendly: false,
+        alreadyScaled: true,
+      });
+      this.spawnParticles(lob.tx, lob.ty, lob.kind === 'spore_pod' ? '#96db6e' : '#d6c8b0', 5, 90);
+    }
+    s.lobs = flying;
   }
 
   private updateProjectiles(dt: number): void {
@@ -2685,8 +3615,28 @@ export class GameSimulation {
     for (const proj of s.projectiles) {
       proj.ttl -= dt;
       if (proj.ttl <= 0) continue;
+      if (!proj.friendly && proj.homing && (proj.homingTime ?? 0) > 0) {
+        proj.homingTime = (proj.homingTime ?? 0) - dt;
+        const want = Math.atan2(p.y - proj.y, p.x - proj.x);
+        const cur = Math.atan2(proj.vy, proj.vx);
+        const turn = Math.max(-proj.homing * dt, Math.min(proj.homing * dt, normalizeAngle(want - cur)));
+        const speed = Math.hypot(proj.vx, proj.vy);
+        const next = cur + turn;
+        proj.vx = Math.cos(next) * speed;
+        proj.vy = Math.sin(next) * speed;
+        proj.angle = next;
+      }
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
+      const emberShot = proj.friendly && Boolean(proj.weaponShot);
+
+      const hitColor = proj.friendly
+        ? '#fbbf24'
+        : proj.kind === 'arrow'
+          ? '#d49562'
+          : proj.kind === 'ember'
+            ? '#f0853a'
+            : '#f97316';
 
       if (
         proj.x - proj.radius < PLAY_MIN_X ||
@@ -2694,13 +3644,15 @@ export class GameSimulation {
         proj.y - proj.radius < PLAY_MIN_Y ||
         proj.y + proj.radius > PLAY_MAX_Y
       ) {
-        this.spawnParticles(proj.x, proj.y, proj.friendly ? '#fbbf24' : '#f97316', 4, 80);
+        this.spawnParticles(proj.x, proj.y, hitColor, 4, 80);
+        if (emberShot) this.placeEmberPatch(proj.x, proj.y);
         continue;
       }
 
       // Blocks stop every projectile (cover from shooters, and no shooting through walls).
       if (this.pointInObstacle(proj.x, proj.y, Math.min(proj.radius, 10) * 0.5)) {
-        this.spawnParticles(proj.x, proj.y, proj.friendly ? '#fbbf24' : '#f97316', 4, 80);
+        this.spawnParticles(proj.x, proj.y, hitColor, 4, 80);
+        if (emberShot) this.placeEmberPatch(proj.x, proj.y);
         continue;
       }
 
@@ -2720,6 +3672,7 @@ export class GameSimulation {
               { arcUsed: false },
             );
             this.afterWeaponHits(1, killed ? 1 : 0, proj.angle, proj.damage, proj.x, proj.y, proj.attackSeq ?? -1);
+            this.placeEmberPatch(enemy.x, enemy.y);
             if (!proj.pierce) {
               consumed = true;
               break;
@@ -2730,7 +3683,8 @@ export class GameSimulation {
           for (const br of [...s.breakables]) {
             if (Math.hypot(br.x - proj.x, br.y - proj.y) <= br.radius + proj.radius) {
               this.damageBreakable(br, proj.damage);
-              if (!proj.pierce) consumed = true;
+              if (!proj.pierce || br.kind === 'chest') consumed = true;
+              if (consumed) this.placeEmberPatch(proj.x, proj.y);
               break;
             }
           }
@@ -2817,6 +3771,7 @@ export class GameSimulation {
 
     const rounded = Math.max(1, Math.round(finalDamage));
     enemy.hp -= rounded;
+    if (enemy.dormant && enemy.hp > 0) this.wakeMimic(enemy);
     enemy.hitFlashTimer = 0.09;
     const kbResist = enemy.archetype === 'boss' ? 0.2 : 1;
     enemy.vx += knockVx * kbResist;
@@ -2846,6 +3801,13 @@ export class GameSimulation {
       );
       this.spawnCoins(enemy.x, enemy.y, coinCount, false);
       this.maybeDropGem(enemy);
+      this.stuckTimers.delete(enemy.id);
+      if (enemy.mimic) {
+        this.addFloatingText(enemy.x, enemy.y - 30, 'TREASURE!', '#fde047', 1.1);
+        if (this.lootRng.next() < HEART_CRATE_CHANCE) {
+          s.hearts.push({ id: this.nextEntityId++, x: enemy.x, y: enemy.y, age: 0 });
+        }
+      }
 
       if (s.modifier.deathBlast && enemy.archetype !== 'boss') {
         s.delayedBlasts.push({
@@ -2936,6 +3898,7 @@ export class GameSimulation {
 
   private damageBreakable(br: BreakableEntity, amount: number): void {
     const s = this.state;
+    if (br.kind === 'chest') return;
     br.hp -= amount;
     br.hitFlash = 0.1;
     const isBroken = br.hp <= 0;
@@ -3041,6 +4004,8 @@ export class GameSimulation {
     const s = this.state;
     s.projectiles = s.projectiles.filter((proj) => proj.friendly);
     s.delayedBlasts = s.delayedBlasts.filter((blast) => blast.friendly && !blast.hurtPlayerToo);
+    s.lobs = [];
+    s.sporeClouds = [];
     s.coins.forEach((c) => {
       c.magnetized = true;
     });
@@ -3132,6 +4097,12 @@ export class GameSimulation {
     const s = this.state;
     const p = s.player;
 
+    for (const br of s.breakables) {
+      if (br.kind === 'chest' && !br.opened && Math.hypot(p.x - br.x, p.y - br.y) <= p.radius + br.radius + 14) {
+        this.openChest(br);
+      }
+    }
+
     if (s.fountain && !s.fountain.used) {
       if (Math.hypot(p.x - s.fountain.x, p.y - s.fountain.y) <= p.radius + 26) {
         s.fountain.used = true;
@@ -3202,22 +4173,18 @@ export class GameSimulation {
     const s = this.state;
     const p = s.player;
     p.relics[claimed.relic.id] = claimed.nextLevel;
+    if (claimed.relic.id === 'vitality') {
+      const ratio = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+      p.maxHp += VITALITY_HP_PER_LEVEL;
+      p.hp = Math.max(1, Math.min(p.maxHp, Math.round(p.maxHp * ratio)));
+    }
     const mem = this.roomMemory.get(s.currentRoomId);
     if (mem) {
       mem.rewardClaimed = true;
     }
     s.hitstopTimer = Math.max(s.hitstopTimer, 0.03);
     s.shakeIntensity = Math.max(s.shakeIntensity, 4.5);
-    s.rings.push({
-      x: claimed.x,
-      y: claimed.y,
-      radius: 14,
-      maxRadius: 72,
-      ttl: 0.24,
-      maxTtl: 0.24,
-      color: '#fbbf24',
-    });
-    this.spawnParticles(claimed.x, claimed.y, '#fbbf24', 22, 185);
+    this.spawnParticles(claimed.x, claimed.y, '#fbbf24', 18, 175);
     this.addFloatingText(
       claimed.x,
       claimed.y - 32,
@@ -3329,18 +4296,20 @@ export class GameSimulation {
   private spawnBreakDebris(
     x: number,
     y: number,
-    kind: 'crate' | 'pillar' | 'barrel',
+    kind: 'crate' | 'pillar' | 'barrel' | 'chest',
     light = false,
   ): void {
     const palette =
-      kind === 'crate'
-        ? (['#c2844c', '#9a5b2d', '#e0a96d', '#7c4521'] as const)
-        : kind === 'barrel'
-          ? (['#b91c1c', '#92400e', '#dc2626', '#52525b', '#78350f'] as const)
-          : (['#94a3b8', '#64748b', '#cbd5e1', '#475569'] as const);
+      kind === 'chest'
+        ? (['#894c37', '#c47e52', '#f3a629', '#fef074'] as const)
+        : kind === 'crate'
+          ? (['#c2844c', '#9a5b2d', '#e0a96d', '#7c4521'] as const)
+          : kind === 'barrel'
+            ? (['#b91c1c', '#92400e', '#dc2626', '#52525b', '#78350f'] as const)
+            : (['#94a3b8', '#64748b', '#cbd5e1', '#475569'] as const);
     const borderColor =
-      kind === 'crate' ? '#2a1810' : kind === 'barrel' ? '#18181b' : '#1e293b';
-    const count = light ? (kind === 'barrel' ? 4 : 3) : kind === 'crate' ? 9 : kind === 'barrel' ? 11 : 10;
+      kind === 'crate' || kind === 'chest' ? '#2a1810' : kind === 'barrel' ? '#18181b' : '#1e293b';
+    const count = light ? (kind === 'barrel' ? 4 : 3) : kind === 'crate' ? 9 : kind === 'chest' ? 10 : kind === 'barrel' ? 11 : 10;
 
     for (let i = 0; i < count; i += 1) {
       const ang = this.fxRng.range(0, Math.PI * 2);
@@ -3378,28 +4347,13 @@ export class GameSimulation {
 
     if (!light) {
       const s = this.state;
-      if (kind === 'crate') {
-        s.rings.push({
-          x,
-          y,
-          radius: 8,
-          maxRadius: 34,
-          ttl: 0.16,
-          maxTtl: 0.16,
-          color: '#d97706',
-        });
+      if (kind === 'chest') {
+        this.spawnParticles(x, y, '#fde047', 10, 150);
+        s.shakeIntensity = Math.max(s.shakeIntensity, 3);
+      } else if (kind === 'crate') {
         this.spawnParticles(x, y, '#e7c89c', 7, 130);
         s.shakeIntensity = Math.max(s.shakeIntensity, 2.5);
       } else if (kind === 'pillar') {
-        s.rings.push({
-          x,
-          y,
-          radius: 10,
-          maxRadius: 38,
-          ttl: 0.18,
-          maxTtl: 0.18,
-          color: '#cbd5e1',
-        });
         this.spawnParticles(x, y, '#cbd5e1', 8, 145);
         s.shakeIntensity = Math.max(s.shakeIntensity, 3.8);
       } else {
@@ -3615,10 +4569,12 @@ export class GameSimulation {
       return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: true, hasShotLOS: true };
     }
     const p = this.state.player;
-    const movePad = Math.min(enemy.radius - 1, 14);
+    // Check the whole body (not just a thin line) so big monsters don't scrape along blocks.
+    const movePad = Math.min(enemy.radius + 2, 26);
     const hasMoveLOS = this.hasClearLine(enemy.x, enemy.y, p.x, p.y, movePad);
     const hasShotLOS = this.hasClearLine(enemy.x, enemy.y, p.x, p.y, 12);
-    if (hasMoveLOS) {
+    const stuck = (this.stuckTimers.get(enemy.id) ?? 0) > 0.25;
+    if (hasMoveLOS && !stuck) {
       return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: true, hasShotLOS };
     }
 
@@ -3632,7 +4588,7 @@ export class GameSimulation {
     const lookAhead = this.pickBestNeighborCell(distGrid, next.col, next.row, enemy.x, enemy.y);
     if (lookAhead) {
       const nextCenter = this.cellCenterWorld(lookAhead.col, lookAhead.row);
-      if (this.hasClearLine(enemy.x, enemy.y, nextCenter.x, nextCenter.y, Math.min(enemy.radius + 1, 20))) {
+      if (this.hasClearLine(enemy.x, enemy.y, nextCenter.x, nextCenter.y, Math.min(enemy.radius + 2, 26))) {
         target = nextCenter;
       }
     }
@@ -3641,9 +4597,9 @@ export class GameSimulation {
     const ty = target.y - enemy.y;
     const tDist = Math.hypot(tx, ty);
     if (tDist <= 0.001) {
-      return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS: false, hasShotLOS };
+      return { dirX: rawDirX, dirY: rawDirY, hasMoveLOS, hasShotLOS };
     }
-    return { dirX: tx / tDist, dirY: ty / tDist, hasMoveLOS: false, hasShotLOS };
+    return { dirX: tx / tDist, dirY: ty / tDist, hasMoveLOS, hasShotLOS };
   }
 
   private tryMoveCardinal(enemy: EnemyEntity, dx: number, dy: number): boolean {
@@ -3769,6 +4725,35 @@ const HEART_CRATE_CHANCE = 0.35;
 const HEART_HEAL = 15;
 const BOSS_LEAP_DURATION = 0.78;
 const BOSS_LEAP_MAX_Z = 135;
+
+export function computeRunScore(params: {
+  floorReached: number;
+  floorsCleared: number;
+  roomsCleared: number;
+  coinsEarned: number;
+  elapsedSec: number;
+  damageTaken: number;
+  enemiesKilled: number;
+}): number {
+  const base =
+    params.floorsCleared * 8500 +
+    Math.max(0, params.floorReached - 1) * 2500 +
+    params.roomsCleared * 800 +
+    params.coinsEarned * 95 +
+    params.enemiesKilled * 50;
+  if (base <= 0) return 0;
+  const targetSec = Math.max(45, params.roomsCleared * 18 + params.floorsCleared * 35);
+  const speedMult = 1 + 0.55 * (targetSec / (targetSec + Math.max(0, params.elapsedSec)));
+  const hpMult = 0.8 + 0.25 * Math.exp(-Math.max(0, params.damageTaken) / 110);
+  return Math.min(999_999, Math.max(0, Math.round(base * speedMult * hpMult)));
+}
+
+export const SPIKE_CYCLE_SEC = 3.2;
+export const SPIKE_ACTIVE_THRESHOLD = 2.55;
+
+export function isSpikeActive(timer: number): boolean {
+  return timer >= SPIKE_ACTIVE_THRESHOLD;
+}
 
 /**
  * Monster attacks where the body itself rams things (and can bump barrels).
