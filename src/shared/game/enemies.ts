@@ -34,7 +34,25 @@ export type EnemyAttackKind =
   | 'arcane_ring'
   | 'shade_ring'
   | 'frost_rush'
-  | 'tank_shell';
+  | 'tank_shell'
+  | 'arcane_bolt'
+  | 'arcane_rune'
+  | 'blink_nova'
+  | 'slime_split'
+  | 'coin_spit'
+  | 'chomp_chain'
+  | 'boulder_toss'
+  | 'warden_sweep'
+  | 'phase_strike'
+  | 'icicle_rain'
+  | 'bomb_ring'
+  | 'bomb_line'
+  | 'tank_crush'
+  | 'stomp_quake'
+  | 'mushroom_ring'
+  | 'ember_nova'
+  | 'arrow_rain'
+  | 'snipe';
 
 export type EnemyEntity = {
   id: number;
@@ -76,6 +94,12 @@ export type EnemyEntity = {
   leapStartY: number;
   leapZ: number;
   leapDuration: number;
+  /** Mimics wear a treasure chest disguise until the player walks up or hits them. */
+  mimic?: boolean | undefined;
+  /** Disguised and stationary (sleeping Mimic); ignored for room-clear checks. */
+  dormant?: boolean | undefined;
+  /** Spawned by a boss or warden (adds are capped so fights stay readable). */
+  isAdd?: boolean | undefined;
 };
 
 type EnemyBaseSpec = {

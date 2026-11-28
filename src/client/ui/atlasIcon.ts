@@ -1,7 +1,7 @@
 // The dungeon atlas uses 16x16 cells in a 28-column grid (2px margin, 18px stride) plus named frames.
 const ATLAS_URL = './assets/dungeon/dungeon_atlas.png';
 const ATLAS_W = 512;
-const ATLAS_H = 184;
+const ATLAS_H = 236;
 const ATLAS_COLS = 28;
 const CELL_PX = 16;
 
@@ -11,7 +11,7 @@ type AtlasPoint = {
 };
 
 const NAMED_FRAMES: Readonly<Record<string, AtlasPoint>> = {
-  barrel_tnt: { x: 252, y: 162 },
+  barrel_tnt: { x: 20, y: 210 },
 };
 
 function resolveFrameOrigin(frame: string): AtlasPoint {

@@ -40,6 +40,8 @@ const PROFILE_KEY_PREFIX = 'dungeonle:profile:';
 const LB_KEY_PREFIX = 'dungeonle:lb:';
 const LBMETA_KEY_PREFIX = 'dungeonle:lbmeta:';
 const DEV_RESET_KEY_PREFIX = 'dungeonle:devreset:';
+const POST_DATE_KEY_PREFIX = 'dungeonle:postdate:';
+const UTC_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 async function loadUserProfile(userId: string | undefined): Promise<PlayerProfile> {
   if (!userId) return createDefaultProfile();
@@ -99,6 +101,30 @@ function computeLeaderboardScore(entry: DailyLeaderboardEntry): number {
 }
 
 export const api = new Hono();
+
+api.get('/post-date', async (c) => {
+  const rawPostDate = context.postData?.utcDate;
+  if (typeof rawPostDate === 'string' && UTC_DATE_RE.test(rawPostDate)) {
+    return c.json({ utcDate: getUtcDateString(rawPostDate) });
+  }
+  const { postId } = context;
+  if (postId) {
+    const cacheKey = `${POST_DATE_KEY_PREFIX}${postId}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached && UTC_DATE_RE.test(cached)) {
+        return c.json({ utcDate: getUtcDateString(cached) });
+      }
+      const post = await reddit.getPostById(postId);
+      const createdDate = getUtcDateString(post.createdAt.toISOString().slice(0, 10));
+      await redis.set(cacheKey, createdDate);
+      return c.json({ utcDate: createdDate });
+    } catch (error) {
+      console.error('Failed to resolve post creation date:', error);
+    }
+  }
+  return c.json({ utcDate: getUtcDateString() });
+});
 
 api.get('/profile', async (c) => {
   const utcDate = getUtcDateString(c.req.query('date'));

@@ -6,7 +6,12 @@ import type {
 } from '../../shared/game/simulation.ts';
 import { ENFORCE_SINGLE_DAILY_RUN } from '../../shared/buildMeta.ts';
 import { getDailyModifier, getDailyRule } from '../../shared/modifiers.ts';
-import { getDailyRunSummary, getPlayerTitle, hasCompletedDailyRun } from '../../shared/profile.ts';
+import {
+  getDailyRunSummary,
+  getPlayerTitle,
+  hasCompletedDailyRun,
+  PLAYER_TITLES,
+} from '../../shared/profile.ts';
 import { RELICS } from '../../shared/relics.ts';
 import { formatTimeUntilNextUtcDay } from '../../shared/rng.ts';
 import { formatDuration, formatShareComment } from '../../shared/share.ts';
@@ -22,6 +27,7 @@ import { getFloorBiome } from '../config/biomes.ts';
 import { ENTITY_LABELS, GAME_META, getDailyTheme, RELIC_SPRITE_FRAMES } from '../config/theme.ts';
 import type { InputController } from '../game/input.ts';
 import type { PlatformAdapter } from '../platform/adapter.ts';
+import { animateHero, type HeroLook } from './heroPreview.ts';
 import { createAtlasIcon } from './atlasIcon.ts';
 import { renderShopView } from './shopView.ts';
 
@@ -94,6 +100,7 @@ export class GameUIController {
   private prevBestFloor: number | null = null;
   private shopOpen = false;
   private tutorialOpen = false;
+  private updateStartHero: ((look: HeroLook) => void) | null = null;
   private lastGems = -1;
   private toastTimer: number | null = null;
   private hpHurtTimer: number | null = null;
@@ -147,6 +154,7 @@ export class GameUIController {
   private readonly startDailyRule = getEl('start-daily-rule');
   private readonly startStreak = getEl('start-streak');
   private readonly startTitle = getEl('start-title');
+  private readonly startHeroPreview = document.getElementById('start-hero-preview');
   private readonly startBestFloor = getEl('start-best-floor');
   private readonly startGems = getEl('start-gems');
   private readonly startBest = getEl('start-best');
@@ -227,6 +235,9 @@ export class GameUIController {
       : 'Same daily seed stays active until run ends.';
 
     this.bindEvents();
+    if (this.startHeroPreview instanceof HTMLCanvasElement) {
+      this.updateStartHero = animateHero(this.startHeroPreview, this.lookOfProfile());
+    }
     this.syncStartScreen();
     if (ENFORCE_SINGLE_DAILY_RUN) {
       this.updateDailyCountdown();
@@ -319,7 +330,7 @@ export class GameUIController {
       this.hudScore.textContent = `Score ${liveScore.toLocaleString()}`;
     }
 
-    const sec = Math.floor(s.elapsedTime);
+    const sec = Math.floor(s.runTime);
     if (sec !== this.lastTimerSec) {
       this.lastTimerSec = sec;
       this.hudTimer.textContent = formatDuration(sec);
@@ -615,13 +626,20 @@ export class GameUIController {
     this.input.setGameActive(playing, this.shopOpen);
   }
 
+  private lookOfProfile(): HeroLook {
+    return {
+      costume: this.profile.equippedCostume,
+      accessory: this.profile.equippedCosmetic,
+    };
+  }
+
   private syncStartScreen(): void {
     const theme = getDailyTheme(this.utcDate);
+    const startBiome = getFloorBiome(1, this.utcDate);
     const modifier = getDailyModifier(this.utcDate);
     const rule = getDailyRule(this.utcDate);
-    const startBiome = getFloorBiome(1, this.utcDate);
     const best = this.profile.dailyBest[this.utcDate];
-    const { title } = getPlayerTitle(this.profile.bestFloor);
+    const { title, tier } = getPlayerTitle(this.profile.bestFloor);
 
     this.startDate.textContent = this.utcDate;
     this.startDungeon.textContent = `${theme.name} - ${startBiome.name}`;
@@ -629,6 +647,8 @@ export class GameUIController {
     this.startDailyRule.textContent = rule.label;
     this.startStreak.textContent = `${this.profile.streak}`;
     this.startTitle.textContent = title;
+    this.renderRankBadge(tier);
+    this.updateStartHero?.(this.lookOfProfile());
     this.startBestFloor.textContent = this.profile.bestFloor > 0 ? `F${this.profile.bestFloor}` : '—';
     this.startGems.textContent = `${this.profile.gems}`;
     this.startShopCoins.textContent = `${this.profile.coins} ${GAME_META.coinShort}`;
@@ -638,6 +658,22 @@ export class GameUIController {
     this.playBtnLabel.textContent = completed ? 'VIEW RESULTS' : 'BEGIN DUNGEON';
     this.playBtn.classList.toggle('is-completed', completed);
     this.startDailyNote.hidden = !completed;
+  }
+
+  /** Each rank tier gets its own colours and a row of pips so ranks are easy to tell apart. */
+  private renderRankBadge(tier: number): void {
+    const badge = this.startTitle.closest<HTMLElement>('.rank-badge');
+    if (!badge) return;
+    badge.dataset.tier = String(tier);
+    const pips = badge.querySelector<HTMLElement>('.rank-pips');
+    if (!pips) return;
+    pips.replaceChildren();
+    for (let i = 0; i < PLAYER_TITLES.length; i += 1) {
+      const pip = document.createElement('span');
+      pip.className = i <= tier ? 'rank-pip is-on' : 'rank-pip';
+      pips.appendChild(pip);
+    }
+    badge.setAttribute('aria-label', `Rank ${tier + 1} of ${PLAYER_TITLES.length}: ${this.startTitle.textContent ?? ''}`);
   }
 
   private async handleRunEnd(summary: RunSummary): Promise<void> {

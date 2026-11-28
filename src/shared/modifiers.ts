@@ -1,5 +1,5 @@
 import { STARTER_RELIC_IDS } from './relics.ts';
-import { createDailyStream } from './rng.ts';
+import { createDailyStream, pickDailyRotation } from './rng.ts';
 import type {
   DailyModifier,
   DailyModifierId,
@@ -15,8 +15,8 @@ import { WEAPONS } from './weapons.ts';
 export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   glass_cannon: {
     id: 'glass_cannon',
-    banner: 'Glass Cannon: 2x Damage',
-    description: 'Player and enemy hits deal double damage.',
+    banner: 'Everyone Deals Double Damage',
+    description: 'You and enemies deal 2x damage.',
     playerDamageMult: 2,
     enemyDamageMult: 2,
     frictionMult: 1,
@@ -29,8 +29,8 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
   slippery_floors: {
     id: 'slippery_floors',
-    banner: 'Slippery Floors: Low Friction',
-    description: 'Momentum carries further across slick arena stone.',
+    banner: 'Slippery Floors',
+    description: 'You slide further when you move.',
     playerDamageMult: 1,
     enemyDamageMult: 1,
     frictionMult: 0.24,
@@ -43,8 +43,8 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
   heavy_blade: {
     id: 'heavy_blade',
-    banner: 'Heavy Blade: +45% Swing Dmg',
-    description: 'Swings hit 45% harder with slightly slower recovery.',
+    banner: 'Stronger but Slower Attacks',
+    description: '+45% damage, 35% slower attacks.',
     playerDamageMult: 1,
     enemyDamageMult: 1,
     frictionMult: 1,
@@ -57,8 +57,8 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
   volatile_foes: {
     id: 'volatile_foes',
-    banner: 'Volatile Foes: Death Blasts',
-    description: 'Slain enemies detonate after a short warning pulse.',
+    banner: 'Enemies Explode on Death',
+    description: 'Step away from enemies you kill.',
     playerDamageMult: 1,
     enemyDamageMult: 1,
     frictionMult: 1,
@@ -71,8 +71,8 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
   quick_blades: {
     id: 'quick_blades',
-    banner: 'Quick Blades: Faster Swings',
-    description: 'Attack recovery is 25% faster; foes move 15% quicker.',
+    banner: 'Faster Attacks, Faster Enemies',
+    description: 'You attack 25% faster, enemies move 15% faster.',
     playerDamageMult: 1,
     enemyDamageMult: 1,
     frictionMult: 1,
@@ -85,8 +85,8 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
   golden_fever: {
     id: 'golden_fever',
-    banner: 'Golden Fever: Rich Drops',
-    description: 'Enemies drop +50% coins and gain +15% health.',
+    banner: 'More Coins, Tougher Enemies',
+    description: 'Enemies drop +50% coins and have +15% health.',
     playerDamageMult: 1,
     enemyDamageMult: 1,
     frictionMult: 1,
@@ -99,12 +99,13 @@ export const DAILY_MODIFIERS: Record<DailyModifierId, DailyModifier> = {
   },
 };
 
-const MODIFIER_LIST = Object.values(DAILY_MODIFIERS);
+const MODIFIER_LIST = Object.values(DAILY_MODIFIERS).filter(
+  (m) => m.id !== 'slippery_floors',
+);
 const HAZARD_TYPES: readonly HazardType[] = ['spikes', 'barrels', 'currents'];
 
 export function getDailyModifier(utcDate: string): DailyModifier {
-  const rng = createDailyStream(utcDate, 'meta');
-  return rng.pick(MODIFIER_LIST);
+  return pickDailyRotation(utcDate, 'meta', MODIFIER_LIST);
 }
 
 export function getDailyHazard(utcDate: string): HazardType {
@@ -115,61 +116,61 @@ export function getDailyHazard(utcDate: string): HazardType {
 export const DAILY_RULES: Record<DailyRuleId, DailyRule> = {
   open_armory: {
     id: 'open_armory',
-    label: 'Open Armory',
-    description: 'Bring any unlocked weapon from your shop.',
+    label: 'Any Weapon',
+    description: 'Bring any weapon you own.',
     weaponMode: 'any',
   },
   melee_only: {
     id: 'melee_only',
-    label: 'Steel Only',
-    description: 'Melee weapons only today (ranged loadouts swap to Longsword).',
+    label: 'Melee Weapons Only',
+    description: 'Staffs swap to your best melee weapon today.',
     weaponMode: 'melee_only',
   },
   ranged_only: {
     id: 'ranged_only',
-    label: 'Arcane Only',
-    description: 'Staff weapons only today (Scatter Staff loaned free).',
+    label: 'Staffs Only',
+    description: 'Everyone uses a staff today (Scatter Staff loaned free).',
     weaponMode: 'ranged_only',
   },
   trial_dagger: {
     id: 'trial_dagger',
-    label: 'Trial: Twin Daggers',
+    label: 'Everyone Uses Twin Daggers',
     description: 'Everyone wields Twin Daggers today (loaned free).',
     weaponMode: 'locked',
     forcedWeapon: 'dagger',
   },
   trial_hammer: {
     id: 'trial_hammer',
-    label: 'Trial: War Hammer',
+    label: 'Everyone Uses the War Hammer',
     description: 'Everyone swings the War Hammer today (loaned free).',
     weaponMode: 'locked',
     forcedWeapon: 'hammer',
   },
   trial_scatter: {
     id: 'trial_scatter',
-    label: 'Trial: Scatter Staff',
+    label: 'Everyone Uses the Scatter Staff',
     description: 'Everyone blasts with Scatter Staff today (loaned free).',
     weaponMode: 'locked',
     forcedWeapon: 'scatter_staff',
   },
   trial_lance: {
     id: 'trial_lance',
-    label: 'Trial: Arcane Lance',
+    label: 'Everyone Uses the Arcane Lance',
     description: 'Everyone snipes with Arcane Lance today (loaned free).',
     weaponMode: 'locked',
     forcedWeapon: 'arcane_lance',
   },
   starter_relic: {
     id: 'starter_relic',
-    label: 'Head Start',
-    description: 'Open Armory plus a free daily starter relic on Floor 1.',
+    label: 'Free Starting Relic',
+    description: 'Any weapon, plus a free relic on Floor 1.',
     weaponMode: 'any',
     grantStarterRelic: true,
   },
   crate_bonanza: {
     id: 'crate_bonanza',
-    label: 'Supply Surge',
-    description: 'Open Armory with extra supply crates in every room.',
+    label: 'A Chest in Every Room',
+    description: 'Any weapon, and every room has a real treasure chest.',
     weaponMode: 'any',
     extraCrates: 2,
   },
@@ -177,20 +178,17 @@ export const DAILY_RULES: Record<DailyRuleId, DailyRule> = {
 
 const DAILY_RULE_WEIGHTED_POOL: readonly DailyRule[] = [
   DAILY_RULES.open_armory,
-  DAILY_RULES.open_armory,
   DAILY_RULES.melee_only,
   DAILY_RULES.ranged_only,
   DAILY_RULES.trial_dagger,
   DAILY_RULES.trial_hammer,
   DAILY_RULES.trial_scatter,
   DAILY_RULES.trial_lance,
-  DAILY_RULES.starter_relic,
   DAILY_RULES.crate_bonanza,
 ];
 
 export function getDailyRule(utcDate: string): DailyRule {
-  const rng = createDailyStream(utcDate, 'daily-rule');
-  return rng.pick(DAILY_RULE_WEIGHTED_POOL);
+  return pickDailyRotation(utcDate, 'daily-rule', DAILY_RULE_WEIGHTED_POOL);
 }
 
 export function isWeaponAllowedByRule(rule: DailyRule, weaponId: WeaponId): boolean {

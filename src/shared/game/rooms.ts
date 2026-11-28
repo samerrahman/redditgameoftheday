@@ -1,4 +1,4 @@
-import { createDailyStream, type SeededRng } from '../rng.ts';
+import { createDailyStream, pickDailyRotation, type SeededRng } from '../rng.ts';
 import type { BiomeId, DoorDirection, EnemyArchetype, HazardType, RoomType } from '../types.ts';
 import type { BossBaseArchetype } from './enemies.ts';
 import {
@@ -18,6 +18,9 @@ export type WaveSpawn = {
   y: number;
   bossBase?: BossBaseArchetype | undefined;
   bossVariant?: 0 | 1 | undefined;
+  /** A Mimic disguised as a treasure chest (sleeps until the player walks up). */
+  mimic?: boolean | undefined;
+  dormant?: boolean | undefined;
 };
 
 export type HazardBlueprint = {
@@ -255,8 +258,17 @@ function circleHitsObstacle(x: number, y: number, r: number, obstacles: readonly
   });
 }
 
-function pickLayout(rng: SeededRng, role: 'entrance' | 'boss' | 'room', floor: number): RoomLayoutId {
+/** Floor 1's hand-picked layouts: symmetric, readable, and never the same twice in a row. */
+const FLOOR_ONE_LAYOUTS: readonly RoomLayoutId[] = ['pillars', 'diamond', 'columns', 'ledges', 'twin_bars'];
+
+function pickLayout(
+  rng: SeededRng,
+  role: 'entrance' | 'boss' | 'room',
+  floor: number,
+  floorOneSlot = 0,
+): RoomLayoutId {
   if (role === 'entrance' && floor === 1) return 'open';
+  if (floor === 1 && role === 'room') return FLOOR_ONE_LAYOUTS[floorOneSlot % FLOOR_ONE_LAYOUTS.length]!;
   if (role === 'boss') return rng.pick(['open', 'pillars', 'columns'] as const);
   return rng.pick([
     'open',
@@ -391,40 +403,81 @@ function buildHazards(
   return hazards;
 }
 
-function buildBreakables(
-  roomIndex: number,
-  kind: 'crate' | 'pillar',
-  count: number,
-  blockedCells: Set<string>,
-): BreakableBlueprint[] {
+function buildBossPillars(roomIndex: number, blockedCells: Set<string>): BreakableBlueprint[] {
   const candidates: readonly (readonly [number, number])[] = (
-    kind === 'pillar'
-      ? ([
-          [2, 2], [7, 2], [2, 3], [7, 3], [2, 1], [7, 1],
-        ] as const)
-      : ([
-          [0, 0], [9, 0], [0, 5], [9, 5],
-          [1, 0], [8, 0], [1, 5], [8, 5],
-          [2, 0], [7, 0], [2, 5], [7, 5],
-        ] as const)
+    [
+      [2, 2], [7, 2], [2, 3], [7, 3], [2, 1], [7, 1],
+    ] as const
   ).filter(([i, j]) => !isNearDoorwayCell(i, j));
-  const results: BreakableBlueprint[] = pickFreeCells(candidates, blockedCells, count).map(([i, j], idx) => {
+  return pickFreeCells(candidates, blockedCells, 2).map(([i, j], idx) => {
     const pt = cellCenter(i, j);
-    return {
-      id: roomIndex * 1000 + idx,
-      x: pt.x,
-      y: pt.y,
-      hp: kind === 'pillar' ? 50 : 22,
-      radius: kind === 'pillar' ? 24 : 22,
-      kind,
-    };
+    return { id: roomIndex * 1000 + idx, x: pt.x, y: pt.y, hp: 50, radius: 24, kind: 'pillar' as const };
   });
-  // Place one real closed chest in standard crate rooms so chests and Mimics share the world.
-  if (kind === 'crate' && results.length >= 2) {
-    const last = results[results.length - 1]!;
-    results[results.length - 1] = { ...last, kind: 'chest', hp: 24 };
+}
+
+export type RoomPropKind = 'crate' | 'chest' | 'mimic';
+
+/**
+ * Every non-boss room gets exactly one prop near the middle of the room: a crate
+ * (break it), a treasure chest (walk up to open it) or a Mimic wearing a chest disguise.
+ */
+function buildRoomProp(
+  rng: SeededRng,
+  roomIndex: number,
+  blockedCells: Set<string>,
+  obstacles: readonly ObstacleBlueprint[],
+  opts: { forceChest: boolean; allowMimic: boolean },
+): { breakables: BreakableBlueprint[]; mimic?: WaveSpawn } {
+  const fountainCell = { i: 4.5, j: 4 };
+  const candidates: Array<[number, number]> = [];
+  for (let j = 1; j <= 4; j += 1) {
+    for (let i = 2; i <= 7; i += 1) {
+      if (isNearDoorwayCell(i, j)) continue;
+      if (j === 4 && i >= 3 && i <= 6) continue; // player spawn lane + fountain
+      if (Math.abs(i - fountainCell.i) < 1 && j === fountainCell.j) continue;
+      if (blockedCells.has(`${i},${j}`)) continue;
+      const pt = cellCenter(i, j);
+      if (circleHitsObstacle(pt.x, pt.y, 26, obstacles)) continue;
+      candidates.push([i, j]);
+    }
   }
-  return results;
+  if (candidates.length === 0) return { breakables: [] };
+  // Favour cells close to the centre, but keep it random.
+  const centre = { i: 4.5, j: 2.5 };
+  const sorted = [...candidates].sort(
+    (a, b) => Math.hypot(a[0] - centre.i, a[1] - centre.j) - Math.hypot(b[0] - centre.i, b[1] - centre.j),
+  );
+  const near = sorted.slice(0, Math.max(3, Math.ceil(sorted.length * 0.6)));
+  const [ci, cj] = rng.pick(near);
+  blockedCells.add(`${ci},${cj}`);
+  const pt = cellCenter(ci, cj);
+
+  const roll = rng.next();
+  const kind: RoomPropKind = opts.forceChest
+    ? 'chest'
+    : opts.allowMimic && roll >= 0.78
+      ? 'mimic'
+      : roll < 0.5
+        ? 'crate'
+        : 'chest';
+  if (kind === 'mimic') {
+    return {
+      breakables: [],
+      mimic: { archetype: 'chaser', x: pt.x, y: pt.y, mimic: true, dormant: true },
+    };
+  }
+  return {
+    breakables: [
+      {
+        id: roomIndex * 1000,
+        x: pt.x,
+        y: pt.y,
+        hp: kind === 'chest' ? 1 : 22,
+        radius: 22,
+        kind,
+      },
+    ],
+  };
 }
 
 function makeWave(
@@ -461,30 +514,65 @@ export type FloorScaling = {
 
 export const BIOME_ORDER: readonly BiomeId[] = [
   'dungeon',
-  'snow',
-  'town',
-  'battle',
-  'farm',
-  'ember',
-  'mire',
-  'sand',
+  'candy',
+  'neon',
+  'space',
+  'reef',
+  'haunted',
+  'sky',
 ];
 
+/** The themed worlds (original art) shown right after the Dungeon. */
+export const THEMED_WORLDS: readonly BiomeId[] = ['candy', 'neon', 'space', 'reef', 'haunted', 'sky'];
+
 /**
- * Shuffles all 8 vaults per UTC date so each day starts in a different biome
- * and cycles through all biomes without repeats before wrapping on Floor 9.
+ * Floor 1 is always The Keep ('dungeon'), Floors 2-7 cycle the 6 themed worlds
+ * (starting world rotates daily without consecutive repeats), and Floor 8 loops
+ * back to Floor 1 so all floors use the 7 distinct biomes.
  */
 export function getDailyBiomeOrder(utcDate: string): readonly BiomeId[] {
-  return createDailyStream(utcDate, 'biome-order').shuffle(BIOME_ORDER);
+  const firstThemed = pickDailyRotation(utcDate, 'themed-f2', THEMED_WORLDS);
+  const restThemed = THEMED_WORLDS.filter((b) => b !== firstThemed);
+  const rng = createDailyStream(utcDate, 'biome-order');
+  return ['dungeon', firstThemed, ...rng.shuffle(restThemed)];
 }
 
 /**
- * The themed "signature" monster for a floor. Floor 1 sticks to classic slimes so
- * the first rooms stay welcoming; biome specialists lead from floor 2 onward.
+ * Each world has its own monster cast, listed in the order it unlocks. The first
+ * floors only use a few kinds so new players learn them; variety grows with depth.
  */
+export const BIOME_ROSTERS: Record<BiomeId, readonly EnemyArchetype[]> = {
+  dungeon: ['chaser', 'archer', 'myconid', 'shooter', 'charger', 'imp'],
+  candy: ['chaser', 'stampede', 'myconid', 'bomber', 'shooter', 'charger'],
+  neon: ['chaser', 'shooter', 'mortar_tank', 'imp', 'charger', 'archer'],
+  space: ['shade', 'chaser', 'archer', 'mortar_tank', 'imp', 'charger'],
+  reef: ['chaser', 'shooter', 'yeti', 'charger', 'myconid', 'archer'],
+  haunted: ['shade', 'chaser', 'archer', 'shooter', 'imp', 'charger'],
+  sky: ['imp', 'bomber', 'archer', 'chaser', 'shooter', 'stampede'],
+  snow: ['yeti', 'chaser', 'archer', 'charger', 'shooter', 'shade'],
+  town: ['bomber', 'chaser', 'archer', 'charger', 'shooter', 'imp'],
+  battle: ['mortar_tank', 'archer', 'charger', 'chaser', 'shooter', 'bomber'],
+  farm: ['stampede', 'myconid', 'chaser', 'archer', 'charger', 'imp'],
+};
+
+/** How many monster kinds a floor may use (Floor 1 keeps it to three). */
+export function getRosterSizeForFloor(floor: number): number {
+  const f = Math.max(1, Math.floor(floor));
+  if (f <= 2) return 3;
+  if (f === 3) return 4;
+  if (f <= 5) return 5;
+  return 6;
+}
+
+/** The monster kinds that can appear on a floor (its world's cast, gated by depth). */
+export function getFloorRoster(floor: number, utcDate?: string): EnemyArchetype[] {
+  const roster = BIOME_ROSTERS[getBiomeIdForFloor(floor, utcDate)];
+  return roster.slice(0, getRosterSizeForFloor(floor));
+}
+
+/** The world's headline monster: the first of its cast. */
 export function getFloorSignatureEnemy(floor: number, utcDate?: string): EnemyArchetype {
-  if (Math.max(1, Math.floor(floor)) === 1) return 'chaser';
-  return BIOME_SIGNATURE_ENEMY[getBiomeIdForFloor(floor, utcDate)];
+  return BIOME_ROSTERS[getBiomeIdForFloor(floor, utcDate)][0]!;
 }
 
 export function getBiomeIdForFloor(floor: number, utcDate?: string): BiomeId {
@@ -493,32 +581,16 @@ export function getBiomeIdForFloor(floor: number, utcDate?: string): BiomeId {
   return order[(f - 1) % order.length]!;
 }
 
-export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = {
-  dungeon: 'shade',
-  snow: 'yeti',
-  town: 'bomber',
-  battle: 'mortar_tank',
-  farm: 'stampede',
-  ember: 'imp',
-  mire: 'myconid',
-  sand: 'archer',
-};
+export const BIOME_SIGNATURE_ENEMY: Record<BiomeId, EnemyArchetype> = Object.fromEntries(
+  (Object.keys(BIOME_ROSTERS) as BiomeId[]).map((id) => [id, BIOME_ROSTERS[id][0]!]),
+) as Record<BiomeId, EnemyArchetype>;
 
-const BOSS_FORM_POOL: ReadonlyArray<{ bossBase: BossBaseArchetype; bossVariant: 0 | 1 }> = [
+/** Floor 1 bosses are giant versions of the Keep's first monsters (slime, mimic, mushroom, archer). */
+const FLOOR_1_BOSS_POOL: ReadonlyArray<{ bossBase: BossBaseArchetype; bossVariant: 0 | 1 }> = [
   { bossBase: 'chaser', bossVariant: 0 },
-  { bossBase: 'chaser', bossVariant: 1 },
-  { bossBase: 'shooter', bossVariant: 0 },
-  { bossBase: 'charger', bossVariant: 0 },
-  { bossBase: 'charger', bossVariant: 1 },
-  { bossBase: 'elite_charger', bossVariant: 0 },
-  { bossBase: 'shade', bossVariant: 0 },
-  { bossBase: 'yeti', bossVariant: 0 },
-  { bossBase: 'bomber', bossVariant: 0 },
-  { bossBase: 'mortar_tank', bossVariant: 0 },
-  { bossBase: 'stampede', bossVariant: 0 },
   { bossBase: 'myconid', bossVariant: 0 },
-  { bossBase: 'imp', bossVariant: 0 },
   { bossBase: 'archer', bossVariant: 0 },
+  { bossBase: 'chaser', bossVariant: 1 },
 ];
 
 export function getFloorBossSpec(
@@ -526,8 +598,14 @@ export function getFloorBossSpec(
   utcDate: string,
 ): { bossBase: BossBaseArchetype; bossVariant: 0 | 1 } {
   const f = Math.max(1, Math.floor(floor));
-  const order = createDailyStream(utcDate, 'boss-order').shuffle(BOSS_FORM_POOL);
-  return order[(f - 1) % order.length]!;
+  const f1Boss = pickDailyRotation(utcDate, 'boss-f1', FLOOR_1_BOSS_POOL);
+  if (f === 1) return f1Boss;
+  // Deeper floors: a giant version of one of this world's own monsters.
+  const roster = BIOME_ROSTERS[getBiomeIdForFloor(f, utcDate)];
+  const rng = createDailyStream(utcDate, `boss-f${f}`);
+  const bossBase = rng.pick(roster) as BossBaseArchetype;
+  const bossVariant: 0 | 1 = bossBase === 'chaser' || bossBase === 'charger' ? (rng.next() < 0.5 ? 0 : 1) : 0;
+  return { bossBase, bossVariant };
 }
 
 export function getFloorScaling(floor: number): FloorScaling {
@@ -536,19 +614,12 @@ export function getFloorScaling(floor: number): FloorScaling {
   return {
     floor: f,
     hpScale: 1 + 0.3 * depth,
-    bossHpScale: 1 + 0.45 * depth,
+    bossHpScale: f === 1 ? 0.65 : 1 + 0.45 * depth,
     damageMult: 1 + 0.12 * depth,
     speedMult: Math.min(1.3, 1 + 0.03 * depth),
     coinMult: 1 + 0.12 * depth,
     extraEnemies: Math.min(3, Math.floor(depth / 2)),
   };
-}
-
-function enemyPoolForFloor(floor: number, utcDate?: string): EnemyArchetype[] {
-  const sig = getFloorSignatureEnemy(floor, utcDate);
-  if (floor <= 1) return ['chaser', 'myconid', 'imp', 'shooter', 'archer'];
-  if (floor <= 3) return [sig, sig, 'chaser', 'myconid', 'imp', 'shooter', 'archer', 'charger'];
-  return [sig, sig, 'chaser', 'myconid', 'imp', 'shooter', 'archer', 'charger', 'elite_charger'];
 }
 
 function withExtras(
@@ -558,7 +629,7 @@ function withExtras(
   extraEnemies: number,
   utcDate?: string,
 ): EnemyArchetype[] {
-  const pool = enemyPoolForFloor(floor, utcDate);
+  const pool = getFloorRoster(floor, utcDate);
   const out = [...base];
   for (let i = 0; i < extraEnemies; i += 1) out.push(rng.pick(pool));
   return out;
@@ -717,40 +788,43 @@ export function buildDailyDungeonMap(
   const gauntletNode = nodes.length >= 6 ? specialPool[1] : undefined;
   const bossRoomId = bossNode.id;
   const extra = scaling.extraEnemies;
-  const sig = getFloorSignatureEnemy(f, utcDate);
+  const roster = getFloorRoster(f, utcDate);
+  const sig = roster[0]!;
+  const second = roster[1] ?? sig;
   const centerSpawnY = Math.round(ARENA_H * 0.3);
-  const crateCount = (base: number): number => Math.min(6, base + Math.max(0, extraCrates));
+  const forceChest = extraCrates > 0;
+  // Never spawn slidey conveyor currents on Floor 1.
+  const floorHazard: HazardType =
+    f === 1 && dailyHazard === 'currents'
+      ? sizeRng.next() < 0.5
+        ? 'spikes'
+        : 'barrels'
+      : dailyHazard;
 
+  // Floor 1 deals its curated layouts out in order (from a daily starting point).
+  let floorOneSlot = createDailyStream(utcDate, 'floor-1-layouts').int(0, 4);
   for (const node of nodes) {
     const roomRng = createDailyStream(utcDate, `floor-${f}-room-${node.roomIndex}`);
     const layoutRng = createDailyStream(utcDate, `floor-${f}-layout-${node.roomIndex}`);
+    const propRng = createDailyStream(utcDate, `floor-${f}-prop-${node.roomIndex}`);
     const role = node.id === 0 ? 'entrance' : node.id === bossRoomId ? 'boss' : 'room';
-    const layout = pickLayout(layoutRng, role, f);
+    const layout = pickLayout(layoutRng, role, f, role === 'room' ? floorOneSlot++ : 0);
     const obstacles = buildObstacles(layoutRng, layout, node.roomIndex);
     const occupiedCells = new Set(
       obstacles.map((o) => `${Math.round(o.x / CELL_SIZE) - 1},${Math.round(o.y / CELL_SIZE) - 1}`),
     );
     const wave = (archetypes: EnemyArchetype[]): WaveSpawn[] => makeWave(roomRng, archetypes, obstacles);
+    const pick = (): EnemyArchetype => roomRng.pick(roster);
     if (node.id === 0) {
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'warmup',
         waves:
           f === 1
-            ? [wave(['chaser', 'myconid']), wave(['imp', 'archer'])]
-            : [
-                wave(
-                  withExtras(
-                    roomRng,
-                    [sig, roomRng.pick(['chaser', 'myconid', 'imp'] as const), roomRng.pick(['shooter', 'archer'] as const)],
-                    f,
-                    extra,
-                    utcDate,
-                  ),
-                ),
-              ],
+            ? [wave([sig, sig]), wave([second, sig])]
+            : [wave(withExtras(roomRng, [sig, second, pick()], f, extra, utcDate))],
         hazards: [],
-        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(4), occupiedCells),
+        breakables: [],
         obstacles,
         layout,
         rewardType: 'coin_cache',
@@ -777,7 +851,7 @@ export function buildDailyDungeonMap(
           ],
         ],
         hazards: [],
-        breakables: buildBreakables(node.roomIndex, 'pillar', 2, occupiedCells),
+        breakables: buildBossPillars(node.roomIndex, occupiedCells),
         obstacles,
         layout,
         rewardType: 'boss_chest_and_portals',
@@ -789,11 +863,11 @@ export function buildDailyDungeonMap(
         roomIndex: node.roomIndex,
         roomType: 'gauntlet',
         waves: [
-          wave(withExtras(roomRng, [sig, 'imp', 'archer'], f, extra, utcDate)),
-          wave(withExtras(roomRng, [sig, 'charger', 'shooter', 'myconid'], f, extra, utcDate)),
+          wave(withExtras(roomRng, [sig, pick(), pick()], f, extra, utcDate)),
+          wave(withExtras(roomRng, [second, pick(), pick(), sig], f, extra, utcDate)),
         ],
-        hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
-        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(3), occupiedCells),
+        hazards: buildHazards(roomRng, floorHazard, node.roomIndex, occupiedCells),
+        breakables: [],
         obstacles,
         layout,
         rewardType: 'fountain_and_relics',
@@ -807,11 +881,11 @@ export function buildDailyDungeonMap(
         waves: [
           [
             { archetype: 'elite_charger', x: ARENA_W / 2, y: centerSpawnY },
-            ...wave(withExtras(roomRng, [sig, 'shooter'], f, extra, utcDate)),
+            ...wave(withExtras(roomRng, [sig, pick()], f, extra, utcDate)),
           ],
         ],
         hazards: [],
-        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(4), occupiedCells),
+        breakables: [],
         obstacles,
         layout,
         rewardType: 'synergy_relics',
@@ -820,21 +894,8 @@ export function buildDailyDungeonMap(
       };
     } else {
       const rewardType: RoomRewardType = roomRng.next() < 0.55 ? 'relics' : 'coin_cache';
-      const pool = enemyPoolForFloor(f, utcDate);
-      const waveA = withExtras(
-        roomRng,
-        [sig, roomRng.pick(pool), roomRng.pick(['chaser', 'myconid', 'imp'] as const)],
-        f,
-        extra,
-        utcDate,
-      );
-      const waveB = withExtras(
-        roomRng,
-        [roomRng.pick(['shooter', 'archer'] as const), roomRng.pick(pool), sig],
-        f,
-        extra,
-        utcDate,
-      );
+      const waveA = withExtras(roomRng, [sig, pick(), pick()], f, extra, utcDate);
+      const waveB = withExtras(roomRng, [second, pick(), sig], f, extra, utcDate);
       node.blueprint = {
         roomIndex: node.roomIndex,
         roomType: 'escalation',
@@ -842,14 +903,28 @@ export function buildDailyDungeonMap(
           node.bfsDist <= 1 && f === 1
             ? [wave(waveA)]
             : [wave(waveA), wave(waveB)],
-        hazards: buildHazards(roomRng, dailyHazard, node.roomIndex, occupiedCells),
-        breakables: buildBreakables(node.roomIndex, 'crate', crateCount(3), occupiedCells),
+        hazards: buildHazards(roomRng, floorHazard, node.roomIndex, occupiedCells),
+        breakables: [],
         obstacles,
         layout,
         rewardType,
         hpScale: scaling.hpScale * (1 + 0.04 * node.bfsDist),
         hasHazard: true,
       };
+    }
+
+    if (role !== 'boss') {
+      // Exactly one crate, chest or disguised Mimic per room, near the middle.
+      const prop = buildRoomProp(propRng, node.roomIndex, occupiedCells, obstacles, {
+        forceChest,
+        allowMimic: role === 'room',
+      });
+      node.blueprint.breakables = prop.breakables;
+      if (prop.mimic) {
+        const firstWave = node.blueprint.waves[0];
+        if (firstWave) firstWave.push(prop.mimic);
+        else node.blueprint.waves.push([prop.mimic]);
+      }
     }
     // Crates/pillars never sit inside a block.
     node.blueprint.breakables = node.blueprint.breakables.filter(

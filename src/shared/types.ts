@@ -65,7 +65,8 @@ export type HazardType = 'spikes' | 'barrels' | 'currents';
 export type RelicId =
   | 'ember_wake'
   | 'arc_conduit'
-  | 'blood_reset'
+  | 'whetstone'
+  | 'vitality'
   | 'decoy_mine'
   | 'rift_cleave'
   | 'vortex_slam'
@@ -200,9 +201,12 @@ export type BiomeId =
   | 'town'
   | 'battle'
   | 'farm'
-  | 'ember'
-  | 'mire'
-  | 'sand';
+  | 'candy'
+  | 'neon'
+  | 'space'
+  | 'reef'
+  | 'haunted'
+  | 'sky';
 
 export type EnemyArchetype =
   | 'chaser'

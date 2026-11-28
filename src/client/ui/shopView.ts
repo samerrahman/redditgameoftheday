@@ -125,11 +125,6 @@ type RunFn = (req: ShopActionRequest, successMsg?: string) => Promise<void>;
 function renderWeapons(profile: PlayerProfile, run: RunFn, utcDate?: string): HTMLElement {
   const dailyRule = utcDate ? getDailyRule(utcDate) : null;
   const wrap = el('div', 'weapons-panel');
-  if (dailyRule && dailyRule.weaponMode !== 'any') {
-    wrap.appendChild(
-      el('p', 'shop-rule-banner', `Today's Rule: ${dailyRule.label} - ${dailyRule.description}`),
-    );
-  }
 
   const grid = el('div', 'weapon-grid');
   for (const id of WEAPON_IDS) {

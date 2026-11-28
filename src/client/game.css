@@ -498,8 +498,8 @@ button:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg-tile);
-  border: 2px solid var(--border-ink);
+  background: #140d1a;
+  border: 2px solid var(--border-subtle);
   border-radius: 3px;
   padding: 6px 12px;
   font-family: var(--font-display);
@@ -508,22 +508,25 @@ button:focus-visible {
   color: var(--text-main);
   box-shadow:
     inset 1px 1px 0 var(--bevel-light),
-    0 3px 0 #0c080e;
+    inset -1px -1px 0 var(--bevel-dark),
+    0 3px 0 #09060d;
 }
 
 .hud-shield {
-  border-color: #3b5575;
-  color: #dbeafe;
+  border-color: #38bdf8;
+  background: #101726;
+  color: #e0f2fe;
 }
 
 .coin-chip {
   color: var(--accent-gold);
+  border-color: #78350f;
 }
 
 .hud-btn {
   pointer-events: auto;
   min-block-size: 38px;
-  background: var(--bg-card);
+  background: #1b1224;
   border: 2px solid var(--border-ink);
   border-radius: 3px;
   padding: 7px 13px;
@@ -534,17 +537,18 @@ button:focus-visible {
   box-shadow:
     inset 2px 2px 0 var(--bevel-light),
     inset -2px -2px 0 var(--bevel-dark),
-    0 3px 0 #0c080e;
+    0 3px 0 #09060d;
 }
 
-.hud-btn:hover {
+.hud-btn:hover:not(:disabled) {
   border-color: var(--accent-gold);
+  background: #251930;
 }
 
 .hud-reroll {
-  border-color: #b45309;
+  border-color: #d97706;
   color: #fde68a;
-  background: #2d1d24;
+  background: #27161e;
 }
 
 .hud-shop-btn {
@@ -552,20 +556,23 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-color: #b45309;
+  border-color: #d97706;
   color: #fde68a;
-  background: #2d1d24;
+  background: #27161e;
 }
 
 .boss-bar {
-  inline-size: min(420px, 100%);
-  background: #22161d;
-  border: 2px solid #991b1b;
+  inline-size: min(440px, 100%);
+  background: #170c14;
+  border: 2px solid #b91c1c;
   border-radius: 3px;
   padding: 7px 12px;
   box-shadow:
-    inset 2px 2px 0 #451c24,
-    0 4px 0 #0c080e;
+    inset 0 1px 0 rgb(251 191 36 / 0.25),
+    inset 2px 2px 0 #4c1522,
+    inset -2px -2px 0 #090508,
+    0 4px 0 #09060d,
+    0 0 18px rgb(220 38 38 / 0.28);
 }
 
 .boss-bar[hidden] {
@@ -577,8 +584,9 @@ button:focus-visible {
   font-family: var(--font-display);
   font-size: 0.96rem;
   font-weight: 800;
-  letter-spacing: 0.04em;
-  color: #fecaca;
+  letter-spacing: 0.06em;
+  color: #fde68a;
+  text-shadow: 0 2px 0 #450a0a;
   margin-block-end: 5px;
   text-align: center;
 }
@@ -586,7 +594,7 @@ button:focus-visible {
 .boss-track {
   inline-size: 100%;
   block-size: 14px;
-  background: #140b10;
+  background: #0e070c;
   border: 2px solid #450a0a;
   border-radius: 0;
   overflow: clip;
@@ -595,7 +603,7 @@ button:focus-visible {
 .boss-fill {
   inline-size: 100%;
   block-size: 100%;
-  background: linear-gradient(180deg, #fdba74 0 3px, #ef4444 3px 10px, #991b1b 10px 14px);
+  background: linear-gradient(180deg, #fde047 0 2px, #ef4444 2px 10px, #991b1b 10px 14px);
 }
 
 /* Segment gaps drawn over the whole track (not the shrinking fill), at 10% steps,
@@ -612,7 +620,7 @@ button:focus-visible {
   background: repeating-linear-gradient(
     90deg,
     transparent 0 calc(10% - 2px),
-    rgb(18 13 20 / 0.9) calc(10% - 2px) 10%
+    rgb(14 7 12 / 0.92) calc(10% - 2px) 10%
   );
 }
 
@@ -1179,7 +1187,7 @@ button:focus-visible {
 }
 
 .end-essential-cell {
-  background: var(--bg-tile);
+  background: #130c18;
   border: 2px solid var(--border-subtle);
   border-radius: 3px;
   padding: 8px 10px;
@@ -1222,7 +1230,7 @@ button:focus-visible {
   gap: 8px;
   cursor: pointer;
   list-style: none;
-  background: var(--bg-tile);
+  background: #130c18;
   border: 2px solid var(--border-subtle);
   border-radius: 3px;
   padding: 9px 12px;
@@ -1267,14 +1275,14 @@ button:focus-visible {
 }
 
 .stat-tile {
-  background: var(--bg-tile);
+  background: #130c18;
   border: 2px solid var(--border-subtle);
   border-radius: 3px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  box-shadow: inset 2px 2px 0 #110c13;
+  box-shadow: inset 2px 2px 0 #09060d;
 }
 
 .stat-label {
@@ -1302,11 +1310,13 @@ button:focus-visible {
 }
 
 .leaderboard-box {
-  background: var(--bg-tile);
+  background: #130c18;
   border: 2px solid var(--border-subtle);
   border-radius: 3px;
   padding: 10px 12px;
-  box-shadow: inset 2px 2px 0 #110c13;
+  box-shadow:
+    inset 0 1px 0 rgb(251 191 36 / 0.14),
+    inset 2px 2px 0 #09060d;
 }
 
 .leaderboard-head {
@@ -1328,6 +1338,21 @@ button:focus-visible {
   font-size: 0.96rem;
   line-height: 1.45;
   color: var(--text-main);
+}
+
+.leaderboard-list li:nth-child(1) {
+  color: #fde68a;
+  font-weight: 800;
+}
+
+.leaderboard-list li:nth-child(2) {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.leaderboard-list li:nth-child(3) {
+  color: #fdba74;
+  font-weight: 700;
 }
 
 .end-actions {
@@ -1402,17 +1427,37 @@ button:focus-visible {
 }
 
 .shop-page {
+  --scrollbar-thumb: #d97706;
+  --scrollbar-track: #120b18;
   position: absolute;
   inset: 0;
   z-index: 30;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: auto;
   background:
-    radial-gradient(circle at 50% 18%, rgba(251, 146, 60, 0.16), rgba(14, 10, 17, 0.92) 72%),
+    radial-gradient(circle at 50% 14%, rgb(251 146 60 / 0.16), rgb(11 7 15 / 0.94) 72%),
     url('./assets/dungeon/stone_tile.png') repeat;
   background-color: var(--bg-deep);
   background-size: auto, 64px 64px;
   image-rendering: pixelated;
+}
+
+@supports not (scrollbar-color: auto) {
+  .shop-page::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  .shop-page::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  .shop-page::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border: 2px solid var(--scrollbar-track);
+    border-radius: 2px;
+  }
 }
 
 .shop-page.is-standalone {
@@ -1450,15 +1495,17 @@ button:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  background: #231814;
-  border: 2px solid #b45309;
+  background: #1b1116;
+  border: 2px solid #d97706;
   color: var(--accent-gold);
   border-radius: 3px;
   padding: 6px 12px;
   font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 800;
-  box-shadow: 0 3px 0 #0c080e;
+  box-shadow:
+    inset 0 1px 0 rgb(251 191 36 / 0.2),
+    0 3px 0 #09060d;
 }
 
 .shop-page-shell {
@@ -1470,9 +1517,11 @@ button:focus-visible {
   flex-direction: column;
   gap: 14px;
   box-shadow:
+    inset 0 2px 0 rgb(251 191 36 / 0.2),
     inset 3px 3px 0 var(--bevel-light),
     inset -3px -3px 0 var(--bevel-dark),
-    0 10px 0 #0c080e;
+    0 10px 0 #09060d,
+    0 0 36px rgb(251 146 60 / 0.1);
 }
 
 .shop-grid {
@@ -1499,11 +1548,13 @@ button:focus-visible {
   grid-template-rows: auto 1fr auto;
   grid-template-rows: subgrid;
   gap: 8px;
-  background: var(--bg-tile);
+  background: #130c18;
   border: 2px solid var(--border-subtle);
   border-radius: 4px;
   padding: 15px;
-  box-shadow: inset 2px 2px 0 #110c13;
+  box-shadow:
+    inset 0 1px 0 rgb(251 191 36 / 0.12),
+    inset 2px 2px 0 #09060d;
 }
 
 .shop-card-top {
@@ -1764,7 +1815,7 @@ button:focus-visible {
   cursor: pointer;
 }
 
-.tutorial-close:hover {
+.tutorial-close:hover:not(:disabled) {
   border-color: var(--accent-gold);
 }
 
@@ -2440,4 +2491,521 @@ button:focus-visible {
   color: #f5d0fe;
   font-family: var(--font-numbers);
   font-size-adjust: 0.56;
+}
+
+/* =========================================================
+   Obsidian Torchlight & Forged Gold Aesthetic Revamp
+   ========================================================= */
+:root {
+  --bg-deep: #0b070f;
+  --bg-card: #1a1222;
+  --bg-tile: #130c19;
+  --bevel-light: #4d3760;
+  --bevel-dark: #0e0914;
+  --border-ink: #0b070f;
+  --border-subtle: #3d2c4a;
+  --accent-primary: #fbbf24;
+  --accent-warm: #fb923c;
+  --accent-gold: #fbbf24;
+  --crimson: #dc2626;
+  --crimson-hi: #f87171;
+  --crimson-lo: #7f1d1d;
+  --text-main: #fff7ed;
+  --text-muted: #d6c8de;
+  --scrollbar-thumb: #d97706;
+  --scrollbar-track: #120b18;
+  color-scheme: dark;
+  accent-color: var(--accent-gold);
+}
+
+::selection {
+  background: rgb(251 191 36 / 0.28);
+  color: #fffbeb;
+}
+
+.overlay-screen,
+.shop-page {
+  --scrollbar-thumb: #d97706;
+  --scrollbar-track: #120b18;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: auto;
+  background:
+    radial-gradient(circle at 50% 20%, rgb(251 146 60 / 0.11), rgb(10 7 14 / 0.95) 70%),
+    url('./assets/dungeon/stone_tile.png') repeat;
+  background-color: var(--bg-deep);
+  background-size: auto, 64px 64px;
+  image-rendering: pixelated;
+}
+
+@supports not (scrollbar-color: auto) {
+  .overlay-screen::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  .overlay-screen::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  .overlay-screen::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border: 2px solid var(--scrollbar-track);
+    border-radius: 2px;
+  }
+}
+
+.card,
+.start-card,
+.pause-card,
+.end-card,
+.tutorial-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-ink);
+  box-shadow:
+    inset 0 1px 0 rgb(251 191 36 / 0.2),
+    0 10px 0 #09060d,
+    0 0 32px rgb(251 146 60 / 0.1);
+}
+
+.start-card {
+  gap: 13px;
+}
+
+.start-card .eyebrow-row {
+  gap: 4px;
+  align-items: center;
+}
+
+.start-card .pill {
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.start-card .accent-pill {
+  color: var(--accent-gold);
+}
+
+#start-date::after {
+  content: '/';
+  margin-inline-start: 8px;
+  color: #5b486b;
+}
+
+.player-title {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 0.94rem;
+  color: #fde68a;
+}
+
+.hero-crest {
+  image-rendering: pixelated;
+  filter: drop-shadow(0 3px 0 #09060d) drop-shadow(0 0 10px rgb(251 191 36 / 0.35));
+}
+
+.game-title {
+  color: #fde68a;
+  text-shadow:
+    0 3px 0 #78350f,
+    0 5px 0 #0b070f,
+    0 0 18px rgb(251 146 60 / 0.32);
+}
+
+.start-hero-stage {
+  inline-size: 112px;
+  block-size: 80px;
+  margin-inline: auto;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 62%, rgb(251 146 60 / 0.22), transparent 68%);
+  border: 0;
+  box-shadow: none;
+}
+
+.start-hero-canvas {
+  inline-size: 80px;
+  block-size: 80px;
+  image-rendering: pixelated;
+}
+
+@media (max-height: 640px) {
+  .start-hero-stage {
+    inline-size: 98px;
+    block-size: 68px;
+  }
+
+  .start-hero-canvas {
+    inline-size: 68px;
+    block-size: 68px;
+  }
+}
+
+.start-card .modifier-banner {
+  background: rgb(11 7 15 / 0.45);
+  border: 0;
+  border-block: 1px solid rgb(251 191 36 / 0.22);
+  border-radius: 0;
+  padding: 8px 12px;
+  box-shadow: none;
+}
+
+.start-stats-strip {
+  gap: 0;
+  background: rgb(11 7 15 / 0.45);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 4px;
+  padding: 7px 0;
+}
+
+.strip-stat {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 2px 6px;
+}
+
+.strip-stat + .strip-stat {
+  border-inline-start: 1px solid rgb(255 255 255 / 0.08);
+}
+
+@media (max-width: 420px) {
+  .start-stats-strip {
+    gap: 6px 0;
+  }
+
+  .start-stats-strip .strip-stat:nth-child(odd) {
+    border-inline-start: 0;
+  }
+}
+
+.start-shop-btn .coin-pill {
+  background: rgb(11 7 15 / 0.55);
+  border: 1px solid rgb(251 191 36 / 0.35);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.shop-page-shell {
+  border: 2px solid var(--border-ink);
+  box-shadow:
+    inset 0 1px 0 rgb(251 191 36 / 0.16),
+    0 10px 0 #09060d;
+}
+
+.shop-rule-banner {
+  background: rgb(11 7 15 / 0.52);
+  border: 1px solid rgb(251 191 36 / 0.35);
+  border-radius: 4px;
+  padding: 10px 14px;
+  color: #fde68a;
+}
+
+.weapon-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.weapon-card,
+.shop-card,
+.cosmetic-preview-col {
+  background: var(--bg-tile);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  box-shadow: none;
+}
+
+.weapon-card.is-equipped {
+  border: 2px solid var(--accent-gold);
+}
+
+.weapon-stage {
+  border: 0;
+  block-size: 96px;
+  background: radial-gradient(circle at 50% 54%, rgb(251 191 36 / 0.14), transparent 70%);
+}
+
+.hero-preview {
+  background: transparent;
+  border: 0;
+}
+
+.wardrobe-grid {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+}
+
+.wardrobe-tile {
+  border: 1px solid rgb(255 255 255 / 0.09);
+  background: rgb(14 9 20 / 0.72);
+}
+
+.wardrobe-tile.is-equipped {
+  border: 2px solid var(--accent-gold);
+  background: #261822;
+}
+
+.wardrobe-name {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.15;
+}
+
+.hud-chip,
+.hud-btn,
+.hud-minimap {
+  background: rgb(16 11 23 / 0.84);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  box-shadow: 0 2px 0 rgb(8 5 12 / 0.8);
+}
+
+.coin-chip {
+  border-color: rgb(217 119 6 / 0.55);
+}
+
+.hp-frame {
+  background: rgb(18 12 25 / 0.88);
+  border: 2px solid #0b070f;
+  border-radius: 3px;
+  margin: 0;
+  padding: 7px 11px;
+  box-shadow:
+    inset 1px 1px 0 rgb(255 255 255 / 0.1),
+    0 3px 0 #09060d;
+}
+
+.hp-frame.is-hurt {
+  background: #431822;
+  border-color: #f87171;
+  box-shadow:
+    inset 1px 1px 0 #fca5a5,
+    0 3px 0 #09060d;
+}
+
+.hp-frame.is-low {
+  border-color: #e23c3c;
+  box-shadow:
+    inset 1px 1px 0 #e23c3c,
+    0 3px 0 #09060d;
+}
+
+.start-shop-btn:hover:not(:disabled),
+.secondary-btn:hover:not(:disabled),
+.ghost-btn:hover:not(:disabled),
+.shop-close:hover:not(:disabled) {
+  border-color: var(--accent-gold);
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+}
+
+.primary-btn.is-completed:hover:not(:disabled) {
+  border-color: var(--accent-gold);
+}
+
+.shop-buy-btn.is-equip-btn:hover:not(:disabled) {
+  background: #298b73;
+  color: #ffffff;
+}
+
+button:disabled:hover {
+  filter: none;
+  transform: none;
+}
+
+@keyframes torch-flicker {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgb(251 146 60 / 0.48)) brightness(1);
+    transform: translateY(0);
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgb(251 191 36 / 0.72)) brightness(1.08);
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .torch-icon {
+    animation: torch-flicker 900ms steps(3, end) infinite;
+  }
+}
+
+@media (forced-colors: active) {
+  .overlay-screen,
+  .card,
+  .start-card,
+  .pause-card,
+  .end-card,
+  .tutorial-card,
+  .start-hero-stage,
+  .boss-bar,
+  .hud-chip,
+  .shop-page-shell,
+  .shop-card,
+  .stat-tile,
+  .end-essential-cell,
+  .end-details-toggle,
+  .leaderboard-box {
+    background: Canvas;
+    color: CanvasText;
+    border-color: ButtonBorder;
+    box-shadow: none;
+  }
+}
+
+
+/* ---------- Fixes 7: boss bar at the bottom, distinct rank badges ---------- */
+
+.hud-bottom-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.hud-bottom-row > .hud-bottom {
+  grid-column: 1;
+}
+
+.hud-bottom-row > .boss-bar {
+  grid-column: 2;
+  inline-size: min(360px, 40vw);
+  padding: 5px 10px 6px;
+}
+
+.hud-bottom-row .boss-name {
+  font-size: 0.82rem;
+  margin-block-end: 3px;
+}
+
+.hud-bottom-row .boss-track {
+  block-size: 10px;
+}
+
+@media (max-width: 640px) {
+  .hud-bottom-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hud-bottom-row > .boss-bar {
+    grid-column: 1;
+    grid-row: 1;
+    inline-size: min(320px, 100%);
+    justify-self: center;
+  }
+}
+
+.player-title.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 2px solid var(--rank-border, #43495e);
+  border-radius: 3px;
+  background: var(--rank-bg, #1d1f29);
+  color: var(--rank-text, #a9b6cc);
+  font-size: var(--rank-size, 0.94rem);
+  box-shadow:
+    inset 1px 1px 0 rgb(255 255 255 / 0.08),
+    0 3px 0 #09060b,
+    0 0 var(--rank-glow-size, 0) var(--rank-glow, transparent);
+  text-shadow: 0 2px 0 rgb(0 0 0 / 0.45);
+}
+
+.rank-badge .rank-medal {
+  filter: var(--rank-medal-filter, grayscale(1) brightness(0.9));
+}
+
+.rank-pips {
+  display: inline-flex;
+  gap: 2px;
+  margin-inline-start: 2px;
+}
+
+.rank-pip {
+  inline-size: 6px;
+  block-size: 6px;
+  background: rgb(0 0 0 / 0.45);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+.rank-pip.is-on {
+  background: var(--rank-pip, #a9b6cc);
+  box-shadow: none;
+}
+
+.rank-badge[data-tier='0'] {
+  --rank-border: #43495e;
+  --rank-bg: #1b1d27;
+  --rank-text: #a9b6cc;
+  --rank-pip: #a9b6cc;
+}
+
+.rank-badge[data-tier='1'] {
+  --rank-border: #8c5236;
+  --rank-bg: #2a1810;
+  --rank-text: #f0b27a;
+  --rank-pip: #d49562;
+  --rank-medal-filter: sepia(1) saturate(1.6) hue-rotate(-12deg);
+}
+
+.rank-badge[data-tier='2'] {
+  --rank-border: #9edbf7;
+  --rank-bg: #142233;
+  --rank-text: #e0f2fe;
+  --rank-pip: #9edbf7;
+  --rank-size: 1rem;
+  --rank-medal-filter: grayscale(1) brightness(1.35);
+}
+
+.rank-badge[data-tier='3'] {
+  --rank-border: #e6a82e;
+  --rank-bg: #2d2210;
+  --rank-text: #fde68a;
+  --rank-pip: #f7df86;
+  --rank-size: 1.04rem;
+  --rank-glow: rgb(230 168 46 / 0.45);
+  --rank-glow-size: 10px;
+  --rank-medal-filter: none;
+}
+
+.rank-badge[data-tier='4'] {
+  --rank-border: #a770d6;
+  --rank-bg: #23143a;
+  --rank-text: #f3e8ff;
+  --rank-pip: #d8b4fe;
+  --rank-size: 1.08rem;
+  --rank-glow: rgb(167 112 214 / 0.55);
+  --rank-glow-size: 12px;
+  --rank-medal-filter: hue-rotate(220deg) saturate(1.4);
+}
+
+.rank-badge[data-tier='5'] {
+  --rank-border: #e04f44;
+  --rank-bg: linear-gradient(180deg, #3d161b, #1f0b10);
+  --rank-text: #fff7e8;
+  --rank-pip: #f0853a;
+  --rank-size: 1.12rem;
+  --rank-glow: rgb(224 79 68 / 0.6);
+  --rank-glow-size: 14px;
+  --rank-medal-filter: hue-rotate(-30deg) saturate(2);
+  animation: rank-legend-pulse 1.6s steps(4) infinite;
+}
+
+@keyframes rank-legend-pulse {
+  50% {
+    box-shadow:
+      inset 1px 1px 0 rgb(255 255 255 / 0.08),
+      0 3px 0 #09060b,
+      0 0 20px rgb(240 133 58 / 0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rank-badge[data-tier='5'] {
+    animation: none;
+  }
 }
